@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authentication code · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: login-otp.ftl  (template "login-otp") -->
+<div class="kc-page">
+  <div class="kc-shell">
+
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div>
+        <div class="wordmark">kumbuka<span class="dot">.ai</span></div>
+        <span class="sub">memory console</span>
+      </div>
+    </div>
+
+    <div class="kc-card">
+      <div class="kc-context">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><path d="M5 11h14v9H5z"/><path d="M12 15v2"/></svg>
+        <span>Signed in as <b>you@kumbuka.ai</b></span>
+      </div>
+
+      <span class="kc-eyebrow">// two-factor</span>
+      <h1 class="kc-title">Enter your code</h1>
+      <p class="kc-lead">Open your authenticator app and enter the 6-digit code for kumbuka.ai.</p>
+
+      <!-- #kc-otp-login-form -->
+      <form class="kc-form" action="#" method="post" onsubmit="return false" style="margin-top:26px">
+        <div class="kc-field">
+          <label class="kc-label" for="otp">One-time code</label>
+          <input class="kc-input mono kc-otp-input" id="otp" name="otp" type="text"
+                 inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus
+                 placeholder="000000" spellcheck="false">
+          <!-- field error placement (${messagesPerField.get('totp')}):
+          <span class="kc-input-error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Invalid authentication code.</span>
+          -->
+        </div>
+
+        <button class="kc-btn primary" type="submit">
+          Verify &amp; continue
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+
+      <div class="kc-card-foot">
+        Lost your device? <a class="kc-link" href="select-authenticator.html">Try another method</a>
+      </div>
+    </div>
+
+    <a class="kc-back" href="login.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 5l-7 7 7 7"/></svg>
+      Back to sign in
+    </a>
+
+  </div>
+</div>
+</body>
+</html>

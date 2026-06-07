@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complete your profile · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: login-update-profile.ftl  (template "login-update-profile") — forced profile update -->
+<div class="kc-page">
+  <div class="kc-shell">
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div><div class="wordmark">kumbuka<span class="dot">.ai</span></div><span class="sub">memory console</span></div>
+    </div>
+
+    <div class="kc-card">
+      <span class="kc-eyebrow">// complete your profile</span>
+      <h1 class="kc-title">A few details</h1>
+      <p class="kc-lead">Confirm how you’ll appear to your team before you continue.</p>
+
+      <!-- #kc-update-profile-form — fields come from the realm's user-profile config -->
+      <form class="kc-form" action="#" method="post" onsubmit="return false" style="margin-top:26px">
+        <div class="kc-field">
+          <label class="kc-label" for="email">Email</label>
+          <input class="kc-input mono" id="email" name="email" type="email" value="you@kumbuka.ai" autocomplete="email" spellcheck="false">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div class="kc-field">
+            <label class="kc-label" for="firstName">First name</label>
+            <input class="kc-input" id="firstName" name="firstName" type="text" autocomplete="given-name" placeholder="Marek">
+          </div>
+          <div class="kc-field">
+            <label class="kc-label" for="lastName">Last name</label>
+            <input class="kc-input" id="lastName" name="lastName" type="text" autocomplete="family-name" placeholder="Kowalski">
+          </div>
+        </div>
+        <div class="kc-field">
+          <label class="kc-label" for="username">Username</label>
+          <input class="kc-input mono" id="username" name="username" type="text" value="marek" autocomplete="username" spellcheck="false">
+        </div>
+        <button class="kc-btn primary" type="submit">
+          Save and continue
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

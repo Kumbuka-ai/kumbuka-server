@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account console look · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   kumbuka.ai · Keycloak ACCOUNT console — look reference
+   The account console is React/PatternFly: skinned via PatternFly
+   CSS variables + a logo, NOT bespoke layout. This page is a
+   realistic preview of that token-skin + the variable map.
+   SPDX-License-Identifier: Apache-2.0
+   ============================================================ */
+:root{
+  --paper:#F4F1EA; --paper-2:#EBE6DB; --ink:#141820; --deep:#0F1620;
+  --navy:#2D4059; --accent:#FF5B1F; --field:#FBFAF6;
+  --muted:rgba(15,22,32,.55); --faint:rgba(15,22,32,.40);
+  --border:rgba(15,22,32,.18); --border-soft:rgba(15,22,32,.10);
+  --ok:#3E7C5E; --warn:#D48C2E; --bad:#C44536;
+  --fd:'Space Grotesk',system-ui,sans-serif; --fb:'Inter',system-ui,sans-serif; --fm:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--fb);background:#1b2330;color:var(--ink);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:40px 28px 64px}
+.note{display:flex;gap:13px;align-items:flex-start;background:var(--deep);color:#F0EDE6;border:1px solid rgba(244,241,234,.16);padding:16px 18px;margin-bottom:24px}
+.note svg{width:18px;height:18px;color:var(--accent);flex:none;margin-top:1px}
+.note b{color:#fff;font-weight:600}
+.note .eyebrow{font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:6px}
+.note p{margin:0;font-size:13px;line-height:1.55;color:rgba(244,241,234,.72)}
+
+/* fake app window */
+.win{border:1px solid rgba(0,0,0,.3);background:var(--paper);overflow:hidden}
+.win-bar{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;background:var(--deep);border-bottom:1px solid rgba(244,241,234,.1)}
+.win-bar .dot{width:11px;height:11px;border-radius:999px;background:rgba(244,241,234,.22)}
+.win-bar .addr{margin-left:14px;font-family:var(--fm);font-size:11px;color:rgba(244,241,234,.5);letter-spacing:.02em}
+
+/* PatternFly masthead (themed deep-ink, ties to the console rail) */
+.pf-masthead{display:flex;align-items:center;gap:16px;height:60px;padding:0 22px;background:var(--deep);color:#F0EDE6;border-bottom:1px solid rgba(244,241,234,.1)}
+.pf-masthead .brand{display:flex;align-items:center;gap:11px}
+.pf-masthead .brand img{height:26px}
+.pf-masthead .brand .wm{font-family:var(--fd);font-weight:600;font-size:16px;letter-spacing:-.01em}
+.pf-masthead .brand .wm .dot{color:var(--accent)}
+.pf-masthead .sp{flex:1}
+.pf-masthead .um{display:flex;align-items:center;gap:10px;font-family:var(--fm);font-size:11px;letter-spacing:.04em;color:rgba(244,241,234,.7)}
+.pf-masthead .um .av{width:28px;height:28px;display:grid;place-items:center;background:var(--navy);color:var(--paper);font-family:var(--fm);font-size:10px;font-weight:600;border:1px solid rgba(244,241,234,.14)}
+
+.pf-body{display:grid;grid-template-columns:232px 1fr}
+/* PatternFly nav (themed) */
+.pf-nav{background:var(--paper-2);border-right:1px solid var(--border);padding:14px 0}
+.pf-nav a{display:block;padding:11px 22px;font-family:var(--fm);font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);text-decoration:none;border-left:2.5px solid transparent}
+.pf-nav a:hover{color:var(--ink);background:rgba(15,22,32,.04)}
+.pf-nav a.current{color:var(--ink);border-left-color:var(--accent);background:rgba(15,22,32,.05)}
+
+.pf-content{padding:30px 32px 38px;min-height:520px}
+.pf-content .pf-title{font-family:var(--fd);font-weight:600;font-size:26px;letter-spacing:-.02em;margin:0 0 4px}
+.pf-content .pf-sub{font-size:13.5px;color:var(--muted);margin:0 0 26px}
+
+/* PatternFly card + data list (themed: radius 0, hairline, no shadow) */
+.pf-card{border:1px solid var(--border);background:var(--paper);margin-bottom:20px}
+.pf-card-h{display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--border-soft)}
+.pf-card-h .eyebrow{font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);white-space:nowrap}
+.pf-card-h h2{font-family:var(--fd);font-weight:600;font-size:16px;margin:0;letter-spacing:-.01em}
+.pf-card-h .sp{flex:1}
+.dl-item{display:grid;grid-template-columns:40px 1fr auto;gap:15px;align-items:center;padding:16px 20px;border-top:1px solid var(--border-soft)}
+.dl-item:first-child{border-top:0}
+.dl-ico{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--border);color:rgba(15,22,32,.7)}
+.dl-ico svg{width:19px;height:19px}
+.dl-ico.ok{border-color:var(--ok);color:var(--ok)}
+.dl-name{font-size:14px;font-weight:500}
+.dl-sub{font-family:var(--fm);font-size:11px;color:var(--muted);margin-top:3px}
+.dl-badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--fm);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ok)}
+.dl-badge .d{width:7px;height:7px;border-radius:999px;background:var(--ok)}
+
+.btn{font-family:var(--fm);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;padding:9px 14px;border:1px solid var(--ink);background:transparent;color:var(--ink);cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--ink);color:var(--paper)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1a0d05}
+.btn.ghost{border-color:var(--border)}
+
+/* token map table */
+.map{margin-top:30px;background:var(--paper);border:1px solid rgba(0,0,0,.3)}
+.map-h{padding:20px 24px;border-bottom:1px solid var(--border)}
+.map-h .eyebrow{font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.map-h h2{font-family:var(--fd);font-weight:600;font-size:22px;margin:8px 0 6px;letter-spacing:-.015em}
+.map-h p{margin:0;font-size:13px;color:var(--muted);max-width:74ch;line-height:1.55}
+table{width:100%;border-collapse:collapse}
+thead th{font-family:var(--fm);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;font-weight:500;padding:11px 24px;border-bottom:1px solid var(--border);background:var(--paper-2)}
+tbody td{padding:11px 24px;border-top:1px solid var(--border-soft);font-size:12.5px;vertical-align:middle}
+tbody tr:first-child td{border-top:0}
+.pf-var{font-family:var(--fm);font-size:12px;color:var(--ink)}
+.kc-val{font-family:var(--fm);font-size:12px;color:var(--navy)}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid var(--border);vertical-align:-2px;margin-right:8px}
+.role{color:var(--muted)}
+.foot{margin-top:18px;font-family:var(--fm);font-size:11px;color:rgba(244,241,234,.5);letter-spacing:.03em}
+@media(max-width:760px){.pf-body{grid-template-columns:1fr}.pf-nav{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
+    <div>
+      <span class="eyebrow">// constraint · account console = React / PatternFly</span>
+      <p>The account console is <b>not FreeMarker</b> — its skin is driven by <b>PatternFly CSS variables + a logo</b>, not arbitrary layout. So this is the <b>look</b> (brand colors, logo, type) as a token map, with a realistic preview — <b>not</b> a per-page bespoke redesign. Per the ratified hybrid link-out, profile lives in the kumbuka console; <b>credentials, 2FA, passkeys and sessions live here.</b></p>
+    </div>
+  </div>
+
+  <!-- ============ Realistic preview (themed PatternFly) ============ -->
+  <div class="win">
+    <div class="win-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="addr">account.kumbuka.ai/realms/kumbuka/account/#/security/signing-in</span>
+    </div>
+
+    <div class="pf-masthead">
+      <div class="brand">
+        <img src="../../assets/brand/kumbuka-mark.svg" alt="">
+        <span class="wm">kumbuka<span class="dot">.ai</span></span>
+      </div>
+      <span class="sp"></span>
+      <span class="um"><span class="av">MK</span>marek@kumbuka.ai</span>
+    </div>
+
+    <div class="pf-body">
+      <nav class="pf-nav">
+        <a href="#">Personal info</a>
+        <a href="#" class="current">Account security</a>
+        <a href="#">Applications</a>
+        <a href="#">Device activity</a>
+        <a href="#">Linked accounts</a>
+      </nav>
+
+      <div class="pf-content">
+        <h1 class="pf-title">Signing in</h1>
+        <p class="pf-sub">Manage how you authenticate to kumbuka. Your private memory is never accessible here.</p>
+
+        <!-- Basic authentication -->
+        <div class="pf-card">
+          <div class="pf-card-h"><span class="eyebrow">// password</span><span class="sp"></span></div>
+          <div class="dl-item">
+            <span class="dl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><path d="M5 11h14v9H5z"/><path d="M12 15v2"/></svg></span>
+            <div><div class="dl-name">Password</div><div class="dl-sub">Last updated 12 Apr 2026</div></div>
+            <button class="btn ghost">Update</button>
+          </div>
+        </div>
+
+        <!-- Two-factor -->
+        <div class="pf-card">
+          <div class="pf-card-h"><span class="eyebrow">// two-factor</span><span class="sp"></span><button class="btn primary">Add</button></div>
+          <div class="dl-item">
+            <span class="dl-ico ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h10v18H7z"/><path d="M11 18h2"/></svg></span>
+            <div><div class="dl-name">Authenticator app</div><div class="dl-sub">TOTP · added 14 May 2026</div></div>
+            <span class="dl-badge"><span class="d"></span>active</span>
+          </div>
+          <div class="dl-item">
+            <span class="dl-ico ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11a2 2 0 0 0-2 2c0 2 .5 3.5 1 4.5"/><path d="M8 7.5A6 6 0 0 1 18 12v1a14 14 0 0 0 .5 4"/><path d="M5 12a7 7 0 0 1 2-5"/></svg></span>
+            <div><div class="dl-name">Passkey · iPhone 15</div><div class="dl-sub">WebAuthn · last used today</div></div>
+            <button class="btn ghost">Remove</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ kumbuka → PatternFly variable map ============ -->
+  <div class="map">
+    <div class="map-h">
+      <span class="eyebrow">// token map · kumbuka → patternfly</span>
+      <h2>Account console skin</h2>
+      <p>Set these PatternFly v5 globals (theme stylesheet injected via Keycloak’s account theme) plus the logo. No layout is overridden — only color, type, radius, shadow, and the brand mark.</p>
+    </div>
+    <table>
+      <thead><tr><th style="width:34%">PatternFly variable</th><th style="width:30%">kumbuka value</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td class="pf-var">--pf-v5-global--primary-color--100</td><td class="kc-val"><span class="sw" style="background:#FF5B1F"></span>#FF5B1F</td><td class="role">Primary buttons, active accents</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--link--Color</td><td class="kc-val"><span class="sw" style="background:#FF5B1F"></span>#FF5B1F</td><td class="role">Links</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--BackgroundColor--100</td><td class="kc-val"><span class="sw" style="background:#F4F1EA"></span>#F4F1EA</td><td class="role">Page / card surface (paper)</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--BackgroundColor--200</td><td class="kc-val"><span class="sw" style="background:#EBE6DB"></span>#EBE6DB</td><td class="role">Subtle fills, nav</td></tr>
+        <tr><td class="pf-var">--pf-v5-c-masthead--BackgroundColor</td><td class="kc-val"><span class="sw" style="background:#0F1620"></span>#0F1620</td><td class="role">Masthead (deep ink — ties to console rail)</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--Color--100</td><td class="kc-val"><span class="sw" style="background:#141820"></span>#141820</td><td class="role">Body text</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--Color--200</td><td class="kc-val"><span class="sw" style="background:#7c7a74"></span>rgba(15,22,32,.55)</td><td class="role">Muted text</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--BorderColor--100</td><td class="kc-val"><span class="sw" style="background:#cfcabd"></span>rgba(15,22,32,.18)</td><td class="role">Hairline borders</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--success-color--100</td><td class="kc-val"><span class="sw" style="background:#3E7C5E"></span>#3E7C5E</td><td class="role">Active / verified status</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--warning-color--100</td><td class="kc-val"><span class="sw" style="background:#D48C2E"></span>#D48C2E</td><td class="role">Warnings</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--danger-color--100</td><td class="kc-val"><span class="sw" style="background:#C44536"></span>#C44536</td><td class="role">Destructive / errors</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--FontFamily--text</td><td class="kc-val">Inter</td><td class="role">Body</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--FontFamily--heading</td><td class="kc-val">Space Grotesk</td><td class="role">Headings</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--FontFamily--monospace</td><td class="kc-val">JetBrains Mono</td><td class="role">Labels, IDs, meta</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--BorderRadius--sm / --lg</td><td class="kc-val">0</td><td class="role">Radius 0 everywhere</td></tr>
+        <tr><td class="pf-var">--pf-v5-global--BoxShadow--* </td><td class="kc-val">none</td><td class="role">No shadows — depth via lines</td></tr>
+        <tr><td class="pf-var">brand logo (account theme <code>logo.svg</code>)</td><td class="kc-val">kumbuka-mark-white.svg + wordmark</td><td class="role">Masthead brand (white knockout on deep ink)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="foot">design/keycloak/account-look.html · token-skin reference, not bespoke layout · Apache-2.0</div>
+
+</div>
+</body>
+</html>

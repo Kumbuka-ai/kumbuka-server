@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign out · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: logout-confirm.ftl  (template "logout-confirm") -->
+<div class="kc-page">
+  <div class="kc-shell">
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div><div class="wordmark">kumbuka<span class="dot">.ai</span></div><span class="sub">memory console</span></div>
+    </div>
+
+    <div class="kc-card">
+      <div class="kc-context">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><path d="M5 11h14v9H5z"/><path d="M12 15v2"/></svg>
+        <span>Signed in as <b>you@kumbuka.ai</b></span>
+      </div>
+
+      <span class="kc-eyebrow">// sign out</span>
+      <h1 class="kc-title">Sign out of kumbuka?</h1>
+      <p class="kc-lead">You’ll need to sign in again to reach the memory console. Other apps using this session may sign out too.</p>
+
+      <!-- #kc-logout-confirm-form -->
+      <form class="kc-form" action="#" method="post" onsubmit="return false" style="margin-top:26px">
+        <button class="kc-btn primary" id="kc-logout" type="submit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+          Yes, sign out
+        </button>
+        <a class="kc-btn block" href="#">Stay signed in</a>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

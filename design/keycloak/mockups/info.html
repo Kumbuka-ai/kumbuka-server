@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check your inbox · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: info.ftl  (template "info") — generic confirmation/info -->
+<div class="kc-page">
+  <div class="kc-shell">
+
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div>
+        <div class="wordmark">kumbuka<span class="dot">.ai</span></div>
+        <span class="sub">memory console</span>
+      </div>
+    </div>
+
+    <div class="kc-card">
+      <div class="kc-hero-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><path d="M3 7l9 6 9-6"/></svg>
+      </div>
+      <span class="kc-eyebrow">// check your inbox</span>
+      <h1 class="kc-title">Email on its way</h1>
+      <!-- ${message.summary} -->
+      <p class="kc-lead">If an account exists for <b class="kc-mono" style="color:var(--c-text-2);font-weight:500">you@kumbuka.ai</b>, we’ve sent a message with the next step. It may take a minute to arrive.</p>
+
+      <!-- ${requiredActions?? ? action hints} -->
+      <ul class="kc-steps" style="margin-top:24px">
+        <li>Open the email from <b>kumbuka.ai</b>.</li>
+        <li>Follow the secure link — it’s valid for <b>15 minutes</b>.</li>
+        <li>Didn’t get it? Check spam, then try again.</li>
+      </ul>
+
+      <!-- ${pageRedirectUri?? || actionUri?? || client.baseUrl??} -->
+      <a class="kc-btn" href="login.html">
+        Back to sign in
+      </a>
+    </div>
+
+    <a class="kc-back" href="login-reset-password.html">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 0 1 14-4l3 1"/><path d="M21 13a8 8 0 0 1-14 4l-3-1"/><path d="M17 4l.5 4-4-.5"/><path d="M7 20l-.5-4 4 .5"/></svg>
+      Resend the email
+    </a>
+
+  </div>
+</div>
+</body>
+</html>

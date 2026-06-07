@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kumbuka.ai · Keycloak skin — index</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#F4F1EA;--deep:#0F1620;--accent:#FF5B1F;--ink:#141820;--muted:rgba(244,241,234,.55);--line:rgba(244,241,234,.14);--fd:'Space Grotesk',sans-serif;--fb:'Inter',sans-serif;--fm:'JetBrains Mono',monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:#F0EDE6;font-family:var(--fb);background-image:linear-gradient(rgba(244,241,234,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(244,241,234,.04) 1px,transparent 1px);background-size:64px 64px}
+.wrap{max-width:1080px;margin:0 auto;padding:48px 28px 72px}
+.brand{display:flex;align-items:center;gap:13px;margin-bottom:8px}
+.brand img{height:34px}
+.brand .wm{font-family:var(--fd);font-weight:600;font-size:22px;letter-spacing:-.02em}
+.brand .wm .dot{color:var(--accent)}
+.eyebrow{font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--fd);font-weight:600;font-size:34px;letter-spacing:-.025em;margin:18px 0 10px}
+.lead{font-size:15px;line-height:1.6;color:var(--muted);max-width:70ch;margin:0 0 8px}
+.lead a{color:var(--accent);text-decoration:none}
+.lead a:hover{text-decoration:underline;text-underline-offset:3px}
+.sec{font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:44px 0 0;display:flex;align-items:center;gap:14px}
+.sec::after{content:'';flex:1;height:1px;background:var(--line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px;margin-top:20px}
+a.card{display:block;text-decoration:none;border:1px solid var(--line);background:#131c28;padding:16px 16px 14px;transition:background .12s,border-color .12s}
+a.card:hover{background:#16202c;border-color:rgba(244,241,234,.28)}
+a.card .nm{font-family:var(--fb);font-size:14px;font-weight:500;color:#F0EDE6}
+a.card .tpl{font-family:var(--fm);font-size:10.5px;color:var(--accent);margin-top:7px;letter-spacing:.02em}
+a.card .desc{font-size:12px;line-height:1.45;color:var(--muted);margin-top:8px}
+.foot{margin-top:50px;font-family:var(--fm);font-size:11px;color:rgba(244,241,234,.4);letter-spacing:.03em;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <img src="../../assets/brand/kumbuka-mark.svg" alt="">
+    <span class="wm">kumbuka<span class="dot">.ai</span></span>
+  </div>
+  <span class="eyebrow">// keycloak skin · design reference</span>
+  <h1>Keycloak skin — mockup index</h1>
+  <p class="lead">Static, self-contained mockups for the kumbuka Keycloak theme. Deep-ink editorial, radius 0, one orange. Full spec, token map and template pairing in <a href="../../docs/keycloak-skin-handoff.md">docs/keycloak-skin-handoff.md</a>.</p>
+
+  <div class="sec">Login theme · core six</div>
+  <div class="grid">
+    <a class="card" href="mockups/login.html"><div class="nm">Sign in</div><div class="tpl">login.ftl</div><div class="desc">Username + password, remember-me, SSO &amp; registration slots</div></a>
+    <a class="card" href="mockups/login-otp.html"><div class="nm">TOTP challenge</div><div class="tpl">login-otp.ftl</div><div class="desc">6-digit code input</div></a>
+    <a class="card" href="mockups/login-config-totp.html"><div class="nm">TOTP setup</div><div class="tpl">login-config-totp.ftl</div><div class="desc">QR + secret + verification — layout-heaviest</div></a>
+    <a class="card" href="mockups/webauthn-authenticate.html"><div class="nm">Passkey authenticate</div><div class="tpl">webauthn-authenticate.ftl</div><div class="desc">Device interaction, no classic inputs</div></a>
+    <a class="card" href="mockups/select-authenticator.html"><div class="nm">Select authenticator</div><div class="tpl">select-authenticator.ftl</div><div class="desc">Choice list</div></a>
+    <a class="card" href="mockups/error.html"><div class="nm">Error</div><div class="tpl">error.ftl</div><div class="desc">Message / end-state</div></a>
+  </div>
+
+  <div class="sec">Login theme · recombinations</div>
+  <div class="grid">
+    <a class="card" href="mockups/info.html"><div class="nm">Info</div><div class="tpl">info.ftl</div><div class="desc">Generic confirmation</div></a>
+    <a class="card" href="mockups/webauthn-register.html"><div class="nm">Passkey register</div><div class="tpl">webauthn-register.ftl</div><div class="desc">Add a device</div></a>
+    <a class="card" href="mockups/login-update-password.html"><div class="nm">Update password</div><div class="tpl">login-update-password.ftl</div><div class="desc">Forced credential update</div></a>
+    <a class="card" href="mockups/login-update-profile.html"><div class="nm">Update profile</div><div class="tpl">login-update-profile.ftl</div><div class="desc">Complete profile fields</div></a>
+    <a class="card" href="mockups/login-reset-password.html"><div class="nm">Forgot password</div><div class="tpl">login-reset-password.ftl</div><div class="desc">Request reset link</div></a>
+    <a class="card" href="mockups/login-verify-email.html"><div class="nm">Verify email</div><div class="tpl">login-verify-email.ftl</div><div class="desc">Email-action info</div></a>
+    <a class="card" href="mockups/terms.html"><div class="nm">Terms</div><div class="tpl">terms.ftl</div><div class="desc">Accept / decline</div></a>
+    <a class="card" href="mockups/select-authenticator.html"><div class="nm">Select authenticator</div><div class="tpl">select-authenticator.ftl</div><div class="desc">Choice list</div></a>
+    <a class="card" href="mockups/login-page-expired.html"><div class="nm">Page expired</div><div class="tpl">login-page-expired.ftl</div><div class="desc">Restart / continue</div></a>
+    <a class="card" href="mockups/logout-confirm.html"><div class="nm">Logout confirm</div><div class="tpl">logout-confirm.ftl</div><div class="desc">Sign out?</div></a>
+    <a class="card" href="mockups/login-info-logout.html"><div class="nm">Signed out</div><div class="tpl">info.ftl (variant)</div><div class="desc">Logout complete</div></a>
+  </div>
+
+  <div class="sec">Account console &amp; emails</div>
+  <div class="grid">
+    <a class="card" href="account-look.html"><div class="nm">Account console look</div><div class="tpl">PatternFly variable map</div><div class="desc">Token-skin preview + kumbuka → --pf-* map</div></a>
+    <a class="card" href="email/invite.html"><div class="nm">Email · invite</div><div class="tpl">executeActions.ftl</div><div class="desc">Set-up-credentials invite (no password)</div></a>
+    <a class="card" href="email/verify.html"><div class="nm">Email · verify</div><div class="tpl">email-verification.ftl</div><div class="desc">Confirm address</div></a>
+    <a class="card" href="email/reset.html"><div class="nm">Email · reset</div><div class="tpl">password-reset.ftl</div><div class="desc">Choose new password</div></a>
+  </div>
+
+  <p class="foot">design/keycloak/ · 16 login pages · account-look · 3 emails (html + text) · Apache-2.0<br>Canonical look: deep-ink editorial · one canonical theme (no dark-mode parity) · self-hosted fonts</p>
+</div>
+</body>
+</html>

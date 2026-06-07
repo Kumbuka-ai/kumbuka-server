@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · kumbuka.ai</title>
+<!-- Mockup uses the Google CDN; the real theme self-hosts these three families (see handoff §Fonts). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: login.ftl  (template "login") -->
+<div class="kc-page">
+  <div class="kc-shell">
+
+    <!-- brand block — knot mark (accent) + wordmark. White wordmark on deep ink. -->
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div>
+        <div class="wordmark">kumbuka<span class="dot">.ai</span></div>
+        <span class="sub">memory console</span>
+      </div>
+    </div>
+
+    <div class="kc-card">
+      <!-- ${kc.realm.displayName} context line -->
+      <div class="kc-context">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15l6-6"/><path d="M10 7l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M14 17l-1 1a4 4 0 0 1-6-6l1-1"/></svg>
+        <span>Continue to <b>kumbuka&nbsp;memory&nbsp;console</b></span>
+      </div>
+
+      <span class="kc-eyebrow">// sign in</span>
+      <h1 class="kc-title">Welcome back</h1>
+
+      <!-- ${messagesPerField} global error placement (Keycloak: #kc-content-wrapper .alert) -->
+      <!-- Example error state — remove for happy path:
+      <div class="kc-alert error" style="margin-top:22px;margin-bottom:0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3L2 20h20z"/><path d="M12 9v5"/><path d="M12 17h.01"/></svg>
+        <span>Invalid username or password.</span>
+      </div> -->
+
+      <!-- #kc-form > #kc-form-login -->
+      <form class="kc-form" action="#" method="post" onsubmit="return false">
+        <div class="kc-field">
+          <label class="kc-label" for="username">Email or username</label>
+          <input class="kc-input mono" id="username" name="username" type="text"
+                 autocomplete="username" autofocus spellcheck="false" placeholder="you@kumbuka.ai">
+        </div>
+
+        <div class="kc-field">
+          <label class="kc-label" for="password">
+            Password
+            <a class="kc-link" href="login-reset-password.html" tabindex="-1">Forgot password?</a>
+          </label>
+          <div class="kc-input-wrap">
+            <input class="kc-input" id="password" name="password" type="password"
+                   autocomplete="current-password" placeholder="••••••••••">
+            <button type="button" class="kc-reveal" aria-label="Show password" onclick="(function(b){var i=document.getElementById('password');var s=i.type==='password';i.type=s?'text':'password';b.setAttribute('aria-label',s?'Hide password':'Show password');})(this)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7"/><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="kc-form-options">
+          <label class="kc-checkbox">
+            <input type="checkbox" name="rememberMe" checked>
+            <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg></span>
+            <span class="lbl">Remember me</span>
+          </label>
+        </div>
+
+        <button class="kc-btn primary" type="submit">
+          Sign in
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+
+      <!-- #kc-social-providers — slots designed even though disabled today -->
+      <div class="kc-divider">or continue with</div>
+      <div class="kc-social">
+        <a class="kc-btn" href="#">
+          <span class="prov-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          </span>
+          Your organization’s SSO
+        </a>
+      </div>
+
+      <!-- #kc-registration — slot designed even though self-registration is off -->
+      <div class="kc-card-foot">
+        New here? Accounts are created by an admin — <a class="kc-link" href="#">request access</a>.
+      </div>
+    </div>
+
+    <!-- kc-locale + realm meta -->
+    <div class="kc-foot">
+      <span class="meta">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        secured by keycloak
+      </span>
+      <span class="kc-locale">
+        <select aria-label="Language">
+          <option>English</option>
+          <option>Deutsch</option>
+        </select>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </span>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

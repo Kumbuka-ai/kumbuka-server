@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page expired · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: login-page-expired.ftl  (template "login-page-expired") -->
+<div class="kc-page">
+  <div class="kc-shell">
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div><div class="wordmark">kumbuka<span class="dot">.ai</span></div><span class="sub">memory console</span></div>
+    </div>
+
+    <div class="kc-card">
+      <div class="kc-hero-ico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"/><path d="M12 7v5l3 2"/></svg>
+      </div>
+      <span class="kc-eyebrow">// session timed out</span>
+      <h1 class="kc-title">This page expired</h1>
+      <p class="kc-lead">You took a little too long, so we paused for safety. Pick up where you left off, or start over.</p>
+
+      <div style="margin-top:26px;display:flex;flex-direction:column;gap:10px">
+        <!-- ${url.loginRestartFlowUrl} -->
+        <a class="kc-btn primary" href="login.html">
+          Restart sign in
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+        </a>
+        <!-- ${url.loginAction} -->
+        <a class="kc-btn" href="#">Continue where I left off</a>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

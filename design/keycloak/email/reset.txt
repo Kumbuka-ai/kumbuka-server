@@ -1,0 +1,18 @@
+// RESET PASSWORD — kumbuka.ai
+
+Choose a new password
+=====================
+
+Someone asked to reset the password for {{USER_EMAIL}}. Choose a new
+one to get back into the kumbuka memory console.
+
+Choose a new password:
+{{LINK}}
+
+This link is valid for {{LINK_EXPIRATION}}.
+
+Didn't request this? Ignore this email and your password stays the
+same. Consider enabling two-factor in your account settings.
+
+—
+kumbuka.ai · secured by Keycloak
