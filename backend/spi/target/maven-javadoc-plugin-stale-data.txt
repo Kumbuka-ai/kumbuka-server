@@ -1,0 +1,44 @@
+-J-Duser.language=
+-J-Duser.country=
+@options
+@packages
+-encoding
+'UTF-8'
+-protected
+-quiet
+--release
+21
+-sourcepath
+'/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/src/main/java:/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/generated-sources/annotations'
+-author
+-bottom
+'Copyright &#169; 2026. All rights reserved.'
+-charset
+'UTF-8'
+-d
+'/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs'
+-docencoding
+'UTF-8'
+-Xdoclint:none
+-doctitle
+'kumbuka-spi 0.1.0-SNAPSHOT API'
+-use
+-version
+-windowtitle
+'kumbuka-spi 0.1.0-SNAPSHOT API'
+ai.kumbuka.tenancy
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/src/main/java = 1780862927225
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/generated-sources/annotations = 1780863251871
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/tag-search-index.js = 1780863252764
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/overview-tree.html = 1780863252758
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/module-search-index.js = 1780863252764
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/index.html = 1780863252769
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/package-search-index.js = 1780863252764
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/index-all.html = 1780863252767
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/allpackages-index.html = 1780863252763
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/member-search-index.js = 1780863252764
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/help-doc.html = 1780863252770
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/element-list = 1780863252743
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/search.html = 1780863252768
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/allclasses-index.html = 1780863252762
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/spi/target/reports/apidocs/type-search-index.js = 1780863252764

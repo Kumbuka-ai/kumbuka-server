@@ -1,0 +1,1 @@
+typeSearchIndex = [{"l":"All Classes and Interfaces","u":"allclasses-index.html","k":"18"},{"p":"ai.kumbuka.tenancy","l":"TenantContext","k":"10"},{"p":"ai.kumbuka.tenancy","l":"TenantResolver","k":"10"}];updateSearchResults();

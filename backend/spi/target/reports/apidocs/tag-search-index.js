@@ -1,0 +1,1 @@
+tagSearchIndex = [{"l":"Contract","h":"interface ai.kumbuka.tenancy.TenantResolver","k":"16","u":"ai/kumbuka/tenancy/TenantResolver.html#contract-heading"},{"l":"Typical usage","h":"interface ai.kumbuka.tenancy.TenantContext","k":"16","u":"ai/kumbuka/tenancy/TenantContext.html#typical-usage-heading"}];updateSearchResults();

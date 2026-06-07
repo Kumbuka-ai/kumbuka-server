@@ -49,8 +49,8 @@ jobs:
         with:
           name: backend-test-reports
           path: |
-            backend/target/surefire-reports/**
-            backend/target/failsafe-reports/**
+            backend/server/target/surefire-reports/**
+            backend/server/target/failsafe-reports/**
           if-no-files-found: ignore
           retention-days: 7
 

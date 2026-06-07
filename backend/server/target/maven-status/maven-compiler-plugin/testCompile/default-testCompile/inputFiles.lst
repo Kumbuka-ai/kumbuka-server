@@ -1,0 +1,9 @@
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/admin/AdminConnectorResourceTest.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/admin/AdminPrivateInvariantTest.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/admin/AdminUsersResourceTest.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/e2e/E2EOAuthIntegrationIT.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/e2e/KeycloakTestResource.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/repo/PrivateIsolationTest.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/service/WritePolicyResolverTest.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/tenancy/CrossTenantIsolationIT.java
+/Users/johannes/Work/kumbuka.ai/kumbuka-server/backend/server/src/test/java/ai/kumbuka/wellknown/ProtectedResourceMetadataTest.java
