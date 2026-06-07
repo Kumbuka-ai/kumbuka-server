@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.kumbuka</groupId>
+        <artifactId>kumbuka-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>kumbuka-spi</artifactId>
+    <packaging>jar</packaging>
+
+    <name>kumbuka-spi</name>
+    <description>
+        Frozen interfaces consumed by the commercial multi-tenant edition
+        of kumbuka. See ADR-0011 (in the kumbuka-server repo) for the
+        contract details. SPI v1.0.0 is the line that does not move
+        without a major version bump.
+    </description>
+
+    <!--
+        Deliberately zero runtime dependencies. The SPI is pure Java
+        interfaces; consumers should not transitively pick up Quarkus
+        or Hibernate from this artifact.
+    -->
+
+    <build>
+        <plugins>
+            <!-- Source jar so consumers can step into the SPI's javadoc. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.10.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals><goal>jar</goal></goals>
+                        <configuration>
+                            <doclint>none</doclint>
+                            <quiet>true</quiet>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

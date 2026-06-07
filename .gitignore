@@ -10,6 +10,7 @@ Remember.ai.zip
 
 # Java / Maven
 backend/target/
+backend/**/target/
 backend/.mvn/wrapper/maven-wrapper.jar
 backend/dependency-reduced-pom.xml
 *.class

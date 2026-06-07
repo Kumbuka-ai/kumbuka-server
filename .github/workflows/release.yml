@@ -37,6 +37,61 @@ jobs:
         run: mvn -B -ntp -Pintegration verify
 
   # ---------------------------------------------------------------------
+  # SPI jar → GitHub Packages Maven.
+  #   ai.kumbuka:kumbuka-spi:{tag-stripped-of-v, …}
+  # The commercial multi-tenant edition (ops-console) consumes this.
+  # ---------------------------------------------------------------------
+  spi-maven:
+    name: spi · deploy to GitHub Packages
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          # setup-java writes a settings.xml that authenticates the
+          # `github` server (the id we use in distributionManagement)
+          # with the GITHUB_TOKEN. No secrets indirection needed.
+          server-id: github
+          server-username: GITHUB_ACTOR_FOR_MAVEN
+          server-password: GITHUB_TOKEN_FOR_MAVEN
+
+      - id: meta
+        name: derive version
+        run: |
+          REF="${GITHUB_REF#refs/tags/}"
+          if [ -z "$REF" ] || [ "$REF" = "$GITHUB_REF" ]; then
+            REF="${{ inputs.tag }}"
+          fi
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set parent + spi + server version to the release version
+        working-directory: backend
+        run: |
+          mvn -B -ntp versions:set \
+              -DnewVersion=${{ steps.meta.outputs.version }} \
+              -DprocessAllModules=true \
+              -DgenerateBackupPoms=false
+
+      - name: Deploy spi only (server stays internal)
+        working-directory: backend
+        env:
+          GITHUB_ACTOR_FOR_MAVEN: ${{ github.actor }}
+          GITHUB_TOKEN_FOR_MAVEN: ${{ secrets.GITHUB_TOKEN }}
+        # -pl spi -am builds the parent (for the BOM) + spi only and
+        # deploys them. The server module is never published to Maven;
+        # it ships as a docker image (backend-image job below).
+        run: mvn -B -ntp -DskipTests -pl spi -am deploy
+
+  # ---------------------------------------------------------------------
   # Backend image: ghcr.io/<owner>/kumbuka-backend:{tag,latest}
   # ---------------------------------------------------------------------
   backend-image:
@@ -141,7 +196,7 @@ jobs:
   # ---------------------------------------------------------------------
   github-release:
     name: github release
-    needs: [backend-image, keycloak-image]
+    needs: [spi-maven, backend-image, keycloak-image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -155,12 +210,16 @@ jobs:
             REF="${{ inputs.tag }}"
           fi
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          echo "owner=$(printf "%s" "${{ github.repository_owner }}" | tr "[:upper:]" "[:lower:]")" >> "$GITHUB_OUTPUT"
 
       - name: gh release create
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          OWNER="${{ steps.meta.outputs.owner }}"
           gh release create "$TAG" \
             --title "$TAG" \
             --generate-notes \
@@ -168,8 +227,22 @@ jobs:
           ## Container images
 
           \`\`\`
-          ghcr.io/${{ steps.meta.outputs.owner }}/kumbuka-backend:$TAG
-          ghcr.io/${{ steps.meta.outputs.owner }}/kumbuka-keycloak:$TAG
+          ghcr.io/$OWNER/kumbuka-backend:$TAG
+          ghcr.io/$OWNER/kumbuka-keycloak:$TAG
           \`\`\`
+
+          ## Maven artifact (GitHub Packages)
+
+          The frozen tenancy SPI (consumed by the commercial multi-tenant edition):
+
+          \`\`\`xml
+          <dependency>
+              <groupId>ai.kumbuka</groupId>
+              <artifactId>kumbuka-spi</artifactId>
+              <version>$VERSION</version>
+          </dependency>
+          \`\`\`
+
+          Repository: \`https://maven.pkg.github.com/$OWNER/kumbuka-server\`
 
           Pull the matching console image from \`kumbuka-console\` for end-to-end deploys."
