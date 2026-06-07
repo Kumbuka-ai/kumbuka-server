@@ -1,0 +1,154 @@
+# ---------------------------------------------------------------------------
+# docker-compose.prod.yml — kumbuka production topology.
+#
+# Differences from the dev `docker-compose.yml`:
+#   - NO Caddy here. Production assumes an existing Caddy already runs on
+#     the host (terminating TLS + reverse-proxying n8n etc.). The kumbuka
+#     containers join that Caddy's docker network so it can reach them by
+#     container name. The required Caddyfile snippet lives at
+#     `deploy/caddy/kumbuka.caddy` — `import` it from the host Caddyfile.
+#   - All images come from GHCR by version tag (no `build:` blocks).
+#     `KUMBUKA_VERSION` env var picks the tag — `deploy.sh` flips it.
+#   - Postgres data and Keycloak h2/cache volumes are named so they
+#     survive container recreation.
+#   - Healthchecks on every service; orchestrators / deploy.sh use them
+#     to decide success/rollback.
+#   - No published ports — Caddy fronts everything.
+#
+# Bring up:    docker compose -f docker-compose.prod.yml up -d
+# Pull only:   docker compose -f docker-compose.prod.yml pull
+# Tear down:   docker compose -f docker-compose.prod.yml down  (data volumes survive)
+# ---------------------------------------------------------------------------
+
+name: kumbuka
+
+networks:
+  # Internal-only network for kumbuka's own service-to-service chatter.
+  kumbuka-internal:
+    driver: bridge
+
+  # The existing Caddy's docker network. The exact name is host-specific
+  # (e.g. "caddy_default", "ops_caddy", …); set CADDY_NETWORK in .env.
+  # `external: true` means compose won't try to create it.
+  caddy-external:
+    name: ${CADDY_NETWORK}
+    external: true
+
+volumes:
+  postgres_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME}
+      KUMBUKA_DB_USER: ${KUMBUKA_DB_USER}
+      KUMBUKA_DB_PASSWORD: ${KUMBUKA_DB_PASSWORD}
+      KUMBUKA_DB_NAME: ${KUMBUKA_DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    networks:
+      - kumbuka-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kumbuka-keycloak:
+    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KUMBUKA_VERSION}
+    restart: unless-stopped
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://${KC_HOSTNAME}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-import:/opt/keycloak/data/import:ro
+    networks:
+      # On both: internal so it can reach postgres; caddy-external so the
+      # host Caddy reaches it by container name.
+      - kumbuka-internal
+      - caddy-external
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
+  kumbuka-backend:
+    image: ghcr.io/kumbuka-ai/kumbuka-backend:${KUMBUKA_VERSION}
+    restart: unless-stopped
+    environment:
+      QUARKUS_HTTP_PORT: "8080"
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/${KUMBUKA_DB_NAME}
+      QUARKUS_DATASOURCE_USERNAME: ${KUMBUKA_DB_USER}
+      QUARKUS_DATASOURCE_PASSWORD: ${KUMBUKA_DB_PASSWORD}
+      KUMBUKA_PUBLIC_BASE_URL: https://${KUMBUKA_DOMAIN}
+      KUMBUKA_AUTH_BASE_URL: https://${KC_HOSTNAME}
+      # OIDC discovery uses the public issuer; backchannel hops via Caddy
+      # on the shared network. application.properties has
+      # `quarkus.oidc.<tenant>.tls.verification=none` for the local-CA
+      # case; if the production Caddy uses Let's Encrypt instead, that
+      # property is a no-op (cert is publicly trusted).
+      KUMBUKA_OIDC_ISSUER: https://${KC_HOSTNAME}/realms/kumbuka
+      # Admin REST client goes direct over HTTP on the internal network.
+      KUMBUKA_KEYCLOAK_URL: http://kumbuka-keycloak:8080
+      KUMBUKA_ADMIN_CLIENT_ID: ${KUMBUKA_ADMIN_CLIENT_ID}
+      KUMBUKA_ADMIN_CLIENT_SECRET: ${KUMBUKA_ADMIN_CLIENT_SECRET}
+      KUMBUKA_BACKEND_CLIENT_ID: ${KUMBUKA_BACKEND_CLIENT_ID}
+      KUMBUKA_BACKEND_CLIENT_SECRET: ${KUMBUKA_BACKEND_CLIENT_SECRET}
+      BACKEND_SESSION_SECRET: ${BACKEND_SESSION_SECRET}
+      KUMBUKA_LOAD_CONTEXT_PER_TYPE_LIMIT: ${KUMBUKA_LOAD_CONTEXT_PER_TYPE_LIMIT:-20}
+    networks:
+      - kumbuka-internal
+      - caddy-external
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kumbuka-keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /q/health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kumbuka-console:
+    image: ghcr.io/kumbuka-ai/kumbuka-console:${KUMBUKA_VERSION}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_APP_NAME: kumbuka.ai
+      KUMBUKA_BACKEND_URL: http://kumbuka-backend:8080
+      KUMBUKA_API_MOCK: "0"
+      NODE_ENV: production
+    networks:
+      - kumbuka-internal
+      - caddy-external
+    depends_on:
+      kumbuka-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
