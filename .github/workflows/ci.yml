@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Backend: full Maven verify, surefire + failsafe (-Pintegration).
+  # The integration profile picks up CrossTenantIsolationIT, which boots
+  # Postgres in a Testcontainers container — GitHub-hosted runners have
+  # Docker available.
+  # ---------------------------------------------------------------------
+  backend:
+    name: backend · mvn verify -Pintegration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Print versions
+        run: |
+          java -version
+          mvn -version
+          docker version
+
+      - name: mvn verify -Pintegration
+        working-directory: backend
+        run: mvn -B -ntp -Pintegration verify
+
+      - name: Upload surefire + failsafe reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/target/surefire-reports/**
+            backend/target/failsafe-reports/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------
+  # Caddyfile syntax check — cheap, catches typos in PR diffs.
+  # ---------------------------------------------------------------------
+  caddyfile:
+    name: caddyfile · validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: caddy validate
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e KUMBUKA_DOMAIN=ci.example \
+            -e KC_HOSTNAME=auth.ci.example \
+            -e ACME_EMAIL=ci@example.invalid \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  # ---------------------------------------------------------------------
+  # docker-compose config-only render to catch yaml / env mistakes.
+  # ---------------------------------------------------------------------
+  compose:
+    name: compose · render config
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose config (app profile)
+        run: |
+          cp .env.example .env
+          docker compose --profile app config > /dev/null
+      - name: compose config (prod-kc profile)
+        run: |
+          docker compose --profile app --profile prod-kc config > /dev/null
