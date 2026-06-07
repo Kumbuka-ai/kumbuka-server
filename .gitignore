@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 # Raw design handoff archive — extracted materials live under design/ + assets/
 kumbuka.ai.zip
