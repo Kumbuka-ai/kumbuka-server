@@ -1,9 +1,0 @@
-ai/kumbuka/admin/AdminPrivateInvariantTest.class
-ai/kumbuka/wellknown/ProtectedResourceMetadataTest.class
-ai/kumbuka/admin/AdminUsersResourceTest.class
-ai/kumbuka/e2e/KeycloakTestResource.class
-ai/kumbuka/e2e/E2EOAuthIntegrationIT.class
-ai/kumbuka/tenancy/CrossTenantIsolationIT.class
-ai/kumbuka/admin/AdminConnectorResourceTest.class
-ai/kumbuka/service/WritePolicyResolverTest.class
-ai/kumbuka/repo/PrivateIsolationTest.class

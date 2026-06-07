@@ -1,1 +1,0 @@
-memberSearchIndex = [{"p":"ai.kumbuka.tenancy","c":"TenantContext","l":"bind(UUID)","u":"bind(java.util.UUID)"},{"p":"ai.kumbuka.tenancy","c":"TenantContext","l":"current()"},{"p":"ai.kumbuka.tenancy","c":"TenantResolver","l":"currentTenant()"}];updateSearchResults();
