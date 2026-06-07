@@ -203,6 +203,43 @@ Dev test users (created by the realm import, **disable before any non-local depl
 
 ---
 
+## Production deploy
+
+See [ADR-0012](docs/adr/0012-deploy-topology.md) for the topology
+decisions. In short: the production stack does **not** ship its own
+Caddy. It assumes an existing Caddy is already running on the host and
+joins its docker network. The kumbuka images are pulled from GHCR by
+tag.
+
+Three pieces in this repo together describe a production deploy:
+
+| File | Role |
+|---|---|
+| `docker-compose.prod.yml` | The stack (postgres + kumbuka-keycloak + kumbuka-backend + kumbuka-console). Images come from GHCR by version tag; no Caddy here. |
+| `deploy/caddy/kumbuka.caddy` | Caddyfile snippet for the host Caddy. `import` it from the host Caddyfile. |
+| `.env.prod.example` | Production env template — set `KUMBUKA_VERSION`, `CADDY_NETWORK`, hostnames, secrets. |
+
+The pull-deploy script (`scripts/deploy.sh`), the n8n workflow that
+triggers it on GitHub Release events, and the Postgres backup script
+live in `~/kumbuka/deploy/` on the host, not in this repo. They are
+host-specific and are bootstrapped on the server itself (a separate
+Claude Code session handles that — see the bootstrap prompt the
+operator carries across).
+
+Minimal hand-deploy on a host that's already set up:
+
+```bash
+docker login ghcr.io -u <your-gh-user> --password-stdin < /etc/kumbuka/ghcr.pat
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+For the GitOps flow (tag → release workflow → GHCR → n8n → deploy.sh →
+healthcheck → rollback-on-fail), see the deploy README on the host
+under `~/kumbuka/deploy/README.md`.
+
+---
+
 ## Connecting Claude clients
 
 All clients use the same OAuth-discovered flow against the

@@ -1,0 +1,85 @@
+# ===========================================================================
+# kumbuka — Caddy snippet for an existing Caddy installation.
+#
+# Drop this file somewhere the host Caddy can read (e.g. /etc/caddy/sites/
+# alongside whatever other site snippets are imported) and add this single
+# line to the main Caddyfile:
+#
+#     import /etc/caddy/sites/kumbuka.caddy
+#
+# Pre-conditions:
+#   - The host Caddyfile has its own global { ... } block (this snippet has
+#     none).
+#   - The host Caddy container joins the same docker network as the
+#     kumbuka stack (see CADDY_NETWORK in .env). The host's compose file
+#     for Caddy needs:
+#
+#         networks:
+#           - <whatever its existing network is>
+#
+#     and the kumbuka stack joins the same network as `caddy-external`
+#     (see docker-compose.prod.yml).
+#
+#   - The two public hostnames resolve to the host:
+#       $KUMBUKA_DOMAIN  →   the console + /api + /mcp + /.well-known
+#       $KC_HOSTNAME     →   Keycloak
+#
+# TLS: this snippet assumes the existing Caddy already handles cert
+# provisioning the way the host Caddyfile is configured (Let's Encrypt
+# typically). If you're staging on a private LAN, add `tls internal`
+# inside each block.
+# ===========================================================================
+
+{$KUMBUKA_DOMAIN} {
+    encode zstd gzip
+
+    # MCP endpoint + the OAuth Protected Resource Metadata.
+    @mcp path /mcp /mcp/*
+    handle @mcp {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    @wellknown path /.well-known/*
+    handle @wellknown {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # Admin BFF API.
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # Everything else → the admin console.
+    handle {
+        reverse_proxy kumbuka-console:3000
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+{$KC_HOSTNAME} {
+    encode zstd gzip
+
+    reverse_proxy kumbuka-keycloak:8080 {
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto https
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
