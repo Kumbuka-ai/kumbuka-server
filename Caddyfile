@@ -1,0 +1,81 @@
+# ---------------------------------------------------------------------------
+# Caddyfile — kumbuka.ai
+#
+# Caddy is the only publicly exposed service. Two virtual hosts:
+#
+#   {$KUMBUKA_DOMAIN}         (e.g. dev.kumbuka.ai)
+#     /                       -> kumbuka-console (Next.js admin UI)
+#     /api/*                  -> kumbuka-backend (admin BFF API)
+#     /mcp, /mcp/*            -> kumbuka-backend (MCP Streamable HTTP)
+#     /.well-known/*          -> kumbuka-backend (OAuth resource metadata)
+#
+#   {$KC_HOSTNAME}            (e.g. auth.dev.kumbuka.ai)
+#     /*                      -> keycloak        (login, token endpoint, account console)
+#
+# All upstream services bind only to the internal docker network. Do not
+# expose kumbuka-backend/kumbuka-console/keycloak/postgres ports on the host
+# in production.
+# ---------------------------------------------------------------------------
+
+{
+	email {$ACME_EMAIL}
+	# For local testing without a public domain Caddy will issue an internal
+	# certificate (see `tls internal` in each site below). Browsers will warn
+	# once until the local CA root is trusted.
+}
+
+# ----- Console / API / MCP -----------------------------------------------
+{$KUMBUKA_DOMAIN} {
+	tls internal
+	encode zstd gzip
+
+	@mcp path /mcp /mcp/*
+	handle @mcp {
+		reverse_proxy kumbuka-backend:8080 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	@wellknown path /.well-known/*
+	handle @wellknown {
+		reverse_proxy kumbuka-backend:8080 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	@api path /api /api/*
+	handle @api {
+		reverse_proxy kumbuka-backend:8080 {
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# Everything else -> the admin console (separate repo:
+	# github.com/kumbuka-ai/kumbuka-console). When the console isn't
+	# deployed alongside the server, this returns 502 — the server is
+	# still fully usable through /api and /mcp.
+	handle {
+		reverse_proxy kumbuka-console:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ----- Keycloak ---------------------------------------------------------
+{$KC_HOSTNAME} {
+	tls internal
+	encode zstd gzip
+
+	reverse_proxy keycloak:8080
+
+	log {
+		output stdout
+		format console
+	}
+}

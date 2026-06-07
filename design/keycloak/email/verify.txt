@@ -1,0 +1,18 @@
+// VERIFY EMAIL — kumbuka.ai
+
+Confirm your email address
+==========================
+
+Confirm that {{USER_EMAIL}} belongs to you to finish signing in to the
+kumbuka memory console.
+
+Verify email:
+{{LINK}}
+
+This link is valid for {{LINK_EXPIRATION}}.
+
+Didn't try to sign in? You can safely ignore this email — nothing
+changes until the link is used.
+
+—
+kumbuka.ai · secured by Keycloak

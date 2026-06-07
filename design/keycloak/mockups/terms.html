@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of use · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: terms.ftl  (template "terms") -->
+<div class="kc-page">
+  <div class="kc-shell">
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div><div class="wordmark">kumbuka<span class="dot">.ai</span></div><span class="sub">memory console</span></div>
+    </div>
+
+    <div class="kc-card">
+      <span class="kc-eyebrow">// terms of use</span>
+      <h1 class="kc-title">Before you continue</h1>
+      <p class="kc-lead">Please review and accept the kumbuka terms to use the memory console.</p>
+
+      <!-- ${msg("termsText")} -->
+      <div class="kc-terms" tabindex="0" style="margin-top:24px">
+        <h3>1 · Shared memory</h3>
+        <p>The console stores structured team memories that the assistant reads and writes. Anything you add to a shared scope is visible to your team and to admins of this workspace.</p>
+        <h3>2 · Private memory</h3>
+        <p>Your private scope is owned by you. It is never exposed to admins, to this console, or through the connector — by design, not by configuration.</p>
+        <h3>3 · Acceptable use</h3>
+        <p>Don’t store credentials, secrets, or personal data of others in shared scopes. Memories are retained per the workspace’s retention policy.</p>
+        <h3>4 · Identity</h3>
+        <p>Sign-in is handled by your organization’s identity provider. You’re responsible for keeping your second factor secure.</p>
+      </div>
+
+      <!-- #kc-form-buttons -->
+      <form class="kc-form" action="#" method="post" onsubmit="return false">
+        <button class="kc-btn primary" name="accept" type="submit">
+          Accept and continue
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+        </button>
+        <button class="kc-btn block" name="cancel" type="submit">Decline</button>
+      </form>
+    </div>
+  </div>
+</div>
+</body>
+</html>

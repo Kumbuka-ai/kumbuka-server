@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signed out · kumbuka.ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../keycloak.css">
+</head>
+<body>
+<!-- maps to: info.ftl  (logged-out variant — shown after single-logout completes) -->
+<div class="kc-page">
+  <div class="kc-shell">
+    <div class="kc-brand">
+      <img src="../../../assets/brand/kumbuka-mark.svg" alt="">
+      <div><div class="wordmark">kumbuka<span class="dot">.ai</span></div><span class="sub">memory console</span></div>
+    </div>
+
+    <div class="kc-card">
+      <div class="kc-hero-ico ok">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      </div>
+      <span class="kc-eyebrow">// signed out</span>
+      <h1 class="kc-title">You’re signed out</h1>
+      <p class="kc-lead">Your kumbuka session has ended on this device. Memories you saved are safe and waiting.</p>
+
+      <!-- ${pageRedirectUri?? || client.baseUrl??} -->
+      <div style="margin-top:26px">
+        <a class="kc-btn primary" href="login.html">
+          Sign in again
+          <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 5l7 7-7 7"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <span class="kc-back" style="cursor:default">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><path d="M5 11h14v9H5z"/></svg>
+      Close this tab to fully end your session.
+    </span>
+  </div>
+</div>
+</body>
+</html>

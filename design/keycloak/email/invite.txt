@@ -1,0 +1,22 @@
+// YOU'RE INVITED — kumbuka.ai memory console
+
+Join the kumbuka memory console
+================================
+
+Priya Raman added you to the kumbuka.ai workspace as a member. Set up
+your account to start reading and writing your team's shared memory.
+
+No password has been set yet — you'll create your sign-in credentials
+on the next screen.
+
+Set up your account:
+{{LINK}}
+
+This invitation expires in {{LINK_EXPIRATION}}.
+
+Your private memory is yours alone — it's never visible to admins or
+anyone else in the console.
+
+—
+kumbuka.ai · secured by Keycloak
+You received this because an admin invited you.

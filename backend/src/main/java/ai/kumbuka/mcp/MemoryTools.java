@@ -1,0 +1,199 @@
+package ai.kumbuka.mcp;
+import ai.kumbuka.tenancy.TenantBound;
+
+import ai.kumbuka.config.MemoryConfig;
+import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryType;
+import ai.kumbuka.domain.Scope;
+import ai.kumbuka.domain.ScopeKind;
+import ai.kumbuka.domain.SourceChannel;
+import ai.kumbuka.domain.TeamSettings.WritePolicy;
+import ai.kumbuka.mcp.dto.Dtos;
+import ai.kumbuka.repo.MemoryRepository;
+import ai.kumbuka.repo.ScopeRepository;
+import ai.kumbuka.service.WritePolicyResolver;
+import ai.kumbuka.service.WritePolicyResolver.Resolved;
+import io.quarkiverse.mcp.server.Tool;
+import io.quarkiverse.mcp.server.ToolArg;
+import io.quarkus.security.identity.SecurityIdentity;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * MCP tool surface. The five tools mandated by the spec, each identity-
+ * aware: the acting subject comes from {@link SecurityIdentity} (Keycloak
+ * {@code sub} claim from the bearer token validated by the `mcp` OIDC
+ * tenant) and is never accepted as a tool argument.
+ */
+/**
+ * @Transactional at class level guarantees each MCP tool runs inside a
+ * JTA transaction so the @TenantBound interceptor can set app.tenant_id
+ * via SET LOCAL (ADR-0011 §M6).
+ */
+@TenantBound
+@Transactional
+@ApplicationScoped
+public class MemoryTools {
+
+    @Inject SecurityIdentity identity;
+    @Inject MemoryRepository memories;
+    @Inject ScopeRepository scopes;
+    @Inject MemoryConfig config;
+    @Inject WritePolicyResolver policyResolver;
+
+    private String callerSubject() {
+        String s = identity.getPrincipal().getName();
+        if (s == null || s.isBlank()) {
+            throw new IllegalStateException("no authenticated subject on /mcp request");
+        }
+        return s;
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "Store a memory. Appends a new entry, or upserts an existing one if `key` is "
+      + "provided and matches a prior entry by this author in the same scope. "
+      + "When `scope` is omitted, the team's writePolicy decides: 'ask' returns a "
+      + "structured prompt asking which scope to use (no silent fallback to private); "
+      + "'project' writes to the configured default project scope; 'global' writes to "
+      + "the team-wide global scope. Use the explicit slug 'private' to write to the "
+      + "caller's private space.")
+    public Dtos.RememberResult memory_remember(
+        @ToolArg(description = "The memory content (free text).")
+            String content,
+        @ToolArg(description = "Memory type: decision | convention | constraint | open_question | glossary | status.")
+            String type,
+        @ToolArg(description = "Scope slug. When omitted, follows the team's writePolicy.", required = false)
+            String scope,
+        @ToolArg(description = "Optional upsert key (lowercase, dot/kebab-namespaced).", required = false)
+            String key
+    ) {
+        MemoryType t = MemoryType.fromDb(type);
+        Resolved policy = policyResolver.resolve();
+        Dtos.EffectiveWritePolicy policyDto = toDto(policy);
+
+        String scopeSlug = scope;
+        if (scopeSlug == null) {
+            // No explicit scope: consult writePolicy. Private is never the default
+            // (D3 + handoff §F-2) — caller must opt in by passing 'private'.
+            switch (policy.effective()) {
+                case ASK -> {
+                    String reason = switch (policy.defaultScopeStatus()) {
+                        case OK       -> "the team's write policy is 'ask' — please specify a scope";
+                        case MISSING  -> "the team's write policy is 'project' but no default scope is set — please specify a scope";
+                        case ARCHIVED -> "the team's default scope is archived — please specify a scope";
+                        case INVALID  -> "the team's default scope is no longer a project — please specify a scope";
+                    };
+                    return new Dtos.RememberResult(null, false, prompt(reason), policyDto);
+                }
+                case PROJECT -> scopeSlug = policy.defaultScopeSlug();
+                case GLOBAL  -> scopeSlug = "global";
+            }
+        }
+
+        boolean existed = key != null && memories.find(
+            "tenantId = ?1 and scope.slug = ?2 and ownerSubject = ?3 and key = ?4",
+            config.tenantId(), scopeSlug, callerSubject(), key
+        ).firstResultOptional().isPresent();
+
+        Memory m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
+        return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, policyDto);
+    }
+
+    private Dtos.PromptForScope prompt(String reason) {
+        List<Dtos.ScopeDto> visible = scopes.listAll().stream()
+            .filter(s -> s.kind != ScopeKind.PRIVATE)   // private is offered as an explicit value, not in the list
+            .map(Dtos.ScopeDto::from)
+            .toList();
+        return new Dtos.PromptForScope(reason, visible);
+    }
+
+    private Dtos.EffectiveWritePolicy toDto(Resolved r) {
+        return new Dtos.EffectiveWritePolicy(
+            r.stored().dbValue(),
+            r.effective().dbValue(),
+            r.defaultScopeSlug(),
+            r.defaultScopeStatus().name().toLowerCase()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "Recall memories. With no arguments, returns everything visible to the caller "
+      + "(their private memories + all shared memories). Filters: scope, type, and a "
+      + "simple substring `query` over content. `include_global` adds the global scope "
+      + "when a non-global `scope` is requested.")
+    public Dtos.RecallResult memory_recall(
+        @ToolArg(description = "Restrict to this scope slug.", required = false) String scope,
+        @ToolArg(description = "Restrict to this memory type.", required = false) String type,
+        @ToolArg(description = "Substring match (case-insensitive) on content.", required = false) String query,
+        @ToolArg(description = "When a scope is given, also include the global scope. Default false.", required = false) Boolean include_global
+    ) {
+        MemoryType t = type == null ? null : MemoryType.fromDb(type);
+        boolean inclGlobal = include_global != null && include_global;
+        List<Memory> rows = memories.recall(callerSubject(), scope, t, query, inclGlobal);
+        return Dtos.RecallResult.of(rows);
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "Delete a memory. Identify it by `id` (UUID) or by (`scope`, `key`). "
+      + "Private memories can only be deleted by their owner; shared-scope deletes "
+      + "only remove the caller's own keyed entry, never another author's row.")
+    public Dtos.ForgetResult memory_forget(
+        @ToolArg(description = "Scope slug.") String scope,
+        @ToolArg(description = "Memory id (UUID).", required = false) String id,
+        @ToolArg(description = "Upsert key, if the entry was written with one.", required = false) String key
+    ) {
+        UUID uuid = (id == null || id.isBlank()) ? null : UUID.fromString(id);
+        int n = memories.forget(callerSubject(), scope, uuid, key);
+        return new Dtos.ForgetResult(n);
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "List scopes visible to the caller: their own private scope plus every shared "
+      + "(project + global) scope on this team.")
+    public Dtos.ScopesResult memory_scopes() {
+        List<Scope> all = scopes.listAll();
+        return new Dtos.ScopesResult(all.stream().map(Dtos.ScopeDto::from).toList());
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "Return a typed digest of memories: grouped by type (decision, constraint, "
+      + "convention, glossary, open_question, status), capped per group. Useful for "
+      + "loading project context at conversation start. Accepts an optional scope.")
+    public Dtos.LoadContextResult memory_load_context(
+        @ToolArg(description = "Optional scope slug. Omit to digest across every visible scope.", required = false) String scope
+    ) {
+        Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope);
+        Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();
+        int total = 0;
+        // Deterministic ordering per the spec: decision, constraint, convention,
+        // glossary, open_question, status.
+        for (MemoryType t : new MemoryType[]{
+                MemoryType.DECISION,
+                MemoryType.CONSTRAINT,
+                MemoryType.CONVENTION,
+                MemoryType.GLOSSARY,
+                MemoryType.OPEN_QUESTION,
+                MemoryType.STATUS}) {
+            List<Memory> rows = grouped.getOrDefault(t, List.of());
+            List<Dtos.MemoryDto> dtos = rows.stream().map(Dtos.MemoryDto::from).toList();
+            byType.put(t.dbValue(), dtos);
+            total += dtos.size();
+        }
+        return new Dtos.LoadContextResult(byType, total);
+    }
+}
