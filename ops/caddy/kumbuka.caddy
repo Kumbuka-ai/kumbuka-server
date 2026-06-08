@@ -1,0 +1,102 @@
+# ===========================================================================
+# kumbuka — host Caddy snippet (THREE-HOST topology).
+#
+# Adapted from the shipped two-vHost snippet (src/server/deploy/caddy/kumbuka.caddy)
+# to the operator's chosen split:
+#
+#     console.kumbuka.ai  -> admin console UI  (+ /api/* via the backend BFF)
+#     mcp.kumbuka.ai      -> MCP endpoint + OAuth protected-resource metadata
+#     auth.kumbuka.ai     -> Keycloak
+#
+# Why three hosts instead of one: the backend builds the MCP resource id as
+# <public-base-url>/mcp (ProtectedResourceMetadataResource.java). With
+# KUMBUKA_DOMAIN=mcp.kumbuka.ai the protected-resource document advertised at
+# https://mcp.kumbuka.ai/.well-known/oauth-protected-resource correctly names
+# https://mcp.kumbuka.ai/mcp. The console's BFF (ADR-0009) sets a same-origin
+# session cookie, so /api/* must live on the console host.
+#
+# Drop this file in the host Caddy's site-snippet dir and add to the main
+# Caddyfile:  import /etc/caddy/sites/*.caddy
+# The host Caddy container must have CONSOLE_DOMAIN, KUMBUKA_DOMAIN and
+# KC_HOSTNAME in its environment. TLS is the host Caddy's existing Let's
+# Encrypt posture (global block stays the host's concern; none here).
+# ===========================================================================
+
+# --- Admin console -------------------------------------------------------
+{$CONSOLE_DOMAIN} {
+    encode zstd gzip
+
+    # The console's own Next.js health route — keep it on the console so the
+    # deploy healthcheck can probe it (the /api/* rule below would otherwise
+    # send it to the backend).
+    @consolehealth path /api/health
+    handle @consolehealth {
+        reverse_proxy kumbuka-console:3000
+    }
+
+    # Admin BFF API (auth + admin endpoints) — backend. Same-origin so the
+    # HttpOnly session cookie is set on the console host (ADR-0002 / ADR-0009).
+    @api path /api /api/*
+    handle @api {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # Everything else → the console UI.
+    handle {
+        reverse_proxy kumbuka-console:3000
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# --- MCP resource server -------------------------------------------------
+{$KUMBUKA_DOMAIN} {
+    encode zstd gzip
+
+    @mcp path /mcp /mcp/*
+    handle @mcp {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    @wellknown path /.well-known/*
+    handle @wellknown {
+        reverse_proxy kumbuka-backend:8080 {
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto https
+        }
+    }
+
+    # Nothing else lives on the MCP host.
+    handle {
+        respond "kumbuka MCP endpoint — POST /mcp" 404
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# --- Keycloak ------------------------------------------------------------
+{$KC_HOSTNAME} {
+    encode zstd gzip
+
+    reverse_proxy kumbuka-keycloak:8080 {
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto https
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

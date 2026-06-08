@@ -1,0 +1,227 @@
+{
+  "id": "kumbuka",
+  "realm": "kumbuka",
+  "displayName": "kumbuka.ai",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "member",
+        "description": "Team member. Can read shared scopes and write/read their own private scope."
+      },
+      {
+        "name": "admin",
+        "description": "Team admin. Can manage shared scopes, project scopes, and team members. Cannot read private memories."
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-kumbuka",
+    "composite": true,
+    "clientRole": false,
+    "containerId": "kumbuka"
+  },
+  "requiredCredentials": [
+    "password"
+  ],
+  "clients": [
+    {
+      "clientId": "kumbuka-connector",
+      "name": "Claude (claude.ai / Desktop / Mobile)",
+      "description": "Confidential OAuth client used by Claude MCP clients to obtain an access token for the /mcp endpoint. PKCE S256 + client secret both required (see ADR-0006).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "REPLACE_ME_CLIENT_SECRET",
+      "clientAuthenticatorType": "client-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "consentRequired": false,
+      "redirectUris": [
+        "https://claude.ai/api/mcp/auth_callback",
+        "https://claude.com/api/mcp/auth_callback",
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "webOrigins": [
+        "https://claude.ai",
+        "https://claude.com"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+",
+        "use.refresh.tokens": "true",
+        "client_credentials.use_refresh_token": "false",
+        "access.token.lifespan": "300",
+        "client.use.lightweight.access.token.enabled": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "kumbuka-connector audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "kumbuka-connector",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "kumbuka-admin",
+      "name": "Admin UI (BFF)",
+      "description": "Confidential web-app client. Used by the Quarkus backend (BFF) to run the authorization-code flow for the admin UI. The browser never sees this client's credentials or tokens.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "REPLACE_ME_CLIENT_SECRET",
+      "clientAuthenticatorType": "client-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "consentRequired": false,
+      "redirectUris": [
+        "https://console.kumbuka.ai/api/auth/callback",
+        "https://console.kumbuka.ai/*"
+      ],
+      "webOrigins": [
+        "https://console.kumbuka.ai"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://console.kumbuka.ai/*",
+        "use.refresh.tokens": "true",
+        "client.use.lightweight.access.token.enabled": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "kumbuka-backend",
+      "name": "Backend service account",
+      "description": "Confidential service-account client. Used by the Quarkus backend to call the Keycloak Admin REST API for user management. Has manage-users on the realm-management client.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "REPLACE_ME_CLIENT_SECRET",
+      "clientAuthenticatorType": "client-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "false",
+        "client_credentials.use_refresh_token": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-kumbuka-backend",
+      "enabled": true,
+      "serviceAccountClientId": "kumbuka-backend",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "view-realm",
+          "view-clients",
+          "manage-clients"
+        ]
+      }
+    }
+  ],
+  "clientScopeMappings": {
+    "realm-management": [
+      {
+        "client": "kumbuka-backend",
+        "roles": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "view-realm",
+          "view-clients",
+          "manage-clients"
+        ]
+      }
+    ]
+  },
+  "loginTheme": "kumbuka",
+  "accountTheme": "kumbuka",
+  "emailTheme": "kumbuka",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "en"
+  ],
+  "defaultLocale": "en",
+  "attributes": {
+    "frontendUrl": "https://auth.kumbuka.ai"
+  },
+  "smtpServer": {
+    "host": "smtp.gmail.com",
+    "port": "587",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "info@kumbuka.ai",
+    "password": "REPLACE_ME_SMTP_APP_PASSWORD",
+    "from": "info@kumbuka.ai",
+    "fromDisplayName": "kumbuka.ai",
+    "replyTo": "info@kumbuka.ai"
+  }
+}
