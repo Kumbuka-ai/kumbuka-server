@@ -231,6 +231,7 @@ class AdminScopesResourceTest {
         // the PATCH /{slug} handler instead.
         given()
             .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
             .when().post("/api/scopes/alpha:archive")
             .then().statusCode(204);
 
@@ -242,6 +243,7 @@ class AdminScopesResourceTest {
     void archive_member_isForbidden() {
         given()
             .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
             .when().post("/api/scopes/alpha:archive")
             .then().statusCode(403);
     }
@@ -254,6 +256,7 @@ class AdminScopesResourceTest {
 
         given()
             .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
             .when().post("/api/scopes/personal:archive")
             .then().statusCode(404);
     }
