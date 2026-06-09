@@ -56,6 +56,10 @@ import java.util.UUID;
 @TenantBound
 public class EraseSubjectResource {
 
+    /** Error-envelope keys reused across the refusal branches. */
+    private static final String KEY_ERROR = "error";
+    private static final String KEY_MESSAGE = "message";
+
     @Inject ErasureConfig config;
     @Inject TenantResolver resolver;
     @Inject MemberErasureService erasure;
@@ -74,21 +78,21 @@ public class EraseSubjectResource {
         if (configured.isEmpty()) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                 .entity(Map.of(
-                    "error", "erase_endpoint_not_configured",
-                    "message", "kumbuka.internal.erasure.token is unset"))
+                    KEY_ERROR, "erase_endpoint_not_configured",
+                    KEY_MESSAGE, "kumbuka.internal.erasure.token is unset"))
                 .build();
         }
         if (authHeader == null || !authHeader.equals("Bearer " + configured)) {
             return Response.status(Response.Status.UNAUTHORIZED)
-                .entity(Map.of("error", "unauthorized"))
+                .entity(Map.of(KEY_ERROR, "unauthorized"))
                 .build();
         }
         if (req == null || req.tenantId() == null
                 || req.subject() == null || req.subject().isBlank()) {
             return Response.status(Response.Status.BAD_REQUEST)
                 .entity(Map.of(
-                    "error", "bad_request",
-                    "message", "tenantId and subject are required"))
+                    KEY_ERROR, "bad_request",
+                    KEY_MESSAGE, "tenantId and subject are required"))
                 .build();
         }
 
@@ -99,8 +103,8 @@ public class EraseSubjectResource {
             // to our own tenant.
             return Response.status(Response.Status.BAD_REQUEST)
                 .entity(Map.of(
-                    "error", "tenant_mismatch",
-                    "message", "request tenant does not match this server's tenant"))
+                    KEY_ERROR, "tenant_mismatch",
+                    KEY_MESSAGE, "request tenant does not match this server's tenant"))
                 .build();
         }
 
