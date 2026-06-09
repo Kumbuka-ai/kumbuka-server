@@ -14,7 +14,7 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 die() { log "ERROR: $*"; exit 1; }
 
 load_env() {
-  [ -f "$ENVFILE" ] || die "missing $ENVFILE"
+  [[ -f "$ENVFILE" ]] || die "missing $ENVFILE"
   set -a; . "$ENVFILE"; set +a
 }
 
@@ -30,7 +30,7 @@ set_env() {
 }
 
 ghcr_login() {
-  [ -f "$GHCR_PAT_FILE" ] || die "missing GHCR PAT at $GHCR_PAT_FILE"
+  [[ -f "$GHCR_PAT_FILE" ]] || die "missing GHCR PAT at $GHCR_PAT_FILE"
   log "docker login ghcr.io as $GHCR_USERNAME"
   docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin < "$GHCR_PAT_FILE" >/dev/null \
     || die "ghcr login failed"
@@ -49,7 +49,7 @@ dump_db() {
   local db="$1" out="$2"
   "${COMPOSE[@]}" exec -T kumbuka-postgres pg_dump -U "$POSTGRES_USER" -Fc "$db" > "$out" \
     || die "pg_dump of $db failed"
-  [ -s "$out" ] || die "pg_dump of $db produced an empty file"
+  [[ -s "$out" ]] || die "pg_dump of $db produced an empty file"
 }
 
 # Wait until all kumbuka services with a healthcheck report healthy.
@@ -61,12 +61,12 @@ wait_containers_healthy() {
     local all_ok=1
     for svc in kumbuka-postgres kumbuka-keycloak kumbuka-backend kumbuka-console; do
       cid="$("${COMPOSE[@]}" ps -q "$svc" 2>/dev/null || true)"
-      if [ -z "$cid" ]; then all_ok=0; break; fi
+      if [[ -z "$cid" ]]; then all_ok=0; break; fi
       st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo missing)"
-      if [ "$st" != "healthy" ]; then all_ok=0; break; fi
+      if [[ "$st" != "healthy" ]]; then all_ok=0; break; fi
     done
-    if [ "$all_ok" = 1 ]; then log "all containers healthy"; return 0; fi
-    if [ "$SECONDS" -ge "$deadline" ]; then
+    if [[ "$all_ok" = 1 ]]; then log "all containers healthy"; return 0; fi
+    if [[ "$SECONDS" -ge "$deadline" ]]; then
       log "containers not healthy within ${timeout}s (last: $svc=$st)"
       "${COMPOSE[@]}" ps || true
       return 1
@@ -91,7 +91,7 @@ public_healthcheck() {
   log "public healthcheck (<=${timeout}s): protected-resource@${KUMBUKA_DOMAIN}, /api/health@${CONSOLE_DOMAIN}, openid-config@${KC_HOSTNAME}"
   while :; do
     if public_healthcheck_once; then log "public healthcheck OK"; return 0; fi
-    if [ "$SECONDS" -ge "$deadline" ]; then log "public healthcheck FAILED within ${timeout}s"; return 1; fi
+    if [[ "$SECONDS" -ge "$deadline" ]]; then log "public healthcheck FAILED within ${timeout}s"; return 1; fi
     sleep 2
   done
 }
