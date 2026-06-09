@@ -3,7 +3,9 @@ package ai.kumbuka.keycloak;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakAdminException;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
-import jakarta.ws.rs.core.MultivaluedHashMap;
+import io.quarkus.test.InjectMock;
+import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,18 +39,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit-tests the Keycloak Admin REST wrapper.
- *
- * Goal: lock down the behaviour the resource layer relies on, without
- * paying the Quarkus container startup. The {@link Keycloak} chain
- * (Keycloak → RealmResource → UsersResource → UserResource → ...) is
- * mocked at each level. Real Keycloak interaction is exercised by the
- * Phase 11 Testcontainers suite.
+ * Tests the {@link KeycloakAdminService} via Quarkus CDI so quarkus-jacoco
+ * records the bytecode hits (a plain JUnit test wouldn't show up in coverage —
+ * Quarkus reloads classes through its own classloader). The {@link Keycloak}
+ * admin client and {@link MemoryConfig} are mocked at the CDI layer; the
+ * real service is injected and exercised.
  */
+@QuarkusTest
 class KeycloakAdminServiceTest {
 
-    private KeycloakAdminService svc;
-    private Keycloak keycloak;
+    @Inject KeycloakAdminService svc;
+    @InjectMock Keycloak keycloak;
+    @InjectMock MemoryConfig config;
+
     private RealmResource realm;
     private UsersResource users;
     private RolesResource roles;
@@ -56,7 +59,6 @@ class KeycloakAdminServiceTest {
 
     @BeforeEach
     void setUp() {
-        keycloak = mock(Keycloak.class);
         realm = mock(RealmResource.class);
         users = mock(UsersResource.class);
         roles = mock(RolesResource.class);
@@ -67,12 +69,7 @@ class KeycloakAdminServiceTest {
         when(realm.roles()).thenReturn(roles);
         when(realm.clients()).thenReturn(clients);
 
-        MemoryConfig config = mock(MemoryConfig.class);
         when(config.realm()).thenReturn("kumbuka");
-
-        svc = new KeycloakAdminService();
-        svc.keycloak = keycloak;
-        svc.config = config;
     }
 
     private static UserRepresentation rep(String id, String email, Boolean enabled, Boolean emailVerified, Long created) {
@@ -92,7 +89,7 @@ class KeycloakAdminServiceTest {
         when(users.get(id)).thenReturn(ur);
     }
 
-    /** Wire a user resource whose role listAll returns the given role names. */
+    /** A user resource whose role listAll returns the given role names. */
     private UserResource userWithRoles(UserRepresentation rep, String... roleNames) {
         UserResource ur = mock(UserResource.class);
         when(ur.toRepresentation()).thenReturn(rep);
@@ -129,7 +126,6 @@ class KeycloakAdminServiceTest {
 
     @Test
     void toView_unverifiedEmail_isMarkedInvited() {
-        // enabled=true + emailVerified=false → still pending password setup
         UserRepresentation u = rep("k2", "bob@x", true, false, 1L);
         UserResource ur = userWithRoles(u, "member");
         stubUserResource("k2", ur);
@@ -148,7 +144,7 @@ class KeycloakAdminServiceTest {
         KeycloakUser view = svc.listUsers().get(0);
 
         assertThat(view.status()).isEqualTo("active");
-        // The role-mapping filter only surfaces admin/member; uma_authorization is ignored.
+        // The role-mapping filter surfaces admin/member only; uma_authorization is ignored.
         assertThat(view.role()).isEqualTo("admin");
     }
 
@@ -176,10 +172,8 @@ class KeycloakAdminServiceTest {
 
     @Test
     void toView_noKnownRole_defaultsToMember() {
-        // The user has no admin/member assignment — the filter result is empty and
-        // we fall back to "member" via .orElse(...), not to null.
         UserRepresentation u = rep("k6", "frank@x", true, true, 4L);
-        UserResource ur = userWithRoles(u /* no roles */ );
+        UserResource ur = userWithRoles(u /* no admin/member */);
         stubUserResource("k6", ur);
         when(users.list()).thenReturn(List.of(u));
 
@@ -203,20 +197,16 @@ class KeycloakAdminServiceTest {
 
     @Test
     void invite_assignsRoleAndSendsEnrolmentEmail() {
-        // Keycloak.users().create(rep) returns a Response with a Location header
-        // containing the new user id. CreatedResponseUtil extracts that id.
         Response created = Response
             .status(201)
             .location(URI.create("http://kc/admin/realms/kumbuka/users/new-id"))
             .build();
         when(users.create(any(UserRepresentation.class))).thenReturn(created);
 
-        // findById path after creation
         UserRepresentation persisted = rep("new-id", "new@x", true, false, 99L);
         UserResource ur = userWithRoles(persisted, "member");
         stubUserResource("new-id", ur);
 
-        // assignRealmRole path: realm.roles().get("member").toRepresentation()
         RoleResource roleRes = mock(RoleResource.class);
         RoleRepresentation memberRole = new RoleRepresentation();
         memberRole.setName("member");
@@ -228,7 +218,6 @@ class KeycloakAdminServiceTest {
         assertThat(out.id()).isEqualTo("new-id");
         assertThat(out.status()).isEqualTo("invited");
 
-        // Confirm the user rep that was sent for creation has the expected flags.
         ArgumentCaptor<UserRepresentation> sent = ArgumentCaptor.forClass(UserRepresentation.class);
         verify(users).create(sent.capture());
         UserRepresentation r = sent.getValue();
@@ -237,7 +226,6 @@ class KeycloakAdminServiceTest {
         assertThat(r.isEnabled()).isTrue();
         assertThat(r.isEmailVerified()).isFalse();
 
-        // Role assignment + enrolment email both ran
         verify(ur.roles().realmLevel()).add(anyList());
         verify(ur).executeActionsEmail(List.of("UPDATE_PASSWORD"));
     }
@@ -251,7 +239,6 @@ class KeycloakAdminServiceTest {
             .isInstanceOf(KeycloakAdminException.class)
             .hasMessageContaining("HTTP 409");
 
-        // No role assignment when the create itself failed.
         verify(roles, never()).get(anyString());
     }
 
@@ -270,7 +257,6 @@ class KeycloakAdminServiceTest {
 
     @Test
     void invite_emailFailureDoesNotPropagate() {
-        // Even when the enrolment email fails, the user is created and returned.
         Response created = Response.status(201)
             .location(URI.create("http://kc/users/email-fail")).build();
         when(users.create(any(UserRepresentation.class))).thenReturn(created);
@@ -294,7 +280,6 @@ class KeycloakAdminServiceTest {
 
     @Test
     void updateRole_removesPreviousAndAddsNew() {
-        // user is currently admin → switching to member should remove "admin"
         UserResource ur = mock(UserResource.class);
         RoleMappingResource rmr = mock(RoleMappingResource.class);
         RoleScopeResource rsr = mock(RoleScopeResource.class);
@@ -317,7 +302,7 @@ class KeycloakAdminServiceTest {
 
         svc.updateRole("u1", "member");
 
-        // Only the admin/member roles get removed — uma_authorization must stay.
+        @SuppressWarnings("unchecked")
         ArgumentCaptor<List<RoleRepresentation>> removed = ArgumentCaptor.forClass(List.class);
         verify(rsr).remove(removed.capture());
         assertThat(removed.getValue()).extracting(RoleRepresentation::getName)
@@ -333,7 +318,7 @@ class KeycloakAdminServiceTest {
         RoleScopeResource rsr = mock(RoleScopeResource.class);
         when(ur.roles()).thenReturn(rmr);
         when(rmr.realmLevel()).thenReturn(rsr);
-        when(rsr.listAll()).thenReturn(List.of()); // no admin/member to remove
+        when(rsr.listAll()).thenReturn(List.of());
         stubUserResource("u2", ur);
 
         RoleResource rr = mock(RoleResource.class);
@@ -442,11 +427,5 @@ class KeycloakAdminServiceTest {
         ClientResource clientRes = mock(ClientResource.class);
         when(clients.get("uuid-of-" + clientId)).thenReturn(clientRes);
         when(clientRes.getSecret()).thenReturn(null);
-    }
-
-    // Quieten "unused" warnings on imports used only by other tests
-    @SuppressWarnings("unused")
-    private void unused() {
-        MultivaluedHashMap<String, String> ignored = null;
     }
 }
