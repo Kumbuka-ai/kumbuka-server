@@ -112,4 +112,133 @@ class AdminUsersResourceTest {
 
         verify(keycloak).updateEnabled("k1", true);
     }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void invite_blankEmail_rejectsAs400() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"email": "", "role": "member"}
+                """)
+            .when().post("/api/users")
+            .then().statusCode(400);
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void invite_nullEmail_rejectsAs400() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"role": "member"}
+                """)
+            .when().post("/api/users")
+            .then().statusCode(400);
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void invite_nullRole_defaultsToMember() {
+        // Role defaults to 'member' when omitted (the @RolesAllowed gate is
+        // already satisfied; this is just the body shape).
+        when(keycloak.invite(anyString(), any(), any(), eq("member")))
+            .thenReturn(new KeycloakUser("k", "u", "u@x", null, null, "member", "invited", Instant.now()));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"email": "u@x"}
+                """)
+            .when().post("/api/users")
+            .then().statusCode(201);
+
+        verify(keycloak).invite("u@x", null, null, "member");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void invite_emailIsTrimmed_beforeForwarding() {
+        when(keycloak.invite(eq("u@x"), any(), any(), anyString()))
+            .thenReturn(new KeycloakUser("k", "u", "u@x", null, null, "member", "invited", Instant.now()));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"email": "  u@x  ", "role": "admin"}
+                """)
+            .when().post("/api/users")
+            .then().statusCode(201);
+
+        // Trim happens in the resource before delegating.
+        verify(keycloak).invite("u@x", null, null, "admin");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void update_invalidRole_rejectsAs400() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"role": "owner"}
+                """)
+            .when().patch("/api/users/k1")
+            .then().statusCode(400);
+
+        verify(keycloak, org.mockito.Mockito.never()).updateRole(any(), any());
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void update_roleOnly_delegatesUpdateRole_andNotUpdateEnabled() {
+        when(keycloak.findById("k1")).thenReturn(
+            new KeycloakUser("k1", "alice", "alice@x", null, null, "admin", "active", Instant.now()));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"role": "admin"}
+                """)
+            .when().patch("/api/users/k1")
+            .then().statusCode(200);
+
+        verify(keycloak).updateRole("k1", "admin");
+        verify(keycloak, org.mockito.Mockito.never()).updateEnabled(any(), org.mockito.Mockito.anyBoolean());
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void update_roleAndEnabled_bothDelegated() {
+        when(keycloak.findById("k1")).thenReturn(
+            new KeycloakUser("k1", "alice", "alice@x", null, null, "member", "active", Instant.now()));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"role": "member", "enabled": true}
+                """)
+            .when().patch("/api/users/k1")
+            .then().statusCode(200);
+
+        verify(keycloak).updateRole("k1", "member");
+        verify(keycloak).updateEnabled("k1", true);
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void update_emptyBody_returnsUserUnchanged_noDelegation() {
+        // Empty PATCH body: nothing to change, but the endpoint still re-reads
+        // and returns the current view. Both update methods stay quiet.
+        when(keycloak.findById("k1")).thenReturn(
+            new KeycloakUser("k1", "alice", "alice@x", null, null, "member", "active", Instant.now()));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("{}")
+            .when().patch("/api/users/k1")
+            .then().statusCode(200);
+
+        verify(keycloak, org.mockito.Mockito.never()).updateRole(any(), any());
+        verify(keycloak, org.mockito.Mockito.never()).updateEnabled(any(), org.mockito.Mockito.anyBoolean());
+    }
 }
