@@ -182,6 +182,11 @@ This is the product's backbone, not a feature flag:
   account, and the invite flow) so it reads as a deliberate guarantee, not an omission.
 - Disabling a user suspends their account but **leaves their private memory untouched and
   theirs**.
+- **Erasure** (account deletion / right-to-erasure) is the deliberate counterpart to disable:
+  it removes the account and the member's **entire private scope**, while **retaining** the
+  entries they authored in shared scopes with their **authorship anonymized** to a tombstone
+  identity. Reversible during a configurable grace window (default 30 days), then permanent.
+  Ratified in [ADR-0015](adr/0015-member-erasure-semantics.md).
 
 When in doubt, this guarantee wins over convenience.
 
