@@ -226,7 +226,11 @@ class AdminScopesResourceTest {
         Scope alpha = scope("alpha", ScopeKind.PROJECT, false);
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
 
+        // The colon in `/{slug}:archive` needs urlEncodingEnabled(false) —
+        // RestAssured otherwise %3A-encodes it and JAX-RS routes that to
+        // the PATCH /{slug} handler instead.
         given()
+            .urlEncodingEnabled(false)
             .when().post("/api/scopes/alpha:archive")
             .then().statusCode(204);
 
@@ -237,6 +241,7 @@ class AdminScopesResourceTest {
     @TestSecurity(user = "u", roles = {"member"})
     void archive_member_isForbidden() {
         given()
+            .urlEncodingEnabled(false)
             .when().post("/api/scopes/alpha:archive")
             .then().statusCode(403);
     }
@@ -248,6 +253,7 @@ class AdminScopesResourceTest {
         when(scopes.requireBySlug("personal")).thenReturn(priv);
 
         given()
+            .urlEncodingEnabled(false)
             .when().post("/api/scopes/personal:archive")
             .then().statusCode(404);
     }
