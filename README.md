@@ -1,5 +1,14 @@
 # kumbuka-server — Universal Memory MCP (Team Edition, OSS)
 
+![License](https://img.shields.io/badge/license-AGPL_v3-FF5B1F?style=flat-square)
+![Java](https://img.shields.io/badge/Java-21-2D4059?style=flat-square&logo=openjdk&logoColor=F4F1EA)
+![Quarkus](https://img.shields.io/badge/Quarkus-2D4059?style=flat-square&logo=quarkus&logoColor=F4F1EA)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-2D4059?style=flat-square&logo=postgresql&logoColor=F4F1EA)
+![Keycloak](https://img.shields.io/badge/Keycloak-OAuth_2.1-2D4059?style=flat-square&logo=keycloak&logoColor=F4F1EA)
+![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-FF5B1F?style=flat-square)
+![Private memory](https://img.shields.io/badge/private_memory-structurally_guaranteed-141820?style=flat-square&labelColor=FF5B1F)
+![CI](https://img.shields.io/github/actions/workflow/status/kumbuka-ai/kumbuka-server/ci.yml?style=flat-square&label=CI&color=FF5B1F)
+
 Self-hostable team memory system exposed as a remote **Model Context Protocol**
 (MCP) server over Streamable HTTP. Reachable from claude.ai, Claude Desktop,
 Claude Mobile, and Claude Code. Everything runs in Docker, orchestrated by a
