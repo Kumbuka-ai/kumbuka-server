@@ -8,6 +8,7 @@ import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -40,24 +41,32 @@ class MemberErasureServiceTest {
     @Inject MemberErasureService service;
     @Inject ErasureConfig config;
 
-    private static final String ALICE = "alice-kc-sub";
-    private static final String BOB   = "bob-kc-sub";
+    private static final String ALICE = "erasure-alice-kc-sub";
+    private static final String BOB   = "erasure-bob-kc-sub";
+
+    /**
+     * Slug/name chosen so it cannot collide with other tests' fixtures
+     * (notably {@code WritePolicyResolverTest} which uses {@code alpha}).
+     * The DevServices Postgres is shared across the test run, so test
+     * scopes must be self-quarantined.
+     */
+    private static final String PROJECT_SLUG = "erasure-test-project";
 
     /**
      * The V1 seed gives us a singleton private + global scope already.
-     * The test additionally creates a 'project' scope created_by Alice
-     * so the scope-tombstone branch has a row to act on.
+     * The test additionally creates a self-quarantined 'project' scope
+     * created_by Alice so the scope-tombstone branch has a row to act on.
      */
     @BeforeEach
     @Transactional
     void cleanAndSeed() {
-        Memory.deleteAll();
-        // Don't drop the V1 seed scopes — only the project one we add here.
-        Scope.delete("kind = ?1", ScopeKind.PROJECT);
+        // Remove our own fixtures only, never other tests' scopes.
+        Memory.delete("ownerSubject in ?1", java.util.List.of(ALICE, BOB));
+        Scope.delete("slug = ?1", PROJECT_SLUG);
 
         Scope alphaProject = new Scope();
-        alphaProject.slug = "alpha";
-        alphaProject.name = "alpha";
+        alphaProject.slug = PROJECT_SLUG;
+        alphaProject.name = PROJECT_SLUG;
         alphaProject.kind = ScopeKind.PROJECT;
         alphaProject.fixed = false;
         alphaProject.archived = false;
@@ -69,12 +78,23 @@ class MemberErasureServiceTest {
         assertThat(privateScope).as("V1 seed must include the private scope").isNotNull();
         assertThat(globalScope).as("V1 seed must include the global scope").isNotNull();
 
-        persistMemory(ALICE, privateScope, "alice-private-1", MemoryType.DECISION, "alice secret 1");
-        persistMemory(ALICE, privateScope, "alice-private-2", MemoryType.STATUS,   "alice secret 2");
+        persistMemory(ALICE, privateScope, "erasure-alice-private-1", MemoryType.DECISION, "alice secret 1");
+        persistMemory(ALICE, privateScope, "erasure-alice-private-2", MemoryType.STATUS,   "alice secret 2");
         persistMemory(BOB,   privateScope, "bob-private",     MemoryType.DECISION, "bob secret");
         persistMemory(ALICE, globalScope,  "alice-global",    MemoryType.CONVENTION, "ship daily");
         persistMemory(ALICE, alphaProject, "alice-project",   MemoryType.CONSTRAINT, "no force pushes");
         persistMemory(BOB,   globalScope,  "bob-global",      MemoryType.GLOSSARY,   "RLS = Row-Level Security");
+    }
+
+    /** Remove our own fixtures so we don't leak state to downstream tests. */
+    @AfterEach
+    @Transactional
+    void cleanup() {
+        final String tombstone = config.tombstoneSubject();
+        Memory.delete(
+            "ownerSubject in ?1",
+            java.util.List.of(ALICE, BOB, tombstone));
+        Scope.delete("slug = ?1", PROJECT_SLUG);
     }
 
     @Transactional
@@ -127,9 +147,9 @@ class MemberErasureServiceTest {
             .hasSize(1);
 
         // Project scope content stays; only createdBy is tombstoned
-        Scope alpha = Scope.find("slug = ?1", "alpha").firstResult();
-        assertThat(alpha).isNotNull();
-        assertThat(alpha.createdBy).isEqualTo(tombstone);
+        Scope projectScope = Scope.find("slug = ?1", PROJECT_SLUG).firstResult();
+        assertThat(projectScope).isNotNull();
+        assertThat(projectScope.createdBy).isEqualTo(tombstone);
     }
 
     @Test
