@@ -1,6 +1,5 @@
 package ai.kumbuka.keycloak;
 
-import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakAdminException;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
 import io.quarkus.test.InjectMock;
@@ -50,7 +49,10 @@ class KeycloakAdminServiceTest {
 
     @Inject KeycloakAdminService svc;
     @InjectMock Keycloak keycloak;
-    @InjectMock MemoryConfig config;
+    // MemoryConfig is @Dependent (a @ConfigMapping interface), so it can't be
+    // @InjectMock'd. The real config from %test profile is used; whatever realm
+    // string it returns lands as the argument to keycloak.realm(...), which our
+    // stub matches via anyString().
 
     private RealmResource realm;
     private UsersResource users;
@@ -68,8 +70,6 @@ class KeycloakAdminServiceTest {
         when(realm.users()).thenReturn(users);
         when(realm.roles()).thenReturn(roles);
         when(realm.clients()).thenReturn(clients);
-
-        when(config.realm()).thenReturn("kumbuka");
     }
 
     private static UserRepresentation rep(String id, String email, Boolean enabled, Boolean emailVerified, Long created) {
