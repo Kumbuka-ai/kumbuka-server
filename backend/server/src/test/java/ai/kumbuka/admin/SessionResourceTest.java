@@ -2,8 +2,6 @@ package ai.kumbuka.admin;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
-import io.quarkus.test.security.oidc.OidcSecurity;
-import io.quarkus.test.security.oidc.UserInfo;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.Test;
 
@@ -14,10 +12,14 @@ import static org.hamcrest.Matchers.nullValue;
 
 /**
  * Verifies the session surface (D2 — account = link-out hybrid):
- *   GET  /api/auth/me  — identity + role + Keycloak account-console deeplink
+ *   GET   /api/auth/me — identity + role + Keycloak account-console deeplink
  *   PATCH /api/auth/me — display-name update (only writable field)
- * Authentication is faked via @TestSecurity; UserAccount JPA writes happen
- * against the test datasource (DevServices Postgres).
+ *
+ * Authentication is faked via {@link TestSecurity}. {@code @TestSecurity}
+ * doesn't populate OIDC claims, so {@code identity.getAttribute("email")}
+ * resolves to {@code null} in these tests — that's the same code path
+ * users hit before they pick up an IdP email mapping, and the resource
+ * tolerates it gracefully (the spec's null-fallback).
  */
 @QuarkusTest
 class SessionResourceTest {
@@ -31,28 +33,23 @@ class SessionResourceTest {
 
     @Test
     @TestSecurity(user = "sub-alice", roles = {"member"})
-    @OidcSecurity(userinfo = {
-        @UserInfo(key = "email", value = "alice@kumbuka.ai")
-    })
-    void me_asMember_returnsRoleMemberAndAccountUrl() {
+    void me_asMember_returnsSubjectRoleAndAccountUrl() {
         given()
             .when().get("/api/auth/me")
             .then()
                 .statusCode(200)
                 .body("subject", equalTo("sub-alice"))
                 .body("role", equalTo("member"))
+                // accountConsoleUrl is composed from authBaseUrl + /realms/{realm}/account.
                 .body("accountConsoleUrl", containsString("/realms/"))
                 .body("accountConsoleUrl", containsString("/account"));
     }
 
     @Test
     @TestSecurity(user = "sub-root", roles = {"admin", "member"})
-    @OidcSecurity(userinfo = {
-        @UserInfo(key = "email", value = "root@kumbuka.ai")
-    })
     void me_withAdminRole_isAdminNotMember() {
-        // Role precedence: admin wins when both are present (single string role
-        // in the response, not an array).
+        // Role precedence: admin wins when both are present (single string in
+        // the response, not an array).
         given()
             .when().get("/api/auth/me")
             .then()
@@ -62,7 +59,10 @@ class SessionResourceTest {
 
     @Test
     @TestSecurity(user = "sub-no-email", roles = {"member"})
-    void me_withoutEmail_returnsNullEmailAndDisplayName() {
+    void me_withoutEmailClaim_returnsNullEmailAndDisplayName() {
+        // displayName falls back to the email (also null here when no
+        // UserAccount row exists for this fresh subject). The view must
+        // serialise both as null, not propagate "Unknown" or similar.
         given()
             .when().get("/api/auth/me")
             .then()
@@ -73,13 +73,10 @@ class SessionResourceTest {
 
     @Test
     @TestSecurity(user = "sub-patch", roles = {"member"})
-    @OidcSecurity(userinfo = {
-        @UserInfo(key = "email", value = "patch@kumbuka.ai")
-    })
     void updateMe_setsDisplayName_thenReadBack() {
-        // PATCH is a no-op when no UserAccount row exists for this subject (the
-        // spec lets that be silent — the row appears on first IdP claim sync,
-        // Phase 8). The endpoint still returns the current session view.
+        // PATCH is a no-op when no UserAccount row exists for this subject —
+        // Phase 8 will sync rows on first IdP claim. The endpoint still
+        // returns the current session view rather than 404.
         given()
             .contentType(ContentType.JSON)
             .body("""
@@ -93,12 +90,9 @@ class SessionResourceTest {
 
     @Test
     @TestSecurity(user = "sub-x", roles = {"member"})
-    @OidcSecurity(userinfo = {
-        @UserInfo(key = "email", value = "x@kumbuka.ai")
-    })
     void updateMe_nullDisplayName_isTolerated() {
-        // displayName=null means "no change" (clearing the name is not a
-        // supported operation here).
+        // displayName=null means "no change" (clearing it is not a supported
+        // operation here). The endpoint returns the current session view.
         given()
             .contentType(ContentType.JSON)
             .body("{}")
