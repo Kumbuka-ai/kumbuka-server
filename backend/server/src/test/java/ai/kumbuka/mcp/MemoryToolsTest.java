@@ -166,7 +166,7 @@ class MemoryToolsTest {
         assertThat(out.memory()).isNull();
         assertThat(out.prompt()).isNotNull();
         assertThat(out.prompt().reason()).contains("write policy is 'ask'");
-        assertThat(out.prompt().scopes())
+        assertThat(out.prompt().available())
             .extracting(Dtos.ScopeDto::slug)
             .containsExactlyInAnyOrder("global", "alpha");
         // Service never reached.
