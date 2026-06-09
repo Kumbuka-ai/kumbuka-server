@@ -30,6 +30,7 @@
 
         <surefire-plugin.version>3.5.0</surefire-plugin.version>
         <failsafe-plugin.version>3.5.0</failsafe-plugin.version>
+        <jacoco-plugin.version>0.8.12</jacoco-plugin.version>
     </properties>
 
     <dependencyManagement>
@@ -153,6 +154,14 @@
             <version>1.20.4</version>
             <scope>test</scope>
         </dependency>
+        <!-- Instruments @QuarkusTest-driven code for JaCoCo (the Quarkus test
+             classloader otherwise hides coverage). Writes target/jacoco-quarkus.exec,
+             which the jacoco-maven-plugin's report goal merges with target/jacoco.exec. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-jacoco</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -197,6 +206,47 @@
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <!--
+                Coverage. Two exec files are produced:
+                  - target/jacoco.exec         (plain JUnit unit tests, via the
+                                                jacoco agent attached below)
+                  - target/jacoco-quarkus.exec (@QuarkusTest classes, via the
+                                                quarkus-jacoco extension — see
+                                                quarkus.jacoco.* in
+                                                application.properties)
+                The `report` goal merges both into a single XML report at
+                target/site/jacoco/jacoco.xml, which Sonar consumes
+                (sonar.coverage.jacoco.xmlReportPaths in sonar-project.properties).
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <append>true</append>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <dataFileIncludes>
+                                <dataFileInclude>**/jacoco*.exec</dataFileInclude>
+                            </dataFileIncludes>
+                            <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
