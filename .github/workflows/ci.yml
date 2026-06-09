@@ -116,9 +116,14 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: compile backend
+      # `verify -Pintegration` so JaCoCo's exec files are produced (both
+      # the plain unit-test target/jacoco.exec and the @QuarkusTest
+      # target/jacoco-quarkus.exec) and merged into the XML report at
+      # target/site/jacoco/jacoco.xml — picked up by the scan-action
+      # via sonar.coverage.jacoco.xmlReportPaths in sonar-project.properties.
+      - name: backend verify (compile + tests + jacoco)
         working-directory: backend
-        run: mvn -B -ntp -DskipTests compile
+        run: mvn -B -ntp -Pintegration verify
 
       - name: SonarQube Cloud scan
         uses: SonarSource/sonarqube-scan-action@v6
