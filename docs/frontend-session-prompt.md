@@ -60,4 +60,4 @@ the backend isn't ready, mock behind that client so the swap is trivial. `README
 ## Discipline
 Produce a build plan + component/route map first and **wait for my go** before scaffolding.
 Match the prototype's look; deviate only with a stated reason. Do not invent decisions — ask
-or record an ADR. English artifacts. Apache-2.0.
+or record an ADR. English artifacts. AGPL-3.0.

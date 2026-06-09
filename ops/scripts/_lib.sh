@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Shared helpers for the kumbuka deploy scripts. Sourced, not executed.
-# Apache-2.0.
+# AGPL-3.0.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 

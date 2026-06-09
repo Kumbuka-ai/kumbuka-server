@@ -3,7 +3,7 @@
    Ported verbatim from design/keycloak/keycloak.css (the design
    reference), with the Google-Fonts <link> replaced by the
    @font-face block below pointing at the bundled woff2 files.
-   SPDX-License-Identifier: Apache-2.0
+   SPDX-License-Identifier: AGPL-3.0-only
    ============================================================ */
 
 /* ---- Self-hosted webfonts (latin + latin-ext, OFL-1.1) ---------- */

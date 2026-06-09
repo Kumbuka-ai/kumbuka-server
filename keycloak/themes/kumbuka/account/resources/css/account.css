@@ -5,7 +5,7 @@
    forks. If the brand wants a change that can't be reached via a
    PatternFly var or a logo swap, flag it in ADR-0010 and add it
    here only as a narrow surgical override.
-   SPDX-License-Identifier: Apache-2.0
+   SPDX-License-Identifier: AGPL-3.0-only
    ============================================================ */
 
 /* ---- Self-hosted webfonts (latin + latin-ext, OFL-1.1) ---------- */

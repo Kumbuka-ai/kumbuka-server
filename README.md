@@ -13,7 +13,7 @@ single `docker-compose.yml`.
 > in `docker-compose.yml`). The commercial multi-tenant edition is built on
 > the `ai.kumbuka.tenancy.TenantResolver` SPI frozen here (ADR-0011).
 
-License: **Apache-2.0**.
+License: **AGPL-3.0**.
 
 > **Status.** Backend complete (Phases 0–11); frontend admin console is the
 > next milestone. The MCP surface, admin REST API, OAuth integration with

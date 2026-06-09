@@ -3,7 +3,7 @@
 # rollback.sh [vX.Y.Z] — roll the app services back to a previous image tag.
 # Default tag: KUMBUKA_PREVIOUS_VERSION from .env. Schema is NOT rolled back
 # (forward-only Flyway, N-1 compatible — see ADR-0012); for schema issues,
-# restore the pre-deploy pg_dump manually. Apache-2.0.
+# restore the pre-deploy pg_dump manually. AGPL-3.0.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"

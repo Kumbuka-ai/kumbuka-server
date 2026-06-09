@@ -4,7 +4,7 @@
 # snapshots). Dumps both databases in custom format (pg_restore --list-able)
 # into ~/kumbuka/backups/scheduled-<UTC>.{kumbuka,keycloak}.dump.
 # Retention: 14 days. Intended to run from a systemd timer / cron every 6h.
-# Apache-2.0.
+# AGPL-3.0.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
