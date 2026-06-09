@@ -115,7 +115,7 @@ Where a new memory lands when the assistant isn't told a scope is governed by th
 
 ## 5. Architecture
 
-A single **Docker Compose** stack, all artifacts in **English**, licensed **Apache-2.0**.
+A single **Docker Compose** stack, all artifacts in **English**, licensed **AGPL-3.0**.
 
 **Backend** — **Java 21 + Quarkus**. Key extensions: `quarkus-mcp-server-http` (Streamable
 HTTP — not SSE), `quarkus-oidc`, `quarkus-rest` + Jackson, `quarkus-hibernate-orm-panache`,
@@ -260,7 +260,7 @@ authoritative spec**; where it and the prototype disagree, the handoff wins.
 ## 11. Key decisions digest (do not re-litigate)
 
 **Architecture:** Quarkus backend; MCP over Streamable HTTP; Postgres; Keycloak (headless);
-Next.js + Tailwind v4 console; single Docker Compose; Apache-2.0. OAuth 2.1 via Keycloak,
+Next.js + Tailwind v4 console; single Docker Compose; AGPL-3.0. OAuth 2.1 via Keycloak,
 backend in two OIDC roles, BFF for the console, frontend never holds tokens.
 
 **Ratified Q&A:**

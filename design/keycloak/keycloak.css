@@ -6,7 +6,7 @@
    Canonical look: deep-ink editorial. Radius 0. No shadows. One orange.
    In a real theme this becomes  theme/kumbuka/login/resources/css/kumbuka.css
    and the markup below maps 1:1 to the .ftl templates (see handoff).
-   SPDX-License-Identifier: Apache-2.0
+   SPDX-License-Identifier: AGPL-3.0-only
    ============================================================ */
 
 :root {

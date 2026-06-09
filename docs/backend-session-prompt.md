@@ -79,4 +79,4 @@ never surface another user's private rows.
 ## Discipline
 Produce a build plan + repo layout first and **wait for my go** before scaffolding. Do not
 invent architectural decisions — ask, or record an ADR and surface it. English artifacts.
-Apache-2.0. Verify the OAuth flow with **MCP Inspector** before the claude.ai web client.
+AGPL-3.0. Verify the OAuth flow with **MCP Inspector** before the claude.ai web client.

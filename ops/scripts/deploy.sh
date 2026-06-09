@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # deploy.sh vX.Y.Z — pull a GHCR-tagged release and roll it out, with a
 # pre-deploy DB snapshot and automatic rollback on healthcheck failure.
-# Lockfile-guarded and idempotent. Apache-2.0.
+# Lockfile-guarded and idempotent. AGPL-3.0.
 #
 # See ../README.md for the full runbook.
 # ---------------------------------------------------------------------------

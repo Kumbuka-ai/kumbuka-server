@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # kumbuka.ai · Keycloak Skin — Handoff Spec
 
 **Status:** draft · **all 16 login pages + account-look + 3 emails built** — ready for implementation session

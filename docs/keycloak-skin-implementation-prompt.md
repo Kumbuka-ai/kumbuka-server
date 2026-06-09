@@ -77,4 +77,4 @@ Plan first: show the theme directory layout, the list of templates you'll
 **override vs inherit**, and the compose/realm changes — and **wait for my go**
 before scaffolding. Where the design and Keycloak's structure conflict, keep
 Keycloak's contract and flag the conflict. Don't invent decisions; ask or record
-an ADR. English artifacts. Apache-2.0.
+an ADR. English artifacts. AGPL-3.0.
