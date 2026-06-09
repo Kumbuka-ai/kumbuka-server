@@ -125,30 +125,8 @@ jobs:
         working-directory: backend
         run: mvn -B -ntp -Pintegration verify
 
-      # Diagnose path mapping between jacoco.xml and sonar.sources.
-      - name: debug — jacoco.xml shape
-        run: |
-          XML=backend/server/target/site/jacoco/jacoco.xml
-          if [ ! -f "$XML" ]; then echo "no jacoco.xml"; exit 0; fi
-          echo "=== file size ==="
-          wc -c "$XML"
-          echo ""
-          echo "=== first 3 package elements ==="
-          grep -oE '<package name="[^"]+"' "$XML" | head -3
-          echo ""
-          echo "=== sample sourcefile elements (first 5) ==="
-          grep -oE '<sourcefile name="[^"]+"' "$XML" | head -5
-          echo ""
-          echo "=== sample <line> counters (proves data is in XML, not just structure) ==="
-          grep -oE '<line nr="[0-9]+" mi="[0-9]+" ci="[0-9]+"[^/]*/' "$XML" | head -5
-          echo ""
-          echo "=== total coverage counters (final aggregate) ==="
-          grep -oE '<counter type="[A-Z]+" missed="[0-9]+" covered="[0-9]+"/>' "$XML" | tail -10
-
       - name: SonarQube Cloud scan
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
-        with:
-          args: -X
