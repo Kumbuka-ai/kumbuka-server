@@ -89,3 +89,39 @@ jobs:
       - name: compose config (prod-kc profile)
         run: |
           docker compose --profile app --profile prod-kc config > /dev/null
+
+  # ---------------------------------------------------------------------
+  # SonarQube Cloud analysis. Runs alongside the test job (not after) so
+  # a failing scan does not gate the rest of CI. Java needs compiled
+  # bytecode → `mvn -DskipTests compile` then `sonarqube-scan-action`.
+  # Requires SONAR_TOKEN secret + Automatic Analysis turned OFF in the
+  # Sonar UI (Project → Analysis Method → CI-based).
+  # ---------------------------------------------------------------------
+  sonar:
+    name: code quality · SonarQube Cloud
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history for accurate new-code / blame attribution.
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: compile backend
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests compile
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

@@ -15,7 +15,7 @@ flock -n 8 || true   # deploy.sh may already hold it; proceed in that case.
 
 load_env
 TAG="${1:-${KUMBUKA_PREVIOUS_VERSION:-}}"
-[ -n "$TAG" ] || die "no rollback tag given and KUMBUKA_PREVIOUS_VERSION is empty"
+[[ -n "$TAG" ]] || die "no rollback tag given and KUMBUKA_PREVIOUS_VERSION is empty"
 log "=== rollback to $TAG ==="
 
 set_env KUMBUKA_VERSION "$TAG"

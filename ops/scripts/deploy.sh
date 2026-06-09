@@ -9,7 +9,7 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-[ "$#" -eq 1 ] || die "usage: deploy.sh vX.Y.Z"
+[[ "$#" -eq 1 ]] || die "usage: deploy.sh vX.Y.Z"
 NEW="$1"
 
 # --- single-flight lock --------------------------------------------------
@@ -18,7 +18,7 @@ flock -n 9 || die "another deploy is already running (lock held: /var/lock/kumbu
 
 load_env
 OLD="${KUMBUKA_VERSION:-}"
-[ -n "$OLD" ] || die "KUMBUKA_VERSION not set in .env"
+[[ -n "$OLD" ]] || die "KUMBUKA_VERSION not set in .env"
 log "=== deploy start: OLD=$OLD NEW=$NEW ==="
 
 # First boot? (no running postgres yet → nothing to snapshot, full up.)
@@ -28,7 +28,7 @@ ghcr_login
 
 # --- pre-deploy DB snapshot (skip on first boot) -------------------------
 mkdir -p "$BACKUP_DIR"
-if [ "$FIRST_BOOT" = 0 ]; then
+if [[ "$FIRST_BOOT" = 0 ]]; then
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   snap="$BACKUP_DIR/pre-deploy-${ts}-${OLD}"
   log "pre-deploy snapshot -> ${snap}.{kumbuka,keycloak}.dump"
@@ -56,7 +56,7 @@ log "docker compose pull"
 # unhealthy and a dependant has `depends_on: service_healthy`). We must NOT let
 # set -e kill the script here — the healthcheck below is the decision point and
 # must run so a bad release rolls back instead of leaving the script dead.
-if [ "$FIRST_BOOT" = 1 ]; then
+if [[ "$FIRST_BOOT" = 1 ]]; then
   log "first boot: bringing up the full stack"
   "${COMPOSE[@]}" up -d || log "compose up reported errors — proceeding to healthcheck"
 else
