@@ -208,16 +208,16 @@
                 </configuration>
             </plugin>
             <!--
-                Coverage. Two exec files are produced:
-                  - target/jacoco.exec         (plain JUnit unit tests, via the
-                                                jacoco agent attached below)
-                  - target/jacoco-quarkus.exec (@QuarkusTest classes, via the
-                                                quarkus-jacoco extension — see
-                                                quarkus.jacoco.* in
-                                                application.properties)
-                The `report` goal merges both into a single XML report at
-                target/site/jacoco/jacoco.xml, which Sonar consumes
-                (sonar.coverage.jacoco.xmlReportPaths in sonar-project.properties).
+                Coverage. Quarkus-only project (every test class is
+                @QuarkusTest), so the standard surefire-attached agent
+                cannot instrument the Quarkus classloader's classes.
+                The quarkus-jacoco extension does that work and writes
+                target/jacoco-quarkus.exec. We therefore deliberately
+                DO NOT attach the agent via prepare-agent — per the
+                Quarkus docs this causes an empty jacoco.exec to race
+                with jacoco-quarkus.exec and produce a 0%-coverage
+                report. We only run the `report` goal here against
+                the file Quarkus's extension produces.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -225,24 +225,13 @@
                 <version>${jacoco-plugin.version}</version>
                 <executions>
                     <execution>
-                        <id>prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                        <configuration>
-                            <append>true</append>
-                        </configuration>
-                    </execution>
-                    <execution>
                         <id>report</id>
                         <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
                         <configuration>
-                            <dataFileIncludes>
-                                <dataFileInclude>**/jacoco*.exec</dataFileInclude>
-                            </dataFileIncludes>
+                            <dataFile>${project.build.directory}/jacoco-quarkus.exec</dataFile>
                             <outputDirectory>${project.build.directory}/site/jacoco</outputDirectory>
                         </configuration>
                     </execution>
