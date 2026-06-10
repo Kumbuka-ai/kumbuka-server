@@ -104,8 +104,8 @@ class TenantDataPurgeServiceTest {
 
         // Re-create whatever the singleton-tenant tests depend on.
         em.createNativeQuery(
-            "INSERT INTO team (id, tenant_id, name) "
-          + "VALUES (CAST(?1 AS uuid), CAST(?1 AS uuid), 'Team') ON CONFLICT (id) DO NOTHING")
+            "INSERT INTO team (id, tenant_id, name, alias) "
+          + "VALUES (CAST(?1 AS uuid), CAST(?1 AS uuid), 'Team', 'default') ON CONFLICT (id) DO NOTHING")
             .setParameter(1, TENANT_LITERAL)
             .executeUpdate();
         em.createNativeQuery(
