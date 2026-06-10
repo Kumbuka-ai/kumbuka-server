@@ -37,12 +37,17 @@ jobs:
         run: mvn -B -ntp -Pintegration verify
 
   # ---------------------------------------------------------------------
-  # SPI jar → GitHub Packages Maven.
+  # SPI + server jars → GitHub Packages Maven.
   #   ai.kumbuka:kumbuka-spi:{tag-stripped-of-v, …}
-  # The commercial multi-tenant edition (ops-console) consumes this.
+  #   ai.kumbuka:kumbuka-server:{tag-stripped-of-v, …}     (from v0.4.0)
+  #
+  # The commercial multi-tenant edition (ops-console) consumes the SPI for
+  # the frozen TenantResolver contract AND consumes kumbuka-server as a
+  # plain Maven library so its saas-runtime/ module can overlay the
+  # request-aware resolver bean (D-OPS-23).
   # ---------------------------------------------------------------------
-  spi-maven:
-    name: spi · deploy to GitHub Packages
+  maven-publish:
+    name: maven · deploy spi + server to GitHub Packages
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -83,15 +88,20 @@ jobs:
               -DprocessAllModules=true \
               -DgenerateBackupPoms=false
 
-      - name: Deploy spi only (server stays internal)
+      - name: Deploy spi + server to GitHub Packages
         working-directory: backend
         env:
           GITHUB_ACTOR_FOR_MAVEN: ${{ github.actor }}
           GITHUB_TOKEN_FOR_MAVEN: ${{ secrets.GITHUB_TOKEN }}
-        # -pl spi -am builds the parent (for the BOM) + spi only and
-        # deploys them. The server module is never published to Maven;
-        # it ships as a docker image (backend-image job below).
-        run: mvn -B -ntp -DskipTests -pl spi -am deploy
+        # -pl spi,server -am builds the parent + both modules and
+        # deploys them. The server module ALSO continues to ship as a
+        # docker image (backend-image job below) — Maven publish makes
+        # it consumable as a library by ops-console/saas-runtime/ so the
+        # SaaS image can overlay the request-aware resolver bean
+        # (D-OPS-23). We skip Quarkus' build-time native augmentation
+        # during deploy: -Dquarkus.build.skip=true keeps the publish a
+        # plain library jar.
+        run: mvn -B -ntp -DskipTests -Dquarkus.build.skip=true -pl spi,server -am deploy
 
   # ---------------------------------------------------------------------
   # Backend image: ghcr.io/<owner>/kumbuka-backend:{tag,latest}
@@ -202,7 +212,7 @@ jobs:
   # ---------------------------------------------------------------------
   github-release:
     name: github release
-    needs: [spi-maven, backend-image, keycloak-image]
+    needs: [maven-publish, backend-image, keycloak-image]
     runs-on: ubuntu-latest
     permissions:
       contents: write

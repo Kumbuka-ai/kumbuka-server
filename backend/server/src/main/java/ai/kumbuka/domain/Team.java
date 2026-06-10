@@ -28,6 +28,16 @@ public class Team extends PanacheEntityBase {
     @Column(nullable = false)
     public String name;
 
+    /**
+     * Canonical per-tenant routing key (D-OPS-24). Subdomain segment
+     * ("acme" for "acme.kumbuka.ai") used by the SaaS resolver to look
+     * up the data tenant. CE installs carry the literal {@code 'default'}.
+     * Shape + uniqueness are enforced at the DB (V7); the reserved-alias
+     * list is enforced in ops-console's provisioning service.
+     */
+    @Column(nullable = false, unique = true)
+    public String alias;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     public Instant createdAt;
 }

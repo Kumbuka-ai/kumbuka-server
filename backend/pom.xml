@@ -15,7 +15,12 @@
           - kumbuka-server — the OSS Quarkus application. Depends on
                             kumbuka-spi for the SPI shape; ships
                             DefaultSingleTenantResolver as the default
-                            implementation.
+                            implementation. ALSO published as a Maven
+                            library to GitHub Packages from v0.4.0 onward
+                            (D-OPS-23) so the commercial SaaS runtime
+                            (ops-console/saas-runtime/) can consume it
+                            and overlay its request-aware resolver bean
+                            via Quarkus' @DefaultBean precedence.
     -->
 
     <groupId>ai.kumbuka</groupId>

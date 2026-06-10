@@ -89,8 +89,8 @@ class CrossTenantIsolationIT {
                 s.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO " + RLS_TEST_ROLE);
 
                 s.execute("SELECT set_config('app.tenant_id', '" + TENANT_B + "', false)");
-                s.execute("INSERT INTO team (id, tenant_id, name) VALUES "
-                    + "('00000000-0000-0000-0000-000000000002', '" + TENANT_B + "', 'Team B') "
+                s.execute("INSERT INTO team (id, tenant_id, name, alias) VALUES "
+                    + "('00000000-0000-0000-0000-000000000002', '" + TENANT_B + "', 'Team B', 'team-b') "
                     + "ON CONFLICT DO NOTHING");
                 s.execute("INSERT INTO scope (tenant_id, slug, name, kind, fixed) VALUES "
                     + "('" + TENANT_B + "', 'global', 'global', 'global', true), "
