@@ -97,9 +97,16 @@ public class MemoryTools {
             }
         }
 
+        // Tenant isolation is enforced by Hibernate's @TenantId discriminator on
+        // every query — never bind tenant_id by hand here. The old explicit
+        // `tenantId = ?1` predicate bound config.tenantId() (a UUID) to the
+        // String-typed discriminator field → QueryArgumentException on every
+        // keyed write; and in SaaS config.tenantId() is the zero sentinel, not
+        // the request tenant, so it would never match even with the right type.
+        // (Same predicate shape MemoryRepository.remember uses for its upsert.)
         boolean existed = key != null && memories.find(
-            "tenantId = ?1 and scope.slug = ?2 and ownerSubject = ?3 and key = ?4",
-            config.tenantId(), scopeSlug, callerSubject(), key
+            "scope.slug = ?1 and ownerSubject = ?2 and key = ?3",
+            scopeSlug, callerSubject(), key
         ).firstResultOptional().isPresent();
 
         Memory m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);

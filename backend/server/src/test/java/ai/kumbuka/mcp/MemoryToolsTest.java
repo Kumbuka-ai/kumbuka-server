@@ -12,6 +12,7 @@ import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.service.WritePolicyResolver;
 import ai.kumbuka.service.WritePolicyResolver.DefaultScopeStatus;
 import ai.kumbuka.service.WritePolicyResolver.Resolved;
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -19,15 +20,18 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -116,6 +120,41 @@ class MemoryToolsTest {
         // No prompt — explicit scope means the policy is not the gate.
         assertThat(out.prompt()).isNull();
         verify(memories).remember(any(), eq("alpha"), any(), any(), any(), eq(SourceChannel.MCP));
+    }
+
+    // ---------- memory_remember: keyed upsert existence check ----------------
+
+    @Test
+    void remember_withKey_existenceCheckBindsNoTenantIdByHand() {
+        Scope projectScope = scope("alpha", ScopeKind.PROJECT);
+        Memory persisted = memory(MemoryType.DECISION, projectScope, "release.notes", "ship it");
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.PROJECT, WritePolicy.PROJECT, DefaultScopeStatus.OK, "alpha"));
+
+        // The keyed path runs an existence query before the upsert. Regression:
+        // it must scope by (scope.slug, ownerSubject, key) only and let the
+        // @TenantId discriminator handle tenant isolation — binding tenant_id by
+        // hand bound a UUID to the String discriminator and 500'd every keyed
+        // write (and in SaaS used the zero-sentinel, not the request tenant).
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> existing = mock(PanacheQuery.class);
+        when(existing.firstResultOptional()).thenReturn(Optional.of(persisted));
+        // find(String, Object...) — match the varargs as a whole with
+        // any(Object[].class); capturing the query string happens in verify.
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(existing);
+        when(memories.remember(
+            eq("caller-sub"), eq("alpha"), eq(MemoryType.DECISION),
+            eq("release.notes"), eq("ship it"), eq(SourceChannel.MCP)))
+            .thenReturn(persisted);
+
+        Dtos.RememberResult out = tools.memory_remember("ship it", "decision", "alpha", "release.notes");
+
+        assertThat(out.upserted()).isTrue();
+        ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
+        verify(memories).find(query.capture(), any(Object[].class));
+        assertThat(query.getValue())
+            .doesNotContain("tenantId")
+            .contains("scope.slug", "ownerSubject", "key");
     }
 
     // ---------- memory_remember: implicit scope via policy ------------------
