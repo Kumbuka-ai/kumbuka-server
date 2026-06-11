@@ -103,6 +103,7 @@ class ProtectedResourceMetadataTest {
     private static MemoryConfig stubConfig() {
         return new MemoryConfig() {
             @Override public String publicBaseUrl()  { return "https://kumbuka.ai"; }
+            @Override public String mcpPublicUrlTemplate() { return ""; }
             @Override public String authBaseUrl()    { return "https://auth.kumbuka.ai"; }
             @Override public UUID   tenantId()       { return UUID.fromString("00000000-0000-0000-0000-000000000001"); }
             @Override public String realm()          { return "kumbuka"; }

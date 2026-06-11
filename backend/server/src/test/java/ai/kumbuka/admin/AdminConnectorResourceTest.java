@@ -30,6 +30,7 @@ class AdminConnectorResourceTest {
             .then()
                 .statusCode(200)
                 .body("endpoint", endsWith("/mcp"))
+                .body("mcpUrl", endsWith("/mcp"))
                 .body("clientId", equalTo("kumbuka-connector"))
                 .body("clientSecretMasked", endsWith("cret"))
                 .body("idpName", equalTo("Keycloak"));
