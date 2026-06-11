@@ -2,6 +2,7 @@ package ai.kumbuka.admin;
 import ai.kumbuka.tenancy.TenantBound;
 
 import ai.kumbuka.config.MemoryConfig;
+import ai.kumbuka.domain.Team;
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
@@ -34,7 +35,8 @@ public class AdminConnectorResource {
         String endpoint,
         String clientId,
         String clientSecretMasked,
-        String idpName
+        String idpName,
+        String mcpUrl
     ) {}
 
     public record RotateResult(String clientSecretMasked) {}
@@ -42,12 +44,42 @@ public class AdminConnectorResource {
     @GET
     @RolesAllowed({"admin", "member"})
     public ConnectorView get() {
+        String mcpUrl = resolveMcpUrl();
         return new ConnectorView(
-            config.publicBaseUrl() + "/mcp",
+            mcpUrl,
             config.connectorClientId(),
             keycloak.getConnectorSecretMasked(config.connectorClientId()),
-            "Keycloak"
+            "Keycloak",
+            mcpUrl
         );
+    }
+
+    /**
+     * The tenant-correct public MCP URL the console displays (D-CORE-4). CE:
+     * {@code publicBaseUrl + /mcp}. SaaS: the configured template with the
+     * {@code <alias>} placeholder replaced by the request-bound tenant's
+     * {@code team.alias} (Hibernate {@code @TenantId} narrows the query to the
+     * current tenant). {@code endpoint} mirrors this value so no surface ever
+     * shows the central host for a tenant.
+     */
+    private String resolveMcpUrl() {
+        Team team = Team.findAll().firstResult();
+        String alias = team != null ? team.alias : null;
+        return resolveMcpUrl(config.mcpPublicUrlTemplate().orElse(""), config.publicBaseUrl(), alias);
+    }
+
+    /** Pure substitution — package-private + static so it unit-tests without CDI/DB. */
+    static String resolveMcpUrl(String template, String publicBaseUrl, String alias) {
+        if (template == null || template.isBlank()) {
+            return publicBaseUrl + "/mcp";
+        }
+        if (template.contains("<alias>")) {
+            if (alias == null || alias.isBlank()) {
+                return publicBaseUrl + "/mcp";
+            }
+            return template.replace("<alias>", alias);
+        }
+        return template;
     }
 
     // Note: the handoff §D suggests `/secret:rotate`. We use `/secret/rotate`

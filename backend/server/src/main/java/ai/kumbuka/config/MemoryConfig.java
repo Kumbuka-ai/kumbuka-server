@@ -4,6 +4,7 @@ import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 import io.smallrye.config.WithName;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -21,6 +22,16 @@ public interface MemoryConfig {
     /** Public base URL of the service (used to build resource metadata URLs). */
     @WithName("public-base-url")
     String publicBaseUrl();
+
+    /**
+     * Template for the public MCP endpoint URL shown to the team (D-CORE-4).
+     * Empty (the CE default) means "{@link #publicBaseUrl()} + /mcp" — the
+     * single-tenant behaviour. The SaaS image sets this to
+     * {@code https://<alias>.kumbuka.ai/mcp}; the {@code <alias>} placeholder
+     * is resolved from the request-bound tenant's {@code team.alias}.
+     */
+    @WithName("mcp.public-url-template")
+    Optional<String> mcpPublicUrlTemplate();
 
     /**
      * Public base URL of the identity provider. In the canonical deployment
