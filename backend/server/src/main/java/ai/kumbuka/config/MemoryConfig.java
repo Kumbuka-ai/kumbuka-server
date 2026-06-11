@@ -4,6 +4,7 @@ import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 import io.smallrye.config.WithName;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -30,8 +31,7 @@ public interface MemoryConfig {
      * is resolved from the request-bound tenant's {@code team.alias}.
      */
     @WithName("mcp.public-url-template")
-    @WithDefault("")
-    String mcpPublicUrlTemplate();
+    Optional<String> mcpPublicUrlTemplate();
 
     /**
      * Public base URL of the identity provider. In the canonical deployment

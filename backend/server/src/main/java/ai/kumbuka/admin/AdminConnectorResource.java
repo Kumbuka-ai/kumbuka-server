@@ -65,7 +65,7 @@ public class AdminConnectorResource {
     private String resolveMcpUrl() {
         Team team = Team.findAll().firstResult();
         String alias = team != null ? team.alias : null;
-        return resolveMcpUrl(config.mcpPublicUrlTemplate(), config.publicBaseUrl(), alias);
+        return resolveMcpUrl(config.mcpPublicUrlTemplate().orElse(""), config.publicBaseUrl(), alias);
     }
 
     /** Pure substitution — package-private + static so it unit-tests without CDI/DB. */
