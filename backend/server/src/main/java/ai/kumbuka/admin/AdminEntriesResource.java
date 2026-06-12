@@ -37,6 +37,7 @@ import java.util.UUID;
  * are admin. Private scope addressing → 404.
  */
 @TenantBound
+@Transactional
 @Path("/api/scopes/{slug}/entries")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
