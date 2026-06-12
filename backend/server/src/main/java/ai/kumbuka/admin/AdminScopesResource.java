@@ -35,6 +35,7 @@ import java.util.List;
  * filters them out, addressing the private slug 404s.
  */
 @TenantBound
+@Transactional
 @Path("/api/scopes")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)

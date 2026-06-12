@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.MediaType;
 import java.util.UUID;
 
 @TenantBound
+@Transactional
 @Path("/api/settings")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
