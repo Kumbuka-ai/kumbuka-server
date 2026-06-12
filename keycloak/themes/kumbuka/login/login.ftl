@@ -2,10 +2,22 @@
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=(realm.password && realm.registrationAllowed && !registrationDisabled??); section>
 
   <#if section = "header">
-    <div class="kc-context">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15l6-6"/><path d="M10 7l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M14 17l-1 1a4 4 0 0 1-6-6l1-1"/></svg>
-      <span>${msg("kumbukaContinueTo")} <b>${(realm.displayName!"kumbuka memory console")?no_esc}</b></span>
-    </div>
+    <#-- Identity-first password step (usernameHidden): show whose account this
+         is + a restart link. The Organizations browser flow renders THIS template
+         with usernameHidden=true for the password page (there is no separate
+         Password Form authenticator), so the affordance belongs here. -->
+    <#if usernameHidden?? && auth?has_content && auth.showUsername() && !auth.showResetCredentials()>
+      <div class="kc-context">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        <span>${msg("kumbukaSigningInAs")} <b>${auth.attemptedUsername}</b>
+          &nbsp;·&nbsp;<a class="kc-link muted" href="${url.loginRestartFlowUrl}">${msg("kumbukaNotYou")}</a></span>
+      </div>
+    <#else>
+      <div class="kc-context">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 15l6-6"/><path d="M10 7l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M14 17l-1 1a4 4 0 0 1-6-6l1-1"/></svg>
+        <span>${msg("kumbukaContinueTo")} <b>${(realm.displayName!"kumbuka memory console")?no_esc}</b></span>
+      </div>
+    </#if>
     <span class="kc-eyebrow">${msg("kumbukaEyebrowSignIn")}</span>
     <h1 class="kc-title">${msg("loginAccountTitle",(realm.displayName!""))}</h1>
 
