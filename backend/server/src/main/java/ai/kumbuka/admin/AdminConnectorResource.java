@@ -15,11 +15,18 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
 /**
- * Connector card backend. The connector client (kumbuka-connector) is
- * confidential + PKCE (ADR-0006). This resource surfaces the canonical
- * endpoint URL + client_id + masked secret, and lets admins rotate the
- * secret in place. Keycloak is the source of truth for the secret —
- * neither the backend nor any cookie stores it.
+ * Connector card backend.
+ *
+ * <p><strong>CE</strong>: a single confidential connector client
+ * ({@code kumbuka-connector}) with a rotatable secret — the resource surfaces
+ * the endpoint URL + client_id + masked secret and lets admins rotate it.
+ *
+ * <p><strong>SaaS</strong>: the connector is the per-tenant
+ * {@code kumbuka-connector-<alias>} client, which is PUBLIC + PKCE (ADR-0006
+ * Fallback A) and therefore has <em>no</em> secret. The card then shows the
+ * per-tenant client_id and no secret, and rotation is not available. SaaS is
+ * detected by the presence of the tenant-aware MCP URL template (same signal
+ * {@link #resolveMcpUrl} uses).
  */
 @TenantBound
 @Transactional
@@ -44,31 +51,48 @@ public class AdminConnectorResource {
     @GET
     @RolesAllowed({"admin", "member"})
     public ConnectorView get() {
-        String mcpUrl = resolveMcpUrl();
-        return new ConnectorView(
-            mcpUrl,
-            config.connectorClientId(),
-            keycloak.getConnectorSecretMasked(config.connectorClientId()),
-            "Keycloak",
-            mcpUrl
-        );
+        String template = config.mcpPublicUrlTemplate().orElse("");
+        String alias = currentAlias();
+        String mcpUrl = resolveMcpUrl(template, config.publicBaseUrl(), alias);
+        String clientId = resolveClientId(config.connectorClientId(), template, alias);
+        // SaaS connectors are public + PKCE — no secret to show or rotate.
+        String secretMasked = isSaas(template)
+            ? null
+            : keycloak.getConnectorSecretMasked(config.connectorClientId());
+        return new ConnectorView(mcpUrl, clientId, secretMasked, "Keycloak", mcpUrl);
+    }
+
+    /** True when the deployment is SaaS (the tenant-aware MCP URL template is set). */
+    static boolean isSaas(String template) {
+        return template != null && !template.isBlank();
+    }
+
+    /**
+     * The connector's Keycloak client_id. SaaS: the per-tenant public client
+     * {@code <base>-<alias>} (e.g. {@code kumbuka-connector-acme}). CE: the
+     * single {@code <base>} client. Falls back to the base id when SaaS is
+     * indicated but no alias is resolvable (defensive — should not happen).
+     */
+    static String resolveClientId(String baseClientId, String template, String alias) {
+        if (isSaas(template) && alias != null && !alias.isBlank()) {
+            return baseClientId + "-" + alias;
+        }
+        return baseClientId;
+    }
+
+    /** The request-bound tenant's alias (Hibernate @TenantId narrows the query), or null. */
+    private String currentAlias() {
+        Team team = Team.findAll().firstResult();
+        return team != null ? team.alias : null;
     }
 
     /**
      * The tenant-correct public MCP URL the console displays (D-CORE-4). CE:
      * {@code publicBaseUrl + /mcp}. SaaS: the configured template with the
      * {@code <alias>} placeholder replaced by the request-bound tenant's
-     * {@code team.alias} (Hibernate {@code @TenantId} narrows the query to the
-     * current tenant). {@code endpoint} mirrors this value so no surface ever
-     * shows the central host for a tenant.
+     * {@code team.alias}. Pure substitution — package-private + static so it
+     * unit-tests without CDI/DB.
      */
-    private String resolveMcpUrl() {
-        Team team = Team.findAll().firstResult();
-        String alias = team != null ? team.alias : null;
-        return resolveMcpUrl(config.mcpPublicUrlTemplate().orElse(""), config.publicBaseUrl(), alias);
-    }
-
-    /** Pure substitution — package-private + static so it unit-tests without CDI/DB. */
     static String resolveMcpUrl(String template, String publicBaseUrl, String alias) {
         if (template == null || template.isBlank()) {
             return publicBaseUrl + "/mcp";
@@ -90,6 +114,12 @@ public class AdminConnectorResource {
     @Path("/secret/rotate")
     @RolesAllowed("admin")
     public RotateResult rotate() {
+        // SaaS connectors are public + PKCE — there is no secret to rotate.
+        if (isSaas(config.mcpPublicUrlTemplate().orElse(""))) {
+            throw new jakarta.ws.rs.WebApplicationException(
+                "connector secret rotation is not available — the SaaS connector is public + PKCE",
+                jakarta.ws.rs.core.Response.Status.CONFLICT);
+        }
         String actor = identity.getPrincipal().getName();
         String masked = keycloak.rotateConnectorSecret(config.connectorClientId(), actor);
         return new RotateResult(masked);

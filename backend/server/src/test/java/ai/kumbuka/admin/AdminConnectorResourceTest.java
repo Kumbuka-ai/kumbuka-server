@@ -60,6 +60,36 @@ class AdminConnectorResourceTest {
     }
 
     @Test
+    void isSaas_trueOnlyWhenTemplateSet() {
+        assertThat(AdminConnectorResource.isSaas("https://<alias>.kumbuka.ai/mcp")).isTrue();
+        assertThat(AdminConnectorResource.isSaas("")).isFalse();
+        assertThat(AdminConnectorResource.isSaas("   ")).isFalse();
+        assertThat(AdminConnectorResource.isSaas(null)).isFalse();
+    }
+
+    @Test
+    void resolveClientId_saas_appendsTenantAlias() {
+        assertThat(AdminConnectorResource.resolveClientId(
+                "kumbuka-connector", "https://<alias>.kumbuka.ai/mcp", "acme"))
+            .isEqualTo("kumbuka-connector-acme");
+    }
+
+    @Test
+    void resolveClientId_ce_usesBaseClientId() {
+        assertThat(AdminConnectorResource.resolveClientId("kumbuka-connector", "", "acme"))
+            .isEqualTo("kumbuka-connector");
+        assertThat(AdminConnectorResource.resolveClientId("kumbuka-connector", null, null))
+            .isEqualTo("kumbuka-connector");
+    }
+
+    @Test
+    void resolveClientId_saasWithoutAlias_fallsBackToBase() {
+        assertThat(AdminConnectorResource.resolveClientId(
+                "kumbuka-connector", "https://<alias>.kumbuka.ai/mcp", null))
+            .isEqualTo("kumbuka-connector");
+    }
+
+    @Test
     void mask_helper_leavesShortSecretsFullyMasked() {
         assertThat(KeycloakAdminService.mask("abcd"))
             .isEqualTo("••••");
