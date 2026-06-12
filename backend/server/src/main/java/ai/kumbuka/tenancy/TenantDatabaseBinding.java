@@ -58,9 +58,11 @@ public class TenantDatabaseBinding {
             // No active transaction — caller is outside @Transactional.
             // SET LOCAL would have no envelope; skip silently. (Hibernate
             // session reads still benefit from the @TenantId filter.)
+            LOG.debugf("bindCurrentTransaction: NO ACTIVE TX — app.tenant_id GUC NOT set (RLS will hide rows)");
             return;
         }
         String tenant = context.current().toString();
+        LOG.debugf("bindCurrentTransaction: set app.tenant_id=%s", tenant);
         if (alreadyBound.contains(tenant)) {
             return;
         }
