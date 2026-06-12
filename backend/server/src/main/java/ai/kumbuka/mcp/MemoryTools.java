@@ -133,10 +133,11 @@ public class MemoryTools {
     // -----------------------------------------------------------------------
 
     @Tool(description =
-        "Recall memories. With no arguments, returns everything visible to the caller "
-      + "(their private memories + all shared memories). Filters: scope, type, and a "
-      + "simple substring `query` over content. `include_global` adds the global scope "
-      + "when a non-global `scope` is requested.")
+        "Recall memories. With no `scope`, returns the caller's private memories plus the "
+      + "team-wide global scope ONLY — project scopes are not included by default; ask for a "
+      + "project explicitly by passing its `scope` slug to see its memories. Filters: scope, "
+      + "type, and a simple substring `query` over content. `include_global` adds the global "
+      + "scope on top when a specific non-global `scope` is requested.")
     public Dtos.RecallResult memory_recall(
         @ToolArg(description = "Restrict to this scope slug.", required = false) String scope,
         @ToolArg(description = "Restrict to this memory type.", required = false) String type,
@@ -180,9 +181,11 @@ public class MemoryTools {
     @Tool(description =
         "Return a typed digest of memories: grouped by type (decision, constraint, "
       + "convention, glossary, open_question, status), capped per group. Useful for "
-      + "loading project context at conversation start. Accepts an optional scope.")
+      + "loading context at conversation start. With no `scope`, digests the caller's "
+      + "private memories plus the global scope ONLY (project scopes are excluded by "
+      + "default); pass a project `scope` slug to digest that project.")
     public Dtos.LoadContextResult memory_load_context(
-        @ToolArg(description = "Optional scope slug. Omit to digest across every visible scope.", required = false) String scope
+        @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope
     ) {
         Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope);
         Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();
