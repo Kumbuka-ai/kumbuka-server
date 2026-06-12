@@ -91,10 +91,12 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      *   - Private scope: only the caller's own rows.
      *   - Shared scopes (project/global): all rows in that scope.
      *
-     * When {@code scopeSlug} is null, returns all visible rows across all
-     * scopes (the caller's private rows + every shared scope). When
-     * {@code scopeSlug} is given and {@code includeGlobal} is true, the
-     * global scope is added to the result.
+     * When {@code scopeSlug} is null (an <em>unscoped</em> read), returns the
+     * caller's private rows plus the <strong>global</strong> scope only —
+     * project scopes are NOT included in the default view (D-CORE-5). Project
+     * memories surface only when the caller asks for that project explicitly
+     * via {@code scopeSlug}. When {@code scopeSlug} is given and
+     * {@code includeGlobal} is true, the global scope is added to the result.
      */
     public List<Memory> recall(String callerSubject,
                                String scopeSlug,
@@ -107,7 +109,13 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         java.util.Map<String, Object> params = new java.util.HashMap<>();
         params.put("caller", callerSubject);
         params.put("privateKind", ScopeKind.PRIVATE);
-        params.put("sharedKinds", List.of(ScopeKind.GLOBAL, ScopeKind.PROJECT));
+        // D-CORE-5: an unscoped read (scopeSlug == null) sees private + global
+        // only. With an explicit scopeSlug the PROJECT kind must stay in the
+        // set, otherwise a row in the requested project scope — matched below by
+        // `scope.slug = :scopeSlug` — would be filtered out by this predicate.
+        params.put("sharedKinds", scopeSlug == null
+            ? List.of(ScopeKind.GLOBAL)
+            : List.of(ScopeKind.GLOBAL, ScopeKind.PROJECT));
 
         if (scopeSlug != null) {
             jpql.append(" and (scope.slug = :scopeSlug");
