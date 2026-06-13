@@ -113,7 +113,7 @@ class MemoryToolsTest {
             isNull(), eq("we ship daily"), eq(SourceChannel.MCP)))
             .thenReturn(persisted);
 
-        Dtos.RememberResult out = tools.memory_remember("we ship daily", "decision", "alpha", null);
+        Dtos.RememberResult out = tools.memory_remember("we ship daily", "decision", "alpha", null, null);
 
         assertThat(out.memory()).isNotNull();
         assertThat(out.memory().content()).isEqualTo("we ship daily");
@@ -147,7 +147,7 @@ class MemoryToolsTest {
             eq("release.notes"), eq("ship it"), eq(SourceChannel.MCP)))
             .thenReturn(persisted);
 
-        Dtos.RememberResult out = tools.memory_remember("ship it", "decision", "alpha", "release.notes");
+        Dtos.RememberResult out = tools.memory_remember("ship it", "decision", "alpha", "release.notes", null);
 
         assertThat(out.upserted()).isTrue();
         ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
@@ -167,7 +167,7 @@ class MemoryToolsTest {
         when(memories.remember(any(), eq("alpha"), any(), any(), any(), any()))
             .thenReturn(memory(MemoryType.CONVENTION, alpha, null, "x"));
 
-        Dtos.RememberResult out = tools.memory_remember("x", "convention", null, null);
+        Dtos.RememberResult out = tools.memory_remember("x", "convention", null, null, null);
 
         assertThat(out.memory()).isNotNull();
         verify(memories).remember(any(), eq("alpha"), eq(MemoryType.CONVENTION), any(), any(), any());
@@ -181,7 +181,7 @@ class MemoryToolsTest {
         when(memories.remember(any(), eq("global"), any(), any(), any(), any()))
             .thenReturn(memory(MemoryType.CONSTRAINT, g, null, "y"));
 
-        Dtos.RememberResult out = tools.memory_remember("y", "constraint", null, null);
+        Dtos.RememberResult out = tools.memory_remember("y", "constraint", null, null, null);
 
         assertThat(out.memory()).isNotNull();
         verify(memories).remember(any(), eq("global"), eq(MemoryType.CONSTRAINT), any(), any(), any());
@@ -200,7 +200,7 @@ class MemoryToolsTest {
             scope("personal", ScopeKind.PRIVATE)
         ));
 
-        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null);
+        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null, null);
 
         assertThat(out.memory()).isNull();
         assertThat(out.prompt()).isNotNull();
@@ -221,7 +221,7 @@ class MemoryToolsTest {
             resolved(WritePolicy.PROJECT, WritePolicy.ASK, DefaultScopeStatus.MISSING, null));
         when(scopes.listAll()).thenReturn(List.of(scope("global", ScopeKind.GLOBAL)));
 
-        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null);
+        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null, null);
 
         assertThat(out.prompt()).isNotNull();
         assertThat(out.prompt().reason())
@@ -235,7 +235,7 @@ class MemoryToolsTest {
             resolved(WritePolicy.PROJECT, WritePolicy.ASK, DefaultScopeStatus.ARCHIVED, "archived-one"));
         when(scopes.listAll()).thenReturn(List.of());
 
-        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null);
+        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null, null);
         assertThat(out.prompt().reason()).contains("archived");
     }
 
@@ -245,7 +245,7 @@ class MemoryToolsTest {
             resolved(WritePolicy.PROJECT, WritePolicy.ASK, DefaultScopeStatus.INVALID, "was-private"));
         when(scopes.listAll()).thenReturn(List.of());
 
-        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null);
+        Dtos.RememberResult out = tools.memory_remember("x", "decision", null, null, null);
         assertThat(out.prompt().reason()).contains("no longer a project");
     }
 
@@ -323,6 +323,51 @@ class MemoryToolsTest {
         assertThat(out.scopes())
             .extracting(Dtos.ScopeDto::slug)
             .containsExactlyInAnyOrder("global", "alpha", "personal");
+    }
+
+    // ---------- D-CORE-7: reference URL -------------------------------------
+
+    @Test
+    void remember_storesReferenceOnNewRow() {
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
+        Scope g = scope("global", ScopeKind.GLOBAL);
+        Memory persisted = memory(MemoryType.DECISION, g, null, "with a source");
+        when(memories.remember(any(), eq("global"), any(), any(), any(), any())).thenReturn(persisted);
+
+        Dtos.RememberResult out = tools.memory_remember(
+            "with a source", "decision", "global", null, "https://example.com/spec#s3");
+
+        assertThat(out.memory()).isNotNull();
+        assertThat(out.memory().reference()).isEqualTo("https://example.com/spec#s3");
+    }
+
+    @Test
+    void remember_rejectsCredentialBearingReference() {
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> tools.memory_remember(
+                "x", "decision", "global", null, "https://user:secret@example.com/x"))
+            .isInstanceOf(IllegalArgumentException.class);
+        verify(memories, org.mockito.Mockito.never())
+            .remember(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void loadContext_digestOmitsReference() {
+        // D-CORE-7 guard 2: the digest is lean — the reference URL is verify-on-demand
+        // (surfaced by memory_recall), never in the load_context bulk.
+        Scope g = scope("global", ScopeKind.GLOBAL);
+        Memory dec = memory(MemoryType.DECISION, g, "d", "decided X");
+        dec.reference = "https://example.com/why";
+        when(memories.loadContext(eq("caller-sub"), isNull(), isNull()))
+            .thenReturn(Map.of(MemoryType.DECISION, List.of(dec)));
+
+        Dtos.LoadContextResult out = tools.memory_load_context(null, null);
+
+        assertThat(out.byType().get("decision")).hasSize(1);
+        assertThat(out.byType().get("decision").get(0).reference()).isNull();
     }
 
     // ---------- memory_load_context -----------------------------------------

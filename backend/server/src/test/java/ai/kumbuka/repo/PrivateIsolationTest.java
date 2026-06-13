@@ -220,6 +220,18 @@ class PrivateIsolationTest {
 
     @Test
     @Transactional
+    void reference_persistsAndSurfacesInRecall() {
+        // D-CORE-7: the reference column round-trips and is returned by recall
+        // (the explicit lookup path); the digest projection omits it (unit-tested).
+        Memory m = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "d7 content", SourceChannel.MCP);
+        m.reference = "https://example.com/origin";
+
+        List<Memory> recalled = memories.recall(SUBJECT_A, "global", null, "d7 content", false);
+        assertThat(recalled).anyMatch(x -> "https://example.com/origin".equals(x.reference));
+    }
+
+    @Test
+    @Transactional
     void explicitProjectWithIncludeGlobal_stillAddsGlobal() {
         String proj = ensureProject("dcore5-incl");
         Memory glob = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "incl global", SourceChannel.MCP);

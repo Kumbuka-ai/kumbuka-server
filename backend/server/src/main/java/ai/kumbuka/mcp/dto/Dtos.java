@@ -23,6 +23,7 @@ public final class Dtos {
         String type,
         String key,
         String content,
+        String reference,     // D-CORE-7: external provenance URL (null in the digest)
         String author,        // Keycloak `sub` of the row's owner
         String source,        // 'console' or 'mcp' (ADR-0008)
         Instant createdAt,
@@ -35,6 +36,27 @@ public final class Dtos {
                 m.type.dbValue(),
                 m.key,
                 m.content,
+                m.reference,
+                m.ownerSubject,
+                m.source.dbValue(),
+                m.createdAt,
+                m.updatedAt
+            );
+        }
+
+        /**
+         * Digest projection — omits the {@code reference} URL (D-CORE-7 guard 2:
+         * verify-on-demand). Used by {@code memory_load_context} so the bulk
+         * context load stays lean and carries no external pointers.
+         */
+        public static MemoryDto forDigest(Memory m) {
+            return new MemoryDto(
+                m.id,
+                m.scope.slug,
+                m.type.dbValue(),
+                m.key,
+                m.content,
+                null,
                 m.ownerSubject,
                 m.source.dbValue(),
                 m.createdAt,
