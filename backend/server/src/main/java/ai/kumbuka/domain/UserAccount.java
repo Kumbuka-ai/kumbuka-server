@@ -71,6 +71,14 @@ public class UserAccount extends PanacheEntityBase {
     @Convert(converter = UserStatus.JpaConverter.class)
     public UserStatus status;
 
+    /**
+     * D-CORE-2 mute write-state. When true, shared-scope writes are suspended
+     * (console + MCP); private memory and all reads are unaffected. Admin-set,
+     * reversible; orthogonal to role and status.
+     */
+    @Column(nullable = false)
+    public Boolean muted = false;
+
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 

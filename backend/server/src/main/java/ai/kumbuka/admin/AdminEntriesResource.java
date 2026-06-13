@@ -13,6 +13,7 @@ import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.repo.SharedMemoryRepository;
+import ai.kumbuka.service.MemberWritePolicy;
 import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
@@ -49,6 +50,7 @@ public class AdminEntriesResource {
     @Inject SharedMemoryRepository sharedMemories;
     @Inject MemoryConfig config;
     @Inject SecurityIdentity identity;
+    @Inject MemberWritePolicy writePolicy;
 
     @GET
     @RolesAllowed({"admin", "member"})
@@ -64,6 +66,7 @@ public class AdminEntriesResource {
     @Transactional
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         requireSharedSlug(slug);
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = MemoryType.fromDb(req.type());
         Memory m = memories.remember(
@@ -90,6 +93,7 @@ public class AdminEntriesResource {
                             @PathParam("id") UUID id,
                             UpdateEntryRequest req) {
         requireSharedSlug(slug);
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
         Memory m = sharedMemories.update(id, req.content(), t);
@@ -109,6 +113,7 @@ public class AdminEntriesResource {
     @Transactional
     public Response delete(@PathParam("slug") String slug, @PathParam("id") UUID id) {
         requireSharedSlug(slug);
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
         // Lookup first so we 404 cleanly when the id is wrong; deleteShared
         // returns 0 silently otherwise.
         Memory m = sharedMemories.findSharedById(id);

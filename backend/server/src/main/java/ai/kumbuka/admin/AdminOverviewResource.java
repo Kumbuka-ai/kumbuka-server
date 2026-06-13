@@ -74,7 +74,7 @@ public class AdminOverviewResource {
             ).stream()
             .map(u -> new MemberSummary(
                 u.id, u.subject, u.email, u.displayName,
-                u.role, u.status.dbValue()))
+                u.role, u.status.dbValue(), Boolean.TRUE.equals(u.muted)))
             .toList();
 
         return new OverviewView(scopesTotal, scopesArchived, entriesTotal, byType, recent, members);
