@@ -1,5 +1,6 @@
 package ai.kumbuka.domain;
 
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -12,7 +13,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * is authoritative (MCP vs CONSOLE) and must be set explicitly before persist;
  * timestamps default to now only when unset. Same-package so the lifecycle
  * hook can be driven directly without a database.
+ *
+ * <p>{@code @QuarkusTest} so quarkus-jacoco records the lifecycle hits through
+ * the Quarkus classloader (a plain JUnit test would not register coverage).
  */
+@QuarkusTest
 class MemoryTest {
 
     private static Memory minimal() {

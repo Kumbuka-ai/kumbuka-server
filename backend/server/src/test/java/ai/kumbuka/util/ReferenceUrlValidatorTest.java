@@ -1,5 +1,6 @@
 package ai.kumbuka.util;
 
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -9,11 +10,15 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Branch-complete unit test for the D-CORE-7 reference-URL guard. The URL is
- * stored as metadata and never fetched, so the contract is narrow: optional,
- * absolute http(s), no embedded credentials, bounded length. Plain JUnit —
- * no Quarkus needed.
+ * Branch-complete test for the D-CORE-7 reference-URL guard. The URL is stored
+ * as metadata and never fetched, so the contract is narrow: optional, absolute
+ * http(s), no embedded credentials, bounded length.
+ *
+ * <p>{@code @QuarkusTest} is deliberate: quarkus-jacoco only records hits on
+ * classes loaded through the Quarkus classloader, so a plain JUnit test would
+ * pass without registering any coverage (same reason as KeycloakAdminServiceTest).
  */
+@QuarkusTest
 class ReferenceUrlValidatorTest {
 
     // ---- accepted ---------------------------------------------------------
