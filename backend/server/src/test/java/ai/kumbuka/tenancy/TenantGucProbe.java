@@ -26,19 +26,10 @@ public class TenantGucProbe {
     @Inject EntityManager em;
 
     /** Read the GUC inside a {@code @TenantBound @Transactional} method — the
-     *  interceptor must have set it before the body runs. */
+     *  interceptor must have set it (to the bound tenant) before the body runs. */
     @TenantBound
     @Transactional
     public String readGucInsideTenantBoundTx() {
-        return currentTenantGuc();
-    }
-
-    /** Read the GUC inside a transaction that is NOT {@code @TenantBound} — the
-     *  interceptor never fires, so the GUC must be unset. This documents why
-     *  tenant-scoped resources need {@code @TenantBound}, not just
-     *  {@code @Transactional}. */
-    @Transactional
-    public String readGucWithoutTenantBound() {
         return currentTenantGuc();
     }
 

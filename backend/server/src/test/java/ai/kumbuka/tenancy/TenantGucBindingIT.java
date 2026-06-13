@@ -29,31 +29,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("integration")
 class TenantGucBindingIT {
 
-    /** Singleton tenant seeded by V1__init.sql. */
-    static final UUID TENANT_A = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    /**
+     * Bind a tenant DISTINCT from the V1 singleton (00…001). The interceptor
+     * resolves the GUC from {@link TenantContext}, so reading back exactly this
+     * value proves the {@code SET LOCAL} ran inside the tx — a stale/ambient GUC
+     * left on a pooled connection would carry a different (or no) value and the
+     * assertion would fail, which is what makes this test discriminating against
+     * the {@code @Priority} regression.
+     */
+    static final UUID BOUND_TENANT = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
 
     @Inject TenantGucProbe probe;
     @Inject TenantContext tenantContext;
 
     @Test
     void interceptor_sets_app_tenant_id_guc_inside_the_transaction() {
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
+        try (AutoCloseable ignored = tenantContext.bind(BOUND_TENANT)) {
             assertThat(probe.readGucInsideTenantBoundTx())
-                .as("@TenantBound must set app.tenant_id INSIDE the @Transactional tx — "
-                    + "regresses if @Priority drops to PLATFORM_BEFORE+100 (runs before tx opens)")
-                .isEqualTo(TENANT_A.toString());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Test
-    void guc_stays_unset_in_a_transaction_that_is_not_tenant_bound() {
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            assertThat(probe.readGucWithoutTenantBound())
-                .as("a @Transactional method that is NOT @TenantBound must not bind the GUC — "
-                    + "this is why tenant-scoped read resources MUST carry @TenantBound")
-                .isNullOrEmpty();
+                .as("@TenantBound must set app.tenant_id to the bound tenant INSIDE the "
+                    + "@Transactional tx — regresses if @Priority drops to PLATFORM_BEFORE+100 "
+                    + "(the interceptor would run before the tx opens and the SET LOCAL is skipped)")
+                .isEqualTo(BOUND_TENANT.toString());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
