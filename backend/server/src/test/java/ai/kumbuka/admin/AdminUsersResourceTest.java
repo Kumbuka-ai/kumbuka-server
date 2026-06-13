@@ -242,4 +242,47 @@ class AdminUsersResourceTest {
         verify(keycloak, org.mockito.Mockito.never()).updateRole(any(), any());
         verify(keycloak, org.mockito.Mockito.never()).updateEnabled(any(), org.mockito.Mockito.anyBoolean());
     }
+
+    // ---------- mute (D-CORE-2) ----------------------------------------------
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void mute_thenUnmute_persistsAndReadsBack() {
+        KeycloakUser u = new KeycloakUser("mute-target", "bob", "bob@x", "Bob", "Jones", "member", "active", Instant.now());
+        when(keycloak.findById("mute-target")).thenReturn(u);
+        when(keycloak.listUsers()).thenReturn(List.of(u));
+
+        // mute → 200, muted=true in the response (lazily upserts user_account)
+        given().contentType(ContentType.JSON).body("""
+                {"muted": true}
+                """)
+            .when().patch("/api/users/mute-target")
+            .then().statusCode(200).body("muted", equalTo(true));
+
+        // the team list reflects the persisted mute state
+        given().when().get("/api/users")
+            .then().statusCode(200)
+                .body("find { it.id == 'mute-target' }.muted", equalTo(true));
+
+        // unmute → muted=false, list reflects it
+        given().contentType(ContentType.JSON).body("""
+                {"muted": false}
+                """)
+            .when().patch("/api/users/mute-target")
+            .then().statusCode(200).body("muted", equalTo(false));
+
+        given().when().get("/api/users")
+            .then().statusCode(200)
+                .body("find { it.id == 'mute-target' }.muted", equalTo(false));
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void mute_asMember_isForbidden() {
+        given().contentType(ContentType.JSON).body("""
+                {"muted": true}
+                """)
+            .when().patch("/api/users/whoever")
+            .then().statusCode(403);
+    }
 }

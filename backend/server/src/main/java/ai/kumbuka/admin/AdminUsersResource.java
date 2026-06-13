@@ -1,6 +1,8 @@
 package ai.kumbuka.admin;
 import ai.kumbuka.tenancy.TenantBound;
 
+import ai.kumbuka.domain.UserAccount;
+import ai.kumbuka.domain.UserStatus;
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
 import jakarta.annotation.security.RolesAllowed;
@@ -18,6 +20,8 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Team-member management — proxies the backend's Keycloak service account
@@ -40,20 +44,31 @@ public class AdminUsersResource {
         String firstName,
         String lastName,
         String role,
-        String status
+        String status,
+        boolean muted   // D-CORE-2
     ) {
-        public static UserView from(KeycloakUser u) {
-            return new UserView(u.id(), u.email(), u.firstName(), u.lastName(), u.role(), u.status());
+        public static UserView from(KeycloakUser u, boolean muted) {
+            return new UserView(u.id(), u.email(), u.firstName(), u.lastName(), u.role(), u.status(), muted);
         }
     }
 
     public record InviteRequest(String email, String firstName, String lastName, String role) {}
-    public record UpdateUserRequest(String role, Boolean enabled) {}
+    public record UpdateUserRequest(String role, Boolean enabled, Boolean muted) {}
 
     @GET
     @RolesAllowed({"admin", "member"})
     public List<UserView> list() {
-        return keycloak.listUsers().stream().map(UserView::from).toList();
+        Map<String, Boolean> mutedBySubject = mutedMap();
+        return keycloak.listUsers().stream()
+            .map(u -> UserView.from(u, mutedBySubject.getOrDefault(u.id(), false)))
+            .toList();
+    }
+
+    /** Tenant-scoped subject → muted map (the Keycloak `sub` is the user id). */
+    private Map<String, Boolean> mutedMap() {
+        List<UserAccount> rows = UserAccount.listAll();
+        return rows.stream().collect(Collectors.toMap(
+            a -> a.subject, a -> Boolean.TRUE.equals(a.muted), (a, b) -> a));
     }
 
     @POST
@@ -73,7 +88,7 @@ public class AdminUsersResource {
             role
         );
         return Response.status(Response.Status.CREATED)
-            .entity(UserView.from(created))
+            .entity(UserView.from(created, false))   // freshly invited members are never muted
             .build();
     }
 
@@ -90,6 +105,31 @@ public class AdminUsersResource {
         if (req.enabled() != null) {
             keycloak.updateEnabled(id, req.enabled());
         }
-        return UserView.from(keycloak.findById(id));
+        KeycloakUser ku = keycloak.findById(id);
+        boolean muted = applyMute(id, req.muted(), ku);   // D-CORE-2
+        return UserView.from(ku, muted);
+    }
+
+    /**
+     * D-CORE-2: set/clear the mute flag on the member's {@link UserAccount},
+     * lazily creating the row (it mirrors Keycloak and isn't pre-synced). The
+     * Keycloak `sub` IS the user id, so it keys the row directly. Returns the
+     * effective muted state (current value when {@code muted} is null).
+     */
+    private boolean applyMute(String subject, Boolean muted, KeycloakUser ku) {
+        UserAccount u = UserAccount.find("subject = ?1", subject).firstResult();
+        if (muted == null) {
+            return u != null && Boolean.TRUE.equals(u.muted);
+        }
+        if (u == null) {
+            u = new UserAccount();
+            u.subject = subject;
+            u.email = ku.email();
+            u.role = ku.role();
+            u.status = UserStatus.fromDb(ku.status());
+            u.persist();
+        }
+        u.muted = muted;
+        return muted;
     }
 }

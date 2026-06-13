@@ -36,11 +36,14 @@ public class SessionResource {
     public SessionView me() {
         String subject = identity.getPrincipal().getName();
         String email = attr("email");
-        String displayName = readDisplayName(subject, email);
+        UserAccount account = UserAccount.find("subject = ?1", subject).firstResult();
+        String displayName = (account != null && account.displayName != null)
+            ? account.displayName : email;
+        boolean muted = account != null && Boolean.TRUE.equals(account.muted);   // D-CORE-2
         String role = identity.getRoles().contains("admin") ? "admin" : "member";
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
-        return new SessionView(subject, email, displayName, role, accountConsoleUrl);
+        return new SessionView(subject, email, displayName, role, accountConsoleUrl, muted);
     }
 
     @PATCH
@@ -59,13 +62,5 @@ public class SessionResource {
     private String attr(String name) {
         Object v = identity.getAttribute(name);
         return v == null ? null : v.toString();
-    }
-
-    private String readDisplayName(String subject, String emailFallback) {
-        UserAccount u = UserAccount.find("subject = ?1", subject).firstResult();
-        if (u != null && u.displayName != null) {
-            return u.displayName;
-        }
-        return emailFallback;
     }
 }

@@ -11,6 +11,7 @@ import ai.kumbuka.domain.TeamSettings.WritePolicy;
 import ai.kumbuka.mcp.dto.Dtos;
 import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
+import ai.kumbuka.service.MemberWritePolicy;
 import ai.kumbuka.service.WritePolicyResolver;
 import ai.kumbuka.service.WritePolicyResolver.Resolved;
 import ai.kumbuka.util.ReferenceUrlValidator;
@@ -46,6 +47,7 @@ public class MemoryTools {
     @Inject ScopeRepository scopes;
     @Inject MemoryConfig config;
     @Inject WritePolicyResolver policyResolver;
+    @Inject MemberWritePolicy writePolicy;
 
     private String callerSubject() {
         String s = identity.getPrincipal().getName();
@@ -100,6 +102,13 @@ public class MemoryTools {
                 case PROJECT -> scopeSlug = policy.defaultScopeSlug();
                 case GLOBAL  -> scopeSlug = "global";
             }
+        }
+
+        // D-CORE-2: a muted member keeps their private scope but loses shared
+        // writes. There is exactly one private scope per tenant, reserved slug
+        // "private" (V1, unique index) — any other slug is shared.
+        if (!"private".equals(scopeSlug)) {
+            writePolicy.assertCanWriteShared(callerSubject());
         }
 
         // Tenant isolation is enforced by Hibernate's @TenantId discriminator on
@@ -172,6 +181,11 @@ public class MemoryTools {
         @ToolArg(description = "Upsert key, if the entry was written with one.", required = false) String key
     ) {
         UUID uuid = (id == null || id.isBlank()) ? null : UUID.fromString(id);
+        // D-CORE-2: shared forget is a write — suspended for muted members; a
+        // muted member can still forget in their own private scope (slug "private").
+        if (!"private".equals(scope)) {
+            writePolicy.assertCanWriteShared(callerSubject());
+        }
         int n = memories.forget(callerSubject(), scope, uuid, key);
         return new Dtos.ForgetResult(n);
     }

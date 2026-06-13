@@ -113,7 +113,8 @@ public final class AdminDtos {
         String email,
         String displayName,
         String role,
-        String status
+        String status,
+        boolean muted   // D-CORE-2
     ) {}
 
     public record SessionView(
@@ -121,7 +122,8 @@ public final class AdminDtos {
         String email,
         String displayName,
         String role,
-        String accountConsoleUrl
+        String accountConsoleUrl,
+        boolean muted   // D-CORE-2: the caller's own mute state (drives the member notice)
     ) {}
 
     /**
