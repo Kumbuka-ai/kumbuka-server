@@ -179,19 +179,24 @@ public class MemoryTools {
     // -----------------------------------------------------------------------
 
     @Tool(description =
-        "Return a typed digest of memories: grouped by type (decision, constraint, "
-      + "convention, glossary, open_question, status), capped per group. Useful for "
-      + "loading context at conversation start. With no `scope`, digests the caller's "
+        "Return a typed digest of memories: grouped by type, capped per group. Useful for "
+      + "loading context at conversation start. By DEFAULT the digest returns the steering "
+      + "types only (decision, constraint, convention, glossary, status) and EXCLUDES "
+      + "open_question, so it isn't dominated by unresolved questions. Pass `types` "
+      + "(comma-separated, e.g. \"decision,open_question\") to digest an explicit set — for "
+      + "example to review what is open on a topic. With no `scope`, digests the caller's "
       + "private memories plus the global scope ONLY (project scopes are excluded by "
       + "default); pass a project `scope` slug to digest that project.")
     public Dtos.LoadContextResult memory_load_context(
-        @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope
+        @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope,
+        @ToolArg(description = "Optional comma-separated memory types to include (decision, constraint, convention, glossary, open_question, status). Omit for the steering-types default (which excludes open_question).", required = false) String types
     ) {
-        Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope);
+        java.util.Set<MemoryType> wanted = parseTypes(types);
+        Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope, wanted);
         Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();
         int total = 0;
-        // Deterministic ordering per the spec: decision, constraint, convention,
-        // glossary, open_question, status.
+        // Deterministic ordering; only the types actually digested are emitted as keys
+        // (so the steering default carries no empty open_question bucket — D-CORE-6).
         for (MemoryType t : new MemoryType[]{
                 MemoryType.DECISION,
                 MemoryType.CONSTRAINT,
@@ -199,11 +204,32 @@ public class MemoryTools {
                 MemoryType.GLOSSARY,
                 MemoryType.OPEN_QUESTION,
                 MemoryType.STATUS}) {
-            List<Memory> rows = grouped.getOrDefault(t, List.of());
-            List<Dtos.MemoryDto> dtos = rows.stream().map(Dtos.MemoryDto::from).toList();
+            if (!grouped.containsKey(t)) {
+                continue;
+            }
+            List<Dtos.MemoryDto> dtos = grouped.get(t).stream().map(Dtos.MemoryDto::from).toList();
             byType.put(t.dbValue(), dtos);
             total += dtos.size();
         }
         return new Dtos.LoadContextResult(byType, total);
+    }
+
+    /**
+     * Parse the optional comma-separated {@code types} arg into a type set; null/blank →
+     * null, which the repository reads as the steering-types default (D-CORE-6). An
+     * unknown type name raises a clear error back to the caller.
+     */
+    private static java.util.Set<MemoryType> parseTypes(String types) {
+        if (types == null || types.isBlank()) {
+            return null;
+        }
+        java.util.Set<MemoryType> out = java.util.EnumSet.noneOf(MemoryType.class);
+        for (String part : types.split(",")) {
+            String v = part.trim().toLowerCase(java.util.Locale.ROOT);
+            if (!v.isEmpty()) {
+                out.add(MemoryType.fromDb(v));
+            }
+        }
+        return out.isEmpty() ? null : out;
     }
 }

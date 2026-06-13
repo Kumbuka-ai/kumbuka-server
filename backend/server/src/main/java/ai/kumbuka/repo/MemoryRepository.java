@@ -180,9 +180,31 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      */
     public java.util.Map<MemoryType, List<Memory>> loadContext(String callerSubject,
                                                                 String scopeSlug) {
+        return loadContext(callerSubject, scopeSlug, null);
+    }
+
+    /**
+     * The "steering" memory types — the durable, decision-shaping kinds. Per D-CORE-6
+     * the default digest returns ONLY these and excludes {@code open_question}, so a
+     * context load isn't dominated by unresolved questions.
+     */
+    static final java.util.Set<MemoryType> STEERING_TYPES = java.util.Collections.unmodifiableSet(
+        java.util.EnumSet.of(MemoryType.DECISION, MemoryType.CONSTRAINT, MemoryType.CONVENTION,
+                             MemoryType.GLOSSARY, MemoryType.STATUS));
+
+    /**
+     * D-CORE-6: typed digest. When {@code types} is null/empty the default is the
+     * {@link #STEERING_TYPES} set (excludes {@code open_question}); pass an explicit set
+     * — e.g. to review "what is open on topic X" — to include {@code open_question} or
+     * any subset. Server-side default, not a stored filter.
+     */
+    public java.util.Map<MemoryType, List<Memory>> loadContext(String callerSubject,
+                                                                String scopeSlug,
+                                                                java.util.Set<MemoryType> types) {
         int perType = config.loadContextPerTypeLimit();
+        java.util.Set<MemoryType> wanted = (types == null || types.isEmpty()) ? STEERING_TYPES : types;
         java.util.Map<MemoryType, List<Memory>> grouped = new java.util.EnumMap<>(MemoryType.class);
-        for (MemoryType t : MemoryType.values()) {
+        for (MemoryType t : wanted) {
             List<Memory> rows = recall(callerSubject, scopeSlug, t, null, false);
             grouped.put(t, rows.size() > perType ? rows.subList(0, perType) : rows);
         }

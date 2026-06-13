@@ -328,40 +328,60 @@ class MemoryToolsTest {
     // ---------- memory_load_context -----------------------------------------
 
     @Test
-    void loadContext_groupsByTypeInSpecOrder() {
-        // The deterministic order is decision, constraint, convention, glossary,
-        // open_question, status — even when types are missing in the data.
+    void loadContext_defaultExcludesOpenQuestion_canonicalOrder() {
+        // D-CORE-6: the default digest is the steering types only — no open_question
+        // bucket. The tool asks the repo with a null type set (= steering default),
+        // and emits keys in canonical order for the digested types only.
         Scope g = scope("global", ScopeKind.GLOBAL);
         Memory dec = memory(MemoryType.DECISION, g, "d", "decided X");
         Memory con = memory(MemoryType.CONSTRAINT, g, "c", "no PII in logs");
         Memory glo = memory(MemoryType.GLOSSARY, g, "term", "RLS = Row-Level Security");
 
-        when(memories.loadContext(eq("caller-sub"), isNull())).thenReturn(Map.of(
+        when(memories.loadContext(eq("caller-sub"), isNull(), isNull())).thenReturn(Map.of(
             MemoryType.DECISION, List.of(dec),
             MemoryType.CONSTRAINT, List.of(con),
-            MemoryType.GLOSSARY, List.of(glo)
+            MemoryType.CONVENTION, List.of(),
+            MemoryType.GLOSSARY, List.of(glo),
+            MemoryType.STATUS, List.of()
         ));
 
-        Dtos.LoadContextResult out = tools.memory_load_context(null);
+        Dtos.LoadContextResult out = tools.memory_load_context(null, null);
 
         assertThat(out.total()).isEqualTo(3);
-        // All 6 type buckets must be present even when empty.
         assertThat(out.byType().keySet())
-            .containsExactly("decision", "constraint", "convention",
-                "glossary", "open_question", "status");
-        assertThat(out.byType().get("decision")).hasSize(1);
-        assertThat(out.byType().get("convention")).isEmpty();
+            .containsExactly("decision", "constraint", "convention", "glossary", "status");
+        assertThat(out.byType()).doesNotContainKey("open_question");
         assertThat(out.byType().get("constraint").get(0).content()).isEqualTo("no PII in logs");
     }
 
     @Test
-    void loadContext_emptyResult_returnsAllBucketsEmpty() {
-        when(memories.loadContext(any(), any())).thenReturn(Map.of());
+    void loadContext_explicitTypes_includesOpenQuestion() {
+        // Passing an explicit type set (e.g. to review open questions) digests exactly
+        // those types — the tool parses the comma list into the type set the repo gets.
+        Scope g = scope("global", ScopeKind.GLOBAL);
+        Memory dec = memory(MemoryType.DECISION, g, "d", "decided X");
+        Memory oq = memory(MemoryType.OPEN_QUESTION, g, "q", "still open?");
 
-        Dtos.LoadContextResult out = tools.memory_load_context("alpha");
+        when(memories.loadContext(eq("caller-sub"), isNull(),
+                eq(java.util.EnumSet.of(MemoryType.DECISION, MemoryType.OPEN_QUESTION))))
+            .thenReturn(Map.of(
+                MemoryType.DECISION, List.of(dec),
+                MemoryType.OPEN_QUESTION, List.of(oq)));
+
+        Dtos.LoadContextResult out = tools.memory_load_context(null, "decision, open_question");
+
+        assertThat(out.total()).isEqualTo(2);
+        assertThat(out.byType().keySet()).containsExactly("decision", "open_question");
+        assertThat(out.byType().get("open_question").get(0).content()).isEqualTo("still open?");
+    }
+
+    @Test
+    void loadContext_emptyResult_returnsNoBuckets() {
+        when(memories.loadContext(any(), any(), any())).thenReturn(Map.of());
+
+        Dtos.LoadContextResult out = tools.memory_load_context("alpha", null);
 
         assertThat(out.total()).isZero();
-        assertThat(out.byType()).hasSize(6);
-        assertThat(out.byType().values()).allSatisfy(list -> assertThat(list).isEmpty());
+        assertThat(out.byType()).isEmpty();
     }
 }
