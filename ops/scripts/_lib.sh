@@ -23,7 +23,7 @@ load_env() {
   local line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
-    case "$line" in ''|\#*) continue;; esac
+    case "$line" in ''|\#*) continue;; *) ;; esac
     case "$line" in *=*) ;; *) continue;; esac
     key="${line%%=*}"
     val="${line#*=}"
