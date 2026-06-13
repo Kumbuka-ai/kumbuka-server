@@ -13,6 +13,7 @@ import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.repo.SharedMemoryRepository;
+import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
@@ -63,6 +64,7 @@ public class AdminEntriesResource {
     @Transactional
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         requireSharedSlug(slug);
+        ReferenceUrlValidator.validate(req.reference());
         MemoryType t = MemoryType.fromDb(req.type());
         Memory m = memories.remember(
             identity.getPrincipal().getName(),
@@ -72,6 +74,9 @@ public class AdminEntriesResource {
             req.content(),
             SourceChannel.CONSOLE
         );
+        if (req.reference() != null && !req.reference().isBlank()) {
+            m.reference = req.reference();   // D-CORE-7: explicit admin write
+        }
         return Response.status(Response.Status.CREATED)
             .entity(EntryView.from(m))
             .build();
@@ -85,8 +90,12 @@ public class AdminEntriesResource {
                             @PathParam("id") UUID id,
                             UpdateEntryRequest req) {
         requireSharedSlug(slug);
+        ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
         Memory m = sharedMemories.update(id, req.content(), t);
+        if (req.reference() != null) {   // D-CORE-7: null preserves, blank clears
+            m.reference = req.reference().isBlank() ? null : req.reference();
+        }
         // Guard: the updated row must still be in the requested scope.
         if (!m.scope.slug.equals(slug)) {
             throw new NotFoundException("entry not in scope " + slug);

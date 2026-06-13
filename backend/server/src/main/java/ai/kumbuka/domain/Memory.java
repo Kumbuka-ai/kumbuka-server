@@ -60,6 +60,15 @@ public class Memory extends PanacheEntityBase {
     public String content;
 
     /**
+     * Optional external provenance URL (D-CORE-7) — structured metadata, never
+     * part of the content body. Verify-on-demand: omitted from the load_context
+     * digest and never auto-fetched. Credential-bearing URLs are rejected
+     * (ReferenceUrlValidator + a DB CHECK). Nullable.
+     */
+    @Column(name = "reference", columnDefinition = "TEXT")
+    public String reference;
+
+    /**
      * Channel through which the row was created. Server-derived per
      * ADR-0008: MCP tools set MCP, admin endpoints set CONSOLE. Never
      * defaulted at this layer — the caller-side service is expected to

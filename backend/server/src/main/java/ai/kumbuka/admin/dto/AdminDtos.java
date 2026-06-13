@@ -48,6 +48,7 @@ public final class AdminDtos {
         String type,
         String key,
         String content,
+        String reference,     // D-CORE-7: optional external provenance URL
         String authorSubject,
         String source,
         Instant createdAt,
@@ -55,7 +56,7 @@ public final class AdminDtos {
     ) {
         public static EntryView from(Memory m) {
             return new EntryView(
-                m.id, m.type.dbValue(), m.key, m.content,
+                m.id, m.type.dbValue(), m.key, m.content, m.reference,
                 m.ownerSubject, m.source.dbValue(),
                 m.createdAt, m.updatedAt
             );
@@ -128,8 +129,8 @@ public final class AdminDtos {
     public record CreateScopeRequest(String slug, String name, String description) {}
     public record UpdateScopeRequest(String name, String description) {}
 
-    public record CreateEntryRequest(String type, String key, String content) {}
-    public record UpdateEntryRequest(String type, String content) {}
+    public record CreateEntryRequest(String type, String key, String content, String reference) {}
+    public record UpdateEntryRequest(String type, String content, String reference) {}
 
     public record UpdateSettingsRequest(
         String writePolicy,      // ask | project | global

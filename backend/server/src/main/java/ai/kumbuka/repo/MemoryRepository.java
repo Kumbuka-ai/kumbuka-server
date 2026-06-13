@@ -69,7 +69,8 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 m.content = content;
                 if (type != null) m.type = type;
                 // source is intentionally not updated on upsert — it records
-                // who originally wrote the row.
+                // who originally wrote the row. The D-CORE-7 `reference` is set
+                // by the caller (tool/admin) on a NEW row only, never on upsert.
                 return m;
             }
         }

@@ -13,6 +13,7 @@ import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.service.WritePolicyResolver;
 import ai.kumbuka.service.WritePolicyResolver.Resolved;
+import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -63,7 +64,8 @@ public class MemoryTools {
       + "structured prompt asking which scope to use (no silent fallback to private); "
       + "'project' writes to the configured default project scope; 'global' writes to "
       + "the team-wide global scope. Use the explicit slug 'private' to write to the "
-      + "caller's private space.")
+      + "caller's private space. Optionally attach a `reference` URL (where this came "
+      + "from) — it is stored as metadata, never fetched, and kept out of the digest.")
     public Dtos.RememberResult memory_remember(
         @ToolArg(description = "The memory content (free text).")
             String content,
@@ -72,9 +74,12 @@ public class MemoryTools {
         @ToolArg(description = "Scope slug. When omitted, follows the team's writePolicy.", required = false)
             String scope,
         @ToolArg(description = "Optional upsert key (lowercase, dot/kebab-namespaced).", required = false)
-            String key
+            String key,
+        @ToolArg(description = "Optional external provenance URL (http/https). Stored as metadata; never auto-fetched. Credential-bearing URLs are rejected.", required = false)
+            String reference
     ) {
         MemoryType t = MemoryType.fromDb(type);
+        ReferenceUrlValidator.validate(reference);
         Resolved policy = policyResolver.resolve();
         Dtos.EffectiveWritePolicy policyDto = toDto(policy);
 
@@ -110,6 +115,11 @@ public class MemoryTools {
         ).firstResultOptional().isPresent();
 
         Memory m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
+        // D-CORE-7: attach the provenance URL on a freshly-written row only — an
+        // upsert preserves the row's original reference. Validated above; blank = none.
+        if (!existed && reference != null && !reference.isBlank()) {
+            m.reference = reference;
+        }
         return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, policyDto);
     }
 
@@ -207,7 +217,8 @@ public class MemoryTools {
             if (!grouped.containsKey(t)) {
                 continue;
             }
-            List<Dtos.MemoryDto> dtos = grouped.get(t).stream().map(Dtos.MemoryDto::from).toList();
+            // forDigest omits the reference URL — the digest stays lean (D-CORE-7).
+            List<Dtos.MemoryDto> dtos = grouped.get(t).stream().map(Dtos.MemoryDto::forDigest).toList();
             byType.put(t.dbValue(), dtos);
             total += dtos.size();
         }
