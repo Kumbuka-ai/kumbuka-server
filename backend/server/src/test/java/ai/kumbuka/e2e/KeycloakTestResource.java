@@ -59,9 +59,15 @@ public class KeycloakTestResource implements QuarkusTestResourceLifecycleManager
         keycloak.setPortBindings(List.of(HOST_PORT + ":8080"));
         keycloak.start();
 
-        // OIDC/auth config is set authoritatively by OidcEnabledProfile (build
-        // time). The resource only surfaces the test URL for the IT to read and
-        // keeps Keycloak DevServices off.
+        // Point the mcp OIDC tenant at the test Keycloak via SYSTEM PROPERTIES.
+        // The OIDC auth-server-url ignored every lower-ordinal override we tried
+        // (QuarkusTestProfile.getConfigOverrides, %test keys, application-test
+        // .properties) — system properties (ordinal 400) sit above the
+        // application.properties expression and are read at boot, which happens
+        // after this resource starts. Cleared in stop().
+        System.setProperty("quarkus.oidc.mcp.auth-server-url", ISSUER);
+        System.setProperty("KUMBUKA_OIDC_ISSUER", ISSUER);
+
         Map<String, String> cfg = new HashMap<>();
         cfg.put("quarkus.keycloak.devservices.enabled", "false");
         cfg.put("test.keycloak.issuer", ISSUER);
@@ -71,6 +77,8 @@ public class KeycloakTestResource implements QuarkusTestResourceLifecycleManager
 
     @Override
     public void stop() {
+        System.clearProperty("quarkus.oidc.mcp.auth-server-url");
+        System.clearProperty("KUMBUKA_OIDC_ISSUER");
         if (keycloak != null) {
             keycloak.stop();
             keycloak = null;
