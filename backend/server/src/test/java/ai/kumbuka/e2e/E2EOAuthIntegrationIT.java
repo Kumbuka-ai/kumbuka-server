@@ -5,11 +5,11 @@ import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.repo.MemoryRepository;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.TestProfile;
 import io.restassured.http.ContentType;
 import io.restassured.response.Response;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.eclipse.microprofile.config.ConfigProvider;
@@ -37,20 +37,8 @@ import static org.hamcrest.Matchers.not;
  */
 @QuarkusTest
 @QuarkusTestResource(value = KeycloakTestResource.class, restrictToAnnotatedClass = true)
+@TestProfile(OidcEnabledProfile.class)
 @Tag("integration")
-@Disabled("""
-    Quarkus OIDC `tenant-enabled` is a build-time property, so the test
-    profile's `quarkus.oidc.*.tenant-enabled=false` defaults bake into
-    the augmented test app and a QuarkusTestResource cannot turn the
-    tenants back on at runtime. To re-enable this IT we need either a
-    dedicated @TestProfile that builds with OIDC ON + a fixed-port
-    Keycloak (so the auth-server-url is known at build time), or to
-    drop the test-profile OIDC disable and let every test hit a live
-    KC. Plumbing tracked for a follow-up.
-
-    Manual release-gate verification runs through MCP Inspector against
-    a real `just up` stack — see README §Verification.
-    """)
 class E2EOAuthIntegrationIT {
 
     static final String OTHER_USER_SUBJECT = "11111111-1111-1111-1111-111111111111";

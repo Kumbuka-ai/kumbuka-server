@@ -7,6 +7,7 @@ import org.testcontainers.utility.MountableFile;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,6 +24,18 @@ public class KeycloakTestResource implements QuarkusTestResourceLifecycleManager
 
     public static final String KEYCLOAK_IMAGE = "quay.io/keycloak/keycloak:26.0";
     public static final String REALM = "kumbuka";
+
+    /**
+     * Fixed host port. The OIDC {@code auth-server-url} must be known at BUILD
+     * time so {@link OidcEnabledProfile} (a {@code @TestProfile}, whose config
+     * overrides have the precedence the OIDC tenant needs) can point the tenant
+     * at this container — a {@code QuarkusTestResource}'s runtime config map does
+     * NOT reliably win for {@code auth-server-url}. A random mapped port can't be
+     * known at build time, hence the fixed binding.
+     */
+    public static final int HOST_PORT = 38080;
+    public static final String BASE_URL = "http://localhost:" + HOST_PORT;
+    public static final String ISSUER = BASE_URL + "/realms/" + REALM;
 
     private static GenericContainer<?> keycloak;
 
@@ -42,39 +55,31 @@ public class KeycloakTestResource implements QuarkusTestResourceLifecycleManager
                 Wait.forHttp("/realms/" + REALM + "/.well-known/openid-configuration")
                     .withStartupTimeout(Duration.ofMinutes(3))
             );
+        // Bind container 8080 to a fixed host port so ISSUER is deterministic.
+        keycloak.setPortBindings(List.of(HOST_PORT + ":8080"));
         keycloak.start();
 
-        String issuer = "http://" + keycloak.getHost()
-            + ":" + keycloak.getMappedPort(8080)
-            + "/realms/" + REALM;
-        String adminUrl = "http://" + keycloak.getHost()
-            + ":" + keycloak.getMappedPort(8080);
+        // Point the mcp OIDC tenant's auth-server-url at this container via a
+        // system property (ordinal 400, read at boot which happens after the
+        // resource starts) so Quarkus discovers the realm from the test KC, not
+        // the prod default in application.properties. Cleared in stop().
+        // (The realm import deliberately omits a frontendUrl so Keycloak then
+        // advertises localhost endpoints in its discovery document — otherwise
+        // the discovered jwks_uri would point back at the prod host.)
+        System.setProperty("quarkus.oidc.mcp.auth-server-url", ISSUER);
+        System.setProperty("KUMBUKA_OIDC_ISSUER", ISSUER);
 
         Map<String, String> cfg = new HashMap<>();
-        // Activate the OIDC tenants that the regular test profile disables.
-        cfg.put("quarkus.oidc.mcp.tenant-enabled", "true");
-        cfg.put("quarkus.oidc.admin.tenant-enabled", "true");
-        // Set BOTH the typed property and the env-var-expanded source so any
-        // ${KUMBUKA_OIDC_ISSUER:default} in application.properties resolves
-        // to the test KC instead of the prod default.
-        cfg.put("quarkus.oidc.mcp.auth-server-url", issuer);
-        cfg.put("quarkus.oidc.admin.auth-server-url", issuer);
-        cfg.put("KUMBUKA_OIDC_ISSUER", issuer);
-        cfg.put("KUMBUKA_KEYCLOAK_URL", adminUrl);
-        // The admin tenant in BFF mode requires a secret to start, even though
-        // these tests don't exercise the code/cookie flow.
-        cfg.put("quarkus.oidc.admin.credentials.secret", "change-me-kumbuka-admin-secret");
-        // Keycloak Admin client.
-        cfg.put("quarkus.keycloak.admin-client.server-url", adminUrl);
         cfg.put("quarkus.keycloak.devservices.enabled", "false");
-        // Surface the test URL on the SUT itself so test code can read it.
-        cfg.put("test.keycloak.issuer", issuer);
-        cfg.put("test.keycloak.base-url", adminUrl);
+        cfg.put("test.keycloak.issuer", ISSUER);
+        cfg.put("test.keycloak.base-url", BASE_URL);
         return cfg;
     }
 
     @Override
     public void stop() {
+        System.clearProperty("quarkus.oidc.mcp.auth-server-url");
+        System.clearProperty("KUMBUKA_OIDC_ISSUER");
         if (keycloak != null) {
             keycloak.stop();
             keycloak = null;
