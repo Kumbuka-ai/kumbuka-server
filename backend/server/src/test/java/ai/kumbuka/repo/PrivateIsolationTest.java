@@ -200,6 +200,26 @@ class PrivateIsolationTest {
 
     @Test
     @Transactional
+    void defaultLoadContext_excludesOpenQuestion_explicitTypesIncludesIt() {
+        // D-CORE-6: the default digest returns steering types only; open_question is
+        // digested only when explicitly requested via the types set.
+        Memory dec = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "d6 decision", SourceChannel.MCP);
+        Memory oq = memories.remember(SUBJECT_A, "global", MemoryType.OPEN_QUESTION, null, "d6 open?", SourceChannel.MCP);
+
+        List<Memory> byDefault = memories.loadContext(SUBJECT_A, null).values().stream()
+            .flatMap(List::stream).toList();
+        assertThat(byDefault)
+            .anyMatch(x -> x.id.equals(dec.id))
+            .noneMatch(x -> x.id.equals(oq.id));
+
+        List<Memory> explicit = memories.loadContext(SUBJECT_A, null,
+                java.util.EnumSet.of(MemoryType.OPEN_QUESTION)).values().stream()
+            .flatMap(List::stream).toList();
+        assertThat(explicit).anyMatch(x -> x.id.equals(oq.id));
+    }
+
+    @Test
+    @Transactional
     void explicitProjectWithIncludeGlobal_stillAddsGlobal() {
         String proj = ensureProject("dcore5-incl");
         Memory glob = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "incl global", SourceChannel.MCP);
