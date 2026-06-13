@@ -21,14 +21,15 @@ public class OidcEnabledProfile implements QuarkusTestProfile {
     @Override
     public Map<String, String> getConfigOverrides() {
         // The OAuth IT exercises the bearer-protected /mcp tenant + the public
-        // /.well-known endpoint, so only the mcp tenant needs enabling. All URLs
-        // point at the fixed-port test Keycloak (KeycloakTestResource.ISSUER) —
-        // set here (build time) because the OIDC tenant won't pick them up from
-        // the resource's runtime config map, and the well-known endpoint reads
-        // kumbuka.auth-base-url, which otherwise defaults to the prod host.
+        // /.well-known endpoint, so only the mcp tenant needs enabling.
+        //
+        // NOTE: quarkus.oidc.mcp.auth-server-url is set in
+        // src/test/resources/application.properties, NOT here — Quarkus resolves
+        // the OIDC auth-server-url from application.properties and ignores a
+        // QuarkusTestProfile config override for it. kumbuka.auth-base-url (a
+        // plain app config the well-known endpoint reads) IS honoured here.
         return Map.of(
             "quarkus.oidc.mcp.tenant-enabled", "true",
-            "quarkus.oidc.mcp.auth-server-url", KeycloakTestResource.ISSUER,
             "kumbuka.auth-base-url", KeycloakTestResource.BASE_URL,
             "test.keycloak.issuer", KeycloakTestResource.ISSUER,
             "test.keycloak.base-url", KeycloakTestResource.BASE_URL);
