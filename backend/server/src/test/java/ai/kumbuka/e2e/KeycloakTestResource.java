@@ -59,12 +59,13 @@ public class KeycloakTestResource implements QuarkusTestResourceLifecycleManager
         keycloak.setPortBindings(List.of(HOST_PORT + ":8080"));
         keycloak.start();
 
-        // Point the mcp OIDC tenant at the test Keycloak via SYSTEM PROPERTIES.
-        // The OIDC auth-server-url ignored every lower-ordinal override we tried
-        // (QuarkusTestProfile.getConfigOverrides, %test keys, application-test
-        // .properties) — system properties (ordinal 400) sit above the
-        // application.properties expression and are read at boot, which happens
-        // after this resource starts. Cleared in stop().
+        // Point the mcp OIDC tenant's auth-server-url at this container via a
+        // system property (ordinal 400, read at boot which happens after the
+        // resource starts) so Quarkus discovers the realm from the test KC, not
+        // the prod default in application.properties. Cleared in stop().
+        // (The realm import deliberately omits a frontendUrl so Keycloak then
+        // advertises localhost endpoints in its discovery document — otherwise
+        // the discovered jwks_uri would point back at the prod host.)
         System.setProperty("quarkus.oidc.mcp.auth-server-url", ISSUER);
         System.setProperty("KUMBUKA_OIDC_ISSUER", ISSUER);
 

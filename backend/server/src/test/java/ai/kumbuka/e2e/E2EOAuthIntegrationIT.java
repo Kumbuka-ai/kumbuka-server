@@ -51,13 +51,6 @@ class E2EOAuthIntegrationIT {
 
     @BeforeEach
     void plantPrivate() {
-        // Diagnostic: surface the effective mcp auth-server-url so a failing run
-        // shows whether the override reached the OIDC tenant (temporary).
-        System.out.println("[OAuth-IT] effective quarkus.oidc.mcp.auth-server-url="
-            + ConfigProvider.getConfig()
-                .getOptionalValue("quarkus.oidc.mcp.auth-server-url", String.class)
-                .orElse("<unset>"));
-
         // A different user's private memory — the release gate is that this
         // must remain invisible to every other surface.
         memories.remember(OTHER_USER_SUBJECT, "private", MemoryType.DECISION,

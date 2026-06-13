@@ -220,8 +220,5 @@
         "member"
       ]
     }
-  ],
-  "attributes": {
-    "frontendUrl": "https://dev.kumbuka.ai/auth"
-  }
+  ]
 }
