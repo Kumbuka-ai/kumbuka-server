@@ -15,7 +15,21 @@ die() { log "ERROR: $*"; exit 1; }
 
 load_env() {
   [[ -f "$ENVFILE" ]] || die "missing $ENVFILE"
-  set -a; . "$ENVFILE"; set +a
+  # Parse .env as KEY=VALUE WITHOUT shell-sourcing it. Values may contain shell
+  # metacharacters (e.g. the MCP url template's literal <alias>), which `. .env`
+  # tries to EXECUTE -- the historical `alias: No such file or directory` crash
+  # that silently broke the scheduled backups. export "$key=$val" sets the value
+  # verbatim (the <,>,&,? are inert inside the quoted assignment argument).
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    case "$line" in ''|\#*) continue;; esac
+    case "$line" in *=*) ;; *) continue;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    case "$key" in [A-Za-z_][A-Za-z0-9_]*) ;; *) continue;; esac
+    export "$key=$val"
+  done < "$ENVFILE"
 }
 
 # set_env KEY VALUE — update KEY in .env in place (or append).
