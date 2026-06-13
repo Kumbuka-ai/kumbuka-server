@@ -22,10 +22,12 @@ import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.mockito.ArgumentCaptor;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -400,6 +402,62 @@ class KeycloakAdminServiceTest {
         assertThat(KeycloakAdminService.mask("abcd")).isEqualTo("••••");
         assertThat(KeycloakAdminService.mask("abcdef")).isEqualTo("••cdef");
         assertThat(KeycloakAdminService.mask("sk_live_abcdef12")).isEqualTo("••••••••••••ef12");
+    }
+
+    // ---------- sessions (D-CORE-8) ------------------------------------------
+
+    @Test
+    void listUserSessions_mapsFields_dedupesAndSortsClients() {
+        UserSessionRepresentation s = new UserSessionRepresentation();
+        s.setId("sess-1");
+        s.setIpAddress("203.0.113.7");
+        s.setStart(1_700_000_000_000L);
+        s.setLastAccess(1_700_000_500_000L);
+        s.setRememberMe(true);
+        // values() carries the client ids; expect distinct + sorted.
+        s.setClients(new java.util.LinkedHashMap<>(Map.of(
+            "uuid-b", "kumbuka-connector-acme",
+            "uuid-a", "kumbuka-admin")));
+
+        UserResource ur = mock(UserResource.class);
+        when(ur.getUserSessions()).thenReturn(List.of(s));
+        stubUserResource("me", ur);
+
+        List<KeycloakAdminService.KeycloakSession> out = svc.listUserSessions("me");
+
+        assertThat(out).hasSize(1);
+        KeycloakAdminService.KeycloakSession v = out.get(0);
+        assertThat(v.id()).isEqualTo("sess-1");
+        assertThat(v.ipAddress()).isEqualTo("203.0.113.7");
+        assertThat(v.start()).isNotNull();
+        assertThat(v.lastAccess()).isNotNull();
+        assertThat(v.rememberMe()).isTrue();
+        assertThat(v.clients()).containsExactly("kumbuka-admin", "kumbuka-connector-acme");
+    }
+
+    @Test
+    void listUserSessions_handlesNullClientsAndZeroTimestamps() {
+        UserSessionRepresentation s = new UserSessionRepresentation();
+        s.setId("sess-empty");
+        s.setStart(0L);
+        s.setLastAccess(0L);
+        s.setClients(null);
+
+        UserResource ur = mock(UserResource.class);
+        when(ur.getUserSessions()).thenReturn(List.of(s));
+        stubUserResource("me2", ur);
+
+        KeycloakAdminService.KeycloakSession v = svc.listUserSessions("me2").get(0);
+
+        assertThat(v.clients()).isEmpty();
+        assertThat(v.start()).isNull();
+        assertThat(v.lastAccess()).isNull();
+    }
+
+    @Test
+    void logoutSession_delegatesToRealmDeleteSession() {
+        svc.logoutSession("sess-x");
+        verify(realm).deleteSession("sess-x", false);
     }
 
     // ---------- helpers ------------------------------------------------------
