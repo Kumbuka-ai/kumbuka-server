@@ -109,3 +109,33 @@ public_healthcheck() {
     sleep 2
   done
 }
+
+# org_mapper_check — assert the kumbuka-admin client still emits the
+# `organization` claim (sourced from the user's tenant_alias attribute). This is
+# the exact config whose loss/tweak caused the 2026-06-13 incident: without it
+# the RequestAwareTenantResolver rejects every console request as
+# TOKEN_ORG_MISSING. Read-only: mints a client_credentials token with the
+# kumbuka-backend service account (has view-clients) and inspects the
+# kumbuka-admin protocol mappers via the Admin REST API. No writes.
+org_mapper_check() {
+  command -v jq >/dev/null 2>&1 || { log "org_mapper_check: jq not on PATH"; return 1; }
+  local base="https://${KC_HOSTNAME}" realm="${KUMBUKA_REALM:-kumbuka}" tok cid n
+  [ -n "${KUMBUKA_BACKEND_CLIENT_SECRET:-}" ] || { log "org_mapper_check: KUMBUKA_BACKEND_CLIENT_SECRET unset"; return 1; }
+  tok="$(curl -fsS -m 10 -X POST "$base/realms/$realm/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d client_id=kumbuka-backend \
+    --data-urlencode "client_secret=$KUMBUKA_BACKEND_CLIENT_SECRET" 2>/dev/null \
+    | jq -r '.access_token // empty')" || true
+  [ -n "$tok" ] || { log "org_mapper_check: could not mint admin token"; return 1; }
+  cid="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
+    "$base/admin/realms/$realm/clients?clientId=kumbuka-admin" 2>/dev/null | jq -r '.[0].id // empty')" || true
+  [ -n "$cid" ] || { log "org_mapper_check: kumbuka-admin client not found"; return 1; }
+  n="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
+    "$base/admin/realms/$realm/clients/$cid/protocol-mappers/models" 2>/dev/null \
+    | jq -r '[.[] | select(.config["claim.name"]=="organization" and .config["user.attribute"]=="tenant_alias")] | length')" || true
+  if [ "${n:-0}" -ge 1 ]; then
+    log "org_mapper_check OK -- kumbuka-admin emits 'organization' (from tenant_alias)"
+    return 0
+  fi
+  log "org_mapper_check FAILED -- kumbuka-admin is MISSING the organization->tenant_alias mapper; tenant resolution would break (TOKEN_ORG_MISSING). Re-run keycloak/06-add-organization-mapper.sh"
+  return 1
+}
