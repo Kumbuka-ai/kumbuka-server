@@ -14,6 +14,7 @@ import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.keycloak.representations.idm.UserSessionRepresentation;
 
 import java.time.Instant;
 import java.util.List;
@@ -114,6 +115,55 @@ public class KeycloakAdminService {
         UserRepresentation rep = user.toRepresentation();
         rep.setEnabled(enabled);
         user.update(rep);
+    }
+
+    // ---- Member session self-management (D-CORE-8) ------------------------
+
+    public record KeycloakSession(
+        String id,
+        String ipAddress,
+        Instant start,
+        Instant lastAccess,
+        boolean rememberMe,
+        List<String> clients
+    ) {}
+
+    /**
+     * Lists the (online) Keycloak sessions for one user. The caller MUST pass
+     * its own subject — the resource layer enforces {@code subject == caller}
+     * so no member can enumerate another's sessions. Reading sessions needs
+     * the {@code view-users} realm-management role, already granted to the
+     * {@code kumbuka-backend} service account.
+     */
+    public List<KeycloakSession> listUserSessions(String userId) {
+        return realm().users().get(userId).getUserSessions().stream()
+            .map(this::toSessionView)
+            .toList();
+    }
+
+    /**
+     * Terminates a single online session by id (Keycloak invalidates the
+     * session's tokens, including any with {@code aud=kumbuka-connector-*}).
+     * Ownership is NOT re-checked here — the resource layer verifies the
+     * session belongs to the caller before calling this. Needs the
+     * {@code manage-users} role (already granted to {@code kumbuka-backend}).
+     */
+    public void logoutSession(String sessionId) {
+        realm().deleteSession(sessionId, false);
+    }
+
+    private KeycloakSession toSessionView(UserSessionRepresentation s) {
+        List<String> clients = s.getClients() == null
+            ? List.of()
+            : s.getClients().values().stream().distinct().sorted().toList();
+        return new KeycloakSession(
+            s.getId(),
+            s.getIpAddress(),
+            s.getStart() == 0 ? null : Instant.ofEpochMilli(s.getStart()),
+            s.getLastAccess() == 0 ? null : Instant.ofEpochMilli(s.getLastAccess()),
+            s.isRememberMe(),
+            clients
+        );
     }
 
     // ---- Connector client (ADR-0006, ADR-pending Phase 10) ----------------

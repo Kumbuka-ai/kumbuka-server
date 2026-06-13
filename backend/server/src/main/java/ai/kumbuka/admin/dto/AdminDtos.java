@@ -123,6 +123,24 @@ public final class AdminDtos {
         String accountConsoleUrl
     ) {}
 
+    /**
+     * D-CORE-8: one of the caller's own active Keycloak sessions. Scoped to
+     * {@code subject == caller} at the resource layer; never exposes another
+     * member's session. {@code clients} are the OAuth clients seen on the
+     * session (e.g. {@code kumbuka-admin}, {@code kumbuka-connector-<alias>}),
+     * used only as a human label. {@code current} marks the session backing
+     * this very request (best-effort, from the {@code sid} claim).
+     */
+    public record ActiveSessionView(
+        String id,
+        String ipAddress,
+        Instant startedAt,
+        Instant lastAccessAt,
+        boolean rememberMe,
+        List<String> clients,
+        boolean current
+    ) {}
+
     // ---------- Requests ---------------------------------------------------
 
     public record CreateScopeRequest(String slug, String name, String description) {}
