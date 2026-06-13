@@ -120,19 +120,19 @@ public_healthcheck() {
 org_mapper_check() {
   command -v jq >/dev/null 2>&1 || { log "org_mapper_check: jq not on PATH"; return 1; }
   local base="https://${KC_HOSTNAME}" realm="${KUMBUKA_REALM:-kumbuka}" tok cid n
-  [ -n "${KUMBUKA_BACKEND_CLIENT_SECRET:-}" ] || { log "org_mapper_check: KUMBUKA_BACKEND_CLIENT_SECRET unset"; return 1; }
+  [[ -n "${KUMBUKA_BACKEND_CLIENT_SECRET:-}" ]] || { log "org_mapper_check: KUMBUKA_BACKEND_CLIENT_SECRET unset"; return 1; }
   tok="$(curl -fsS -m 10 -X POST "$base/realms/$realm/protocol/openid-connect/token" \
     -d grant_type=client_credentials -d client_id=kumbuka-backend \
     --data-urlencode "client_secret=$KUMBUKA_BACKEND_CLIENT_SECRET" 2>/dev/null \
     | jq -r '.access_token // empty')" || true
-  [ -n "$tok" ] || { log "org_mapper_check: could not mint admin token"; return 1; }
+  [[ -n "$tok" ]] || { log "org_mapper_check: could not mint admin token"; return 1; }
   cid="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
     "$base/admin/realms/$realm/clients?clientId=kumbuka-admin" 2>/dev/null | jq -r '.[0].id // empty')" || true
-  [ -n "$cid" ] || { log "org_mapper_check: kumbuka-admin client not found"; return 1; }
+  [[ -n "$cid" ]] || { log "org_mapper_check: kumbuka-admin client not found"; return 1; }
   n="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
     "$base/admin/realms/$realm/clients/$cid/protocol-mappers/models" 2>/dev/null \
     | jq -r '[.[] | select(.config["claim.name"]=="organization" and .config["user.attribute"]=="tenant_alias")] | length')" || true
-  if [ "${n:-0}" -ge 1 ]; then
+  if [[ "${n:-0}" -ge 1 ]]; then
     log "org_mapper_check OK -- kumbuka-admin emits 'organization' (from tenant_alias)"
     return 0
   fi
