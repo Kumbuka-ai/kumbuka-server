@@ -35,6 +35,7 @@ public class KeycloakAdminService {
 
     @Inject Keycloak keycloak;
     @Inject MemoryConfig config;
+    @Inject TenantUserScope userScope;   // OSS: pass-through. SaaS: scopes users to the caller's tenant.
 
     private RealmResource realm() {
         return keycloak.realm(config.realm());
@@ -52,13 +53,15 @@ public class KeycloakAdminService {
     ) {}
 
     public List<KeycloakUser> listUsers() {
-        return realm().users().list().stream()
+        // Tenant-scoped in SaaS — never list the whole shared realm (cross-tenant leak).
+        return userScope.listUsers(realm()).stream()
             .map(this::toView)
             .toList();
     }
 
     public KeycloakUser findById(String id) {
         UserRepresentation u = realm().users().get(id).toRepresentation();
+        userScope.assertVisible(u);   // SaaS: 404 if the user is in another tenant
         return toView(u);
     }
 
@@ -75,6 +78,7 @@ public class KeycloakAdminService {
         rep.setLastName(lastName);
         rep.setEnabled(true);
         rep.setEmailVerified(false);
+        userScope.stampNewUser(rep);   // SaaS: bind the new user to the caller's tenant
 
         String id;
         try (Response response = realm().users().create(rep)) {
@@ -102,6 +106,7 @@ public class KeycloakAdminService {
 
     public void updateRole(String id, String newRole) {
         UserResource user = realm().users().get(id);
+        userScope.assertVisible(user.toRepresentation());   // SaaS: never role-change another tenant's user
         // Remove all member/admin roles, then add the new one.
         List<RoleRepresentation> current = user.roles().realmLevel().listAll();
         List<RoleRepresentation> toRemove = current.stream()
@@ -116,6 +121,7 @@ public class KeycloakAdminService {
     public void updateEnabled(String id, boolean enabled) {
         UserResource user = realm().users().get(id);
         UserRepresentation rep = user.toRepresentation();
+        userScope.assertVisible(rep);   // SaaS: never enable/disable another tenant's user
         rep.setEnabled(enabled);
         user.update(rep);
     }
