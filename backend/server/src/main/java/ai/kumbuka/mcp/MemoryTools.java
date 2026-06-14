@@ -14,6 +14,7 @@ import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.service.MemberWritePolicy;
 import ai.kumbuka.service.WritePolicyResolver;
 import ai.kumbuka.service.WritePolicyResolver.Resolved;
+import ai.kumbuka.util.MemoryContentValidator;
 import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
@@ -81,6 +82,7 @@ public class MemoryTools {
             String reference
     ) {
         MemoryType t = MemoryType.fromDb(type);
+        MemoryContentValidator.validate(content);   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(reference);
         Resolved policy = policyResolver.resolve();
         Dtos.EffectiveWritePolicy policyDto = toDto(policy);

@@ -14,6 +14,7 @@ import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.repo.SharedMemoryRepository;
 import ai.kumbuka.service.MemberWritePolicy;
+import ai.kumbuka.util.MemoryContentValidator;
 import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
@@ -67,6 +68,7 @@ public class AdminEntriesResource {
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
+        MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = MemoryType.fromDb(req.type());
         Memory m = memories.remember(
@@ -94,6 +96,7 @@ public class AdminEntriesResource {
                             UpdateEntryRequest req) {
         requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
+        MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
         Memory m = sharedMemories.update(id, req.content(), t);
