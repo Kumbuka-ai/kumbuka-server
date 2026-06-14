@@ -51,7 +51,7 @@ public class AdminSettingsResource {
         }
         if (req.writePolicy() != null) {
             WritePolicy wp = WritePolicy.fromDb(req.writePolicy());
-            UUID defaultScopeId = current.defaultScopeId;
+            UUID defaultScopeId;
             if (wp == WritePolicy.PROJECT) {
                 if (req.defaultScopeSlug() == null) {
                     throw new BadRequestException(

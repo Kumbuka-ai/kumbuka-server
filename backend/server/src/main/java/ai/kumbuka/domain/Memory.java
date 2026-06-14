@@ -3,7 +3,6 @@ package ai.kumbuka.domain;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import org.hibernate.annotations.TenantId;
 import ai.kumbuka.tenancy.StringUuidConverter;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
