@@ -355,6 +355,20 @@ class MemoryToolsTest {
     }
 
     @Test
+    void remember_rejectsContentOverTheLengthLimit() {
+        // F-1: the ≤1500-char contract is enforced server-side, before any
+        // policy/repo work — a direct MCP caller cannot persist unbounded content.
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> tools.memory_remember(
+                "a".repeat(1501), "decision", "global", null, null))
+            .isInstanceOf(jakarta.ws.rs.BadRequestException.class);
+        verify(memories, org.mockito.Mockito.never())
+            .remember(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void loadContext_digestOmitsReference() {
         // D-CORE-7 guard 2: the digest is lean — the reference URL is verify-on-demand
         // (surfaced by memory_recall), never in the load_context bulk.

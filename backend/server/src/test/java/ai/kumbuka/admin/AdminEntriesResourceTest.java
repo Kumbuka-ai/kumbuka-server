@@ -120,6 +120,23 @@ class AdminEntriesResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void create_contentOverLimit_returns400() {
+        // F-1: server-side ≤1500-char enforcement on the admin write path.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"type\": \"decision\", \"content\": \"" + "a".repeat(1501) + "\"}")
+            .when().post("/api/scopes/alpha/entries")
+            .then().statusCode(400);
+
+        verify(memories, org.mockito.Mockito.never())
+            .remember(any(), anyString(), any(), any(), any(), any());
+    }
+
+    @Test
     @TestSecurity(user = "u", roles = {"member"})
     void create_member_isForbidden() {
         given()
@@ -174,6 +191,23 @@ class AdminEntriesResourceTest {
             .then().statusCode(200);
 
         verify(sharedMemories).update(id, "v2", null);
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void update_contentOverLimit_returns400() {
+        // F-1: the same ≤1500 guard applies on update.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        UUID id = UUID.randomUUID();
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"content\": \"" + "a".repeat(1501) + "\"}")
+            .when().patch("/api/scopes/alpha/entries/" + id)
+            .then().statusCode(400);
+
+        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any());
     }
 
     @Test
