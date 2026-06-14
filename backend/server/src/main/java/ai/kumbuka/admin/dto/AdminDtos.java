@@ -123,7 +123,8 @@ public final class AdminDtos {
         String displayName,
         String role,
         String accountConsoleUrl,
-        boolean muted   // D-CORE-2: the caller's own mute state (drives the member notice)
+        boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
+        String locale   // the caller's UI language preference (en | de); null = unset
     ) {}
 
     /**
@@ -158,5 +159,5 @@ public final class AdminDtos {
         String createScopes      // admins | members
     ) {}
 
-    public record UpdateMeRequest(String displayName) {}
+    public record UpdateMeRequest(String displayName, String locale) {}
 }

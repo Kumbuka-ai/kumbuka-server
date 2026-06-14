@@ -1,8 +1,10 @@
 package ai.kumbuka.admin;
 
+import ai.kumbuka.mcp.MuteTestSupport;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
@@ -24,6 +26,10 @@ import static org.hamcrest.Matchers.nullValue;
 @QuarkusTest
 class SessionResourceTest {
 
+    // Seeds a real user_account row (RLS'd) so the locale write-path runs — the
+    // PATCH only persists locale when the caller's row exists.
+    @Inject MuteTestSupport seed;
+
     @Test
     void me_unauthenticated_returns401() {
         given()
@@ -40,6 +46,8 @@ class SessionResourceTest {
                 .statusCode(200)
                 .body("subject", equalTo("sub-alice"))
                 .body("role", equalTo("member"))
+                // locale is null until the member picks one (no account row here).
+                .body("locale", nullValue())
                 // accountConsoleUrl is composed from authBaseUrl + /realms/{realm}/account.
                 .body("accountConsoleUrl", containsString("/realms/"))
                 .body("accountConsoleUrl", containsString("/account"));
@@ -98,5 +106,42 @@ class SessionResourceTest {
             .body("{}")
             .when().patch("/api/auth/me")
             .then().statusCode(200);
+    }
+
+    @Test
+    @TestSecurity(user = "sub-locale", roles = {"member"})
+    void updateMe_setsSupportedLocale_thenReadsBack() {
+        seed.setMuted("sub-locale", false);   // ensure the account row exists
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"locale": "de"}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("locale", equalTo("de"));
+
+        // Persisted — a fresh read returns it.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("locale", equalTo("de"));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-badlocale", roles = {"member"})
+    void updateMe_unsupportedLocale_returns400() {
+        seed.setMuted("sub-badlocale", false);   // row exists, so validation runs
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"locale": "fr"}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(400);
     }
 }
