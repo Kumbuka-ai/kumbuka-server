@@ -9,12 +9,15 @@ import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+
+import java.util.Set;
 
 /**
  * Session info for the admin UI (D2 — account = link-out hybrid). Exposes
@@ -31,6 +34,9 @@ public class SessionResource {
     @Inject SecurityIdentity identity;
     @Inject MemoryConfig config;
 
+    /** UI languages the console ships translations for. */
+    private static final Set<String> SUPPORTED_LOCALES = Set.of("en", "de");
+
     @GET
     @Authenticated
     public SessionView me() {
@@ -43,7 +49,8 @@ public class SessionResource {
         String role = identity.getRoles().contains("admin") ? "admin" : "member";
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
-        return new SessionView(subject, email, displayName, role, accountConsoleUrl, muted);
+        String locale = account != null ? account.locale : null;
+        return new SessionView(subject, email, displayName, role, accountConsoleUrl, muted, locale);
     }
 
     @PATCH
@@ -54,6 +61,13 @@ public class SessionResource {
         UserAccount u = UserAccount.find("subject = ?1", subject).firstResult();
         if (u != null && req.displayName() != null) {
             u.displayName = req.displayName().trim();
+        }
+        if (u != null && req.locale() != null) {
+            String loc = req.locale().trim().toLowerCase(java.util.Locale.ROOT);
+            if (!SUPPORTED_LOCALES.contains(loc)) {
+                throw new BadRequestException("unsupported locale: " + req.locale());
+            }
+            u.locale = loc;
         }
         // Phase 8 will sync the change to Keycloak via the Admin REST client.
         return me();

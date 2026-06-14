@@ -79,6 +79,14 @@ public class UserAccount extends PanacheEntityBase {
     @Column(nullable = false)
     public Boolean muted = false;
 
+    /**
+     * The member's console UI language preference (e.g. {@code en}, {@code de}).
+     * Server-side so the choice follows the member across devices; {@code null}
+     * = unset (the console falls back to a cookie / the default).
+     */
+    @Column(name = "locale")
+    public String locale;
+
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 
