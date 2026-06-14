@@ -38,6 +38,9 @@ public class AdminUsersResource {
 
     @Inject KeycloakAdminService keycloak;
 
+    private static final String ROLE_MEMBER = "member";
+    private static final String ROLE_ADMIN = "admin";
+
     public record UserView(
         String id,
         String email,
@@ -77,8 +80,8 @@ public class AdminUsersResource {
         if (req.email() == null || req.email().isBlank()) {
             throw new BadRequestException("email is required");
         }
-        String role = req.role() == null ? "member" : req.role();
-        if (!"member".equals(role) && !"admin".equals(role)) {
+        String role = req.role() == null ? ROLE_MEMBER : req.role();
+        if (!ROLE_MEMBER.equals(role) && !ROLE_ADMIN.equals(role)) {
             throw new BadRequestException("role must be 'member' or 'admin'");
         }
         KeycloakUser created = keycloak.invite(
@@ -97,7 +100,7 @@ public class AdminUsersResource {
     @RolesAllowed("admin")
     public UserView update(@PathParam("id") String id, UpdateUserRequest req) {
         if (req.role() != null) {
-            if (!"member".equals(req.role()) && !"admin".equals(req.role())) {
+            if (!ROLE_MEMBER.equals(req.role()) && !ROLE_ADMIN.equals(req.role())) {
                 throw new BadRequestException("role must be 'member' or 'admin'");
             }
             keycloak.updateRole(id, req.role());

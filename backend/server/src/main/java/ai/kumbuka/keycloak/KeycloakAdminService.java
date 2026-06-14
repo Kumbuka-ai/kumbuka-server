@@ -30,6 +30,9 @@ public class KeycloakAdminService {
 
     private static final Logger LOG = Logger.getLogger(KeycloakAdminService.class);
 
+    private static final String ROLE_MEMBER = "member";
+    private static final String ROLE_ADMIN = "admin";
+
     @Inject Keycloak keycloak;
     @Inject MemoryConfig config;
 
@@ -102,7 +105,7 @@ public class KeycloakAdminService {
         // Remove all member/admin roles, then add the new one.
         List<RoleRepresentation> current = user.roles().realmLevel().listAll();
         List<RoleRepresentation> toRemove = current.stream()
-            .filter(r -> "member".equals(r.getName()) || "admin".equals(r.getName()))
+            .filter(r -> ROLE_MEMBER.equals(r.getName()) || ROLE_ADMIN.equals(r.getName()))
             .toList();
         if (!toRemove.isEmpty()) {
             user.roles().realmLevel().remove(toRemove);
@@ -231,10 +234,10 @@ public class KeycloakAdminService {
         try {
             role = realm().users().get(u.getId()).roles().realmLevel().listAll().stream()
                 .map(RoleRepresentation::getName)
-                .filter(n -> "admin".equals(n) || "member".equals(n))
-                .findFirst().orElse("member");
+                .filter(n -> ROLE_ADMIN.equals(n) || ROLE_MEMBER.equals(n))
+                .findFirst().orElse(ROLE_MEMBER);
         } catch (Exception ex) {
-            role = "member";
+            role = ROLE_MEMBER;
         }
 
         Instant createdAt = u.getCreatedTimestamp() == null

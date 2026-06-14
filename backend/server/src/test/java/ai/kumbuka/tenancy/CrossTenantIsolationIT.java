@@ -59,12 +59,6 @@ class CrossTenantIsolationIT {
     @Inject AgroalDataSource dataSource;
 
     /**
-     * Seed tenant B's team + scopes + settings row via direct JDBC.
-     * The cross-tenant test plants real data under both tenants and
-     * proves the isolation. We set the session GUC to B inside the
-     * connection so RLS WITH CHECK lets the inserts land.
-     */
-    /**
      * Quarkus DevServices runs Postgres with a superuser app account, and
      * superusers bypass RLS (BYPASSRLS attribute). The RLS subtests below
      * use {@code SET LOCAL SESSION AUTHORIZATION} to drop into a
@@ -72,6 +66,12 @@ class CrossTenantIsolationIT {
      */
     static final String RLS_TEST_ROLE = "rls_test_user";
 
+    /**
+     * Seed tenant B's team + scopes + settings row via direct JDBC. The
+     * cross-tenant test plants real data under both tenants and proves the
+     * isolation; we set the session GUC to B inside the connection so RLS
+     * WITH CHECK lets the inserts land.
+     */
     @BeforeEach
     void seedTenantB() throws SQLException {
         try (Connection c = dataSource.getConnection()) {
@@ -278,17 +278,6 @@ class CrossTenantIsolationIT {
             try (var rs = s.executeQuery("SELECT COUNT(*) FROM memory")) {
                 rs.next();
                 return rs.getLong(1);
-            }
-        }
-    }
-
-    private UUID scopeIdOf(Connection c, UUID tenant, String slug) throws SQLException {
-        try (Statement s = c.createStatement()) {
-            s.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
-            try (var rs = s.executeQuery(
-                "SELECT id FROM scope WHERE slug = '" + slug + "'")) {
-                rs.next();
-                return UUID.fromString(rs.getString(1));
             }
         }
     }

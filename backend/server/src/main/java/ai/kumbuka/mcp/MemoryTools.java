@@ -32,11 +32,10 @@ import java.util.UUID;
  * aware: the acting subject comes from {@link SecurityIdentity} (Keycloak
  * {@code sub} claim from the bearer token validated by the `mcp` OIDC
  * tenant) and is never accepted as a tool argument.
- */
-/**
- * @Transactional at class level guarantees each MCP tool runs inside a
- * JTA transaction so the @TenantBound interceptor can set app.tenant_id
- * via SET LOCAL (ADR-0011 §M6).
+ *
+ * <p>{@code @Transactional} at class level guarantees each MCP tool runs
+ * inside a JTA transaction so the {@code @TenantBound} interceptor can set
+ * {@code app.tenant_id} via SET LOCAL (ADR-0011 §M6).
  */
 @TenantBound
 @Transactional
