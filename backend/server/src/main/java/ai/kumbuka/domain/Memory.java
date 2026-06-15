@@ -84,7 +84,11 @@ public class Memory extends PanacheEntityBase {
      * trigger. Never settable through any user-facing surface — no
      * {@code @ToolArg} on memory_remember, no field on
      * {@code AdminDtos.CreateEntryRequest}.
+     *
+     * <p>Trailing underscore: {@code protected} is a Java keyword. Renaming
+     * would lose the 1:1 mapping with the DB column name and the spec term.
      */
+    @SuppressWarnings("java:S116") // field name mirrors a Java reserved word; underscore is forced
     @Column(name = "protected", nullable = false)
     public boolean protected_ = false;
 

@@ -451,7 +451,6 @@ class MemoryToolsTest {
         // D-CORE-11: the repo raises ProtectedEntryException(UPSERT_BLOCKED).
         // MemoryTools must translate to a typed ProtectedError in the DTO
         // so the MCP framework returns a structured result instead of -32603.
-        Scope projectScope = scope("alpha", ScopeKind.PROJECT);
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.PROJECT, WritePolicy.PROJECT,
                      DefaultScopeStatus.OK, "alpha"));

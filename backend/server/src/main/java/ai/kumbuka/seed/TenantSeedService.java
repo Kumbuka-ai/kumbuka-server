@@ -36,18 +36,20 @@ public class TenantSeedService {
     @Transactional
     public SeedReport seedCurrentTenant() {
         SeedFixture fx = SeedFixture.v1();
-        int planted = 0, promoted = 0, unchanged = 0;
+        int planted = 0;
         for (SeedFixture.Entry e : fx.seeds()) {
             MemoryType type = MemoryType.fromDb(e.type());
             // The repo's seed() handles both first-write and re-seed cases.
             // We can't distinguish planted/promoted/unchanged without an
-            // extra round-trip — counts are best-effort coarse:
-            // every successful seed is counted as "planted or upgraded".
+            // extra round-trip — every successful seed is counted as
+            // "planted or upgraded".
             memories.seed(e.scope(), type, e.key(), e.content());
             planted++;
         }
         LOG.infof("D-CORE-11 seed: planted=%d (re-runs are idempotent)", planted);
-        return new SeedReport(planted, promoted, unchanged);
+        // promoted/unchanged left at zero — see comment above; field
+        // remains in the record for the eventual three-bucket breakdown.
+        return new SeedReport(planted, 0, 0);
     }
 
     /** Number of fixture entries — handy for the endpoint to surface in 200 OK responses. */
