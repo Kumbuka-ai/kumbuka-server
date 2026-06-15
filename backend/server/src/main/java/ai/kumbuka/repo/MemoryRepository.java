@@ -7,9 +7,11 @@ import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
+import ai.kumbuka.domain.SystemSubject;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
 
 import java.util.List;
@@ -57,6 +59,25 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                            SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
 
+        // D-CORE-11: non-system callers must NOT touch a protected key.
+        // The unique index on (tenant, scope, owner, key) means a member
+        // writing the same key as a protected SYSTEM row would silently
+        // create a *parallel* row in their own keyspace — invisible to
+        // them, confusing to read paths. Reject up-front with a typed
+        // error instead.
+        if (key != null && source != SourceChannel.SYSTEM) {
+            boolean protectedConflict = find(
+                "scope = ?1 and key = ?2 and protected_ = true",
+                scope, key).firstResultOptional().isPresent();
+            if (protectedConflict) {
+                throw new ProtectedEntryException(
+                    ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
+                    "key '" + key + "' is reserved by a protected system-seed entry " +
+                    "(D-CORE-11). The system seed cannot be overwritten or shadowed " +
+                    "by an interactive write.");
+            }
+        }
+
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
         // ADR-0011). Repository queries below filter on intra-tenant
         // predicates only (scope, owner, key) — never on tenant_id by hand.
@@ -68,9 +89,17 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 Memory m = existing.get();
                 m.content = content;
                 if (type != null) m.type = type;
-                // source is intentionally not updated on upsert — it records
-                // who originally wrote the row. The D-CORE-7 `reference` is set
-                // by the caller (tool/admin) on a NEW row only, never on upsert.
+                // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
+                // ensures the live johannesbayer how-to entries (already
+                // present as unprotected conventions) flip to protected on
+                // the first seed run without producing duplicates.
+                if (source == SourceChannel.SYSTEM) {
+                    m.source = SourceChannel.SYSTEM;
+                    m.protected_ = true;
+                }
+                // For non-system upserts: source is intentionally not updated —
+                // it records who originally wrote the row. The D-CORE-7
+                // `reference` is set by the caller on a NEW row only.
                 return m;
             }
         }
@@ -83,8 +112,47 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         m.key = key;
         m.content = content;
         m.source = source;
+        m.protected_ = (source == SourceChannel.SYSTEM);
         persist(m);
         return m;
+    }
+
+    /**
+     * D-CORE-11: seed a protected system-seed mnemonic.
+     *
+     * <p>Convenience wrapper around {@link #remember} with the system
+     * sentinel as owner_subject and {@code SourceChannel.SYSTEM} as the
+     * channel — keeps the seeder code from having to know the sentinel.
+     * Idempotent by (scope, key): an existing system-seeded row is
+     * updated in place; an existing unprotected row with the same
+     * (owner_subject = __system__) is not possible (the sentinel is
+     * unique to seeding), but if a previous run wrote the row as a
+     * regular convention (the live johannesbayer case before D-CORE-11
+     * shipped), the upsert path above promotes it to protected.
+     */
+    @Transactional
+    public Memory seed(String scopeSlug, MemoryType type, String key, String content) {
+        if (key == null || key.isBlank()) {
+            throw new IllegalArgumentException("seed requires a non-blank key");
+        }
+        // First, check whether an unprotected row exists under a *different*
+        // owner (e.g. the live johannesbayer how-to-kumbuka entries which were
+        // hand-written by a human). If so, promote it: update content + flip
+        // protected/source/owner to the system identity.
+        Scope scope = scopes.requireBySlug(scopeSlug);
+        Optional<Memory> legacy = find(
+            "scope = ?1 and key = ?2 and ownerSubject <> ?3",
+            scope, key, SystemSubject.SENTINEL).firstResultOptional();
+        if (legacy.isPresent()) {
+            Memory m = legacy.get();
+            m.content = content;
+            m.type = type;
+            m.source = SourceChannel.SYSTEM;
+            m.ownerSubject = SystemSubject.SENTINEL;
+            m.protected_ = true;
+            return m;
+        }
+        return remember(SystemSubject.SENTINEL, scopeSlug, type, key, content, SourceChannel.SYSTEM);
     }
 
     /**
@@ -151,22 +219,37 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         // For private scope, restrict to caller's own rows.
         boolean isPrivate = scope.kind == ScopeKind.PRIVATE;
 
-        if (id != null) {
-            String jpql = "id = ?1 and scope = ?2" +
-                          (isPrivate ? " and ownerSubject = ?3" : "");
-            return isPrivate
-                ? (int) delete(jpql, id, scope, callerSubject)
-                : (int) delete(jpql, id, scope);
+        try {
+            if (id != null) {
+                String jpql = "id = ?1 and scope = ?2" +
+                              (isPrivate ? " and ownerSubject = ?3" : "");
+                return isPrivate
+                    ? (int) delete(jpql, id, scope, callerSubject)
+                    : (int) delete(jpql, id, scope);
+            }
+            if (key != null) {
+                // Key is per-owner (see uq_memory_key in V1__init.sql). For shared
+                // scopes we only delete the caller's own keyed entry; we do not
+                // touch other authors' rows.
+                return (int) delete(
+                    "scope = ?1 and ownerSubject = ?2 and key = ?3",
+                    scope, callerSubject, key);
+            }
+            throw new IllegalArgumentException("forget requires either id or key");
+        } catch (PersistenceException pe) {
+            // D-CORE-11: the BEFORE DELETE trigger raises with SQLSTATE P0001
+            // when a protected row is in the delete-set. Translate that into
+            // a typed exception so the MCP / admin layers can return a clean
+            // 409 instead of a raw 500. Any other PSQLException re-raises.
+            if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
+                throw new ProtectedEntryException(
+                    ProtectedEntryException.Reason.DELETE_BLOCKED,
+                    key,
+                    "delete blocked: row(s) carry protected = true (D-CORE-11). " +
+                    "Protected system-seed mnemonics are structurally undeletable.");
+            }
+            throw pe;
         }
-        if (key != null) {
-            // Key is per-owner (see uq_memory_key in V1__init.sql). For shared
-            // scopes we only delete the caller's own keyed entry; we do not
-            // touch other authors' rows.
-            return (int) delete(
-                "scope = ?1 and ownerSubject = ?2 and key = ?3",
-                scope, callerSubject, key);
-        }
-        throw new IllegalArgumentException("forget requires either id or key");
     }
 
     /** Scopes visible to the caller: their private (one row) + all shared. */

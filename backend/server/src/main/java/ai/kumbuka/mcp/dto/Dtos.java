@@ -84,7 +84,25 @@ public final class Dtos {
         MemoryDto memory,
         boolean upserted,
         PromptForScope prompt,
-        EffectiveWritePolicy policy
+        EffectiveWritePolicy policy,
+        ProtectedError error
+    ) {
+        /** Convenience: legacy four-arg constructor — no protected-error path hit. */
+        public RememberResult(MemoryDto memory, boolean upserted,
+                              PromptForScope prompt, EffectiveWritePolicy policy) {
+            this(memory, upserted, prompt, policy, null);
+        }
+    }
+
+    /**
+     * D-CORE-11: surfaced when a non-system caller's write or delete would
+     * touch a protected system-seed entry. Carries the typed reason so the
+     * client doesn't have to pattern-match a string message.
+     */
+    public record ProtectedError(
+        String code,    // PROTECTED_UPSERT_BLOCKED | PROTECTED_DELETE_BLOCKED
+        String key,
+        String message
     ) {}
 
     public record PromptForScope(
@@ -106,7 +124,10 @@ public final class Dtos {
         }
     }
 
-    public record ForgetResult(int deleted) {}
+    public record ForgetResult(int deleted, ProtectedError error) {
+        /** Convenience: legacy single-arg constructor — no protected-block path hit. */
+        public ForgetResult(int deleted) { this(deleted, null); }
+    }
 
     public record ScopesResult(List<ScopeDto> scopes) {}
 

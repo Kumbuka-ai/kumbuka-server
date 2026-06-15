@@ -289,4 +289,55 @@ class AdminEntriesResourceTest {
             .when().delete("/api/scopes/alpha/entries/" + UUID.randomUUID())
             .then().statusCode(403);
     }
+
+    // ---------- D-CORE-11: protected-entry surface via ExceptionMapper ------
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void create_targetingProtectedKey_returnsTypedHttp409_viaMapper() {
+        // The mock raises ProtectedEntryException; the @Provider mapper
+        // (ProtectedEntryExceptionMapper) must translate to 409 with a
+        // typed body. Coverage: exercises the mapper through the real
+        // REST pipeline so its auto-registration as @Provider gets
+        // verified end-to-end.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(memories.remember(anyString(), eq("alpha"), any(),
+                               eq("convention.how-to-kumbuka.types"), anyString(), any()))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.UPSERT_BLOCKED,
+                "convention.how-to-kumbuka.types",
+                "key reserved by a protected system-seed entry"));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"type": "convention", "key": "convention.how-to-kumbuka.types", "content": "spoof"}
+                """)
+            .when().post("/api/scopes/alpha/entries")
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("PROTECTED_UPSERT_BLOCKED"))
+                .body("key",  equalTo("convention.how-to-kumbuka.types"));
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void delete_protectedRow_returnsTypedHttp409_viaMapper() {
+        Scope alpha = sharedScope("alpha");
+        Memory m = mem(alpha, MemoryType.CONVENTION, "convention.how-to-kumbuka.writing", "...");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        org.mockito.Mockito.doThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.DELETE_BLOCKED,
+                null,
+                "delete blocked: row id=" + m.id + " is protected (D-CORE-11)"))
+            .when(sharedMemories).deleteShared(m.id);
+
+        given()
+            .when().delete("/api/scopes/alpha/entries/" + m.id)
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("PROTECTED_DELETE_BLOCKED"));
+    }
 }
