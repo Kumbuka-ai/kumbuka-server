@@ -163,6 +163,7 @@ oidc_issuer_check() {
   case $(( ${#b64} % 4 )) in
     2) b64="$b64==" ;;
     3) b64="$b64=" ;;
+    *) ;;  # 0 or 1 — already aligned (1 is invalid base64 but base64 -d will surface it)
   esac
   iss="$(printf '%s' "$b64" | base64 -d 2>/dev/null | jq -r '.iss // empty')" || true
   [[ -n "$iss" ]] || { log "oidc_issuer_check: token had no iss claim"; return 1; }
