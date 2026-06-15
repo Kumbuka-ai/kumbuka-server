@@ -75,13 +75,14 @@ public class MemoryTools {
             String type,
         @ToolArg(description = "Scope slug. When omitted, follows the team's writePolicy.", required = false)
             String scope,
-        @ToolArg(description = "Optional upsert key (lowercase, dot/kebab-namespaced).", required = false)
+        @ToolArg(description = "Optional upsert key. Format: lowercase a-z + 0-9 with optional dot or hyphen separators (e.g. decision.d-ops-26). No underscores, no uppercase, no slashes — enforced server-side per E2E-06.", required = false)
             String key,
         @ToolArg(description = "Optional external provenance URL (http/https). Stored as metadata; never auto-fetched. Credential-bearing URLs are rejected.", required = false)
             String reference
     ) {
         MemoryType t = MemoryType.fromDb(type);
         MemoryContentValidator.validate(content);   // F-1: ≤1500, server-side
+        ai.kumbuka.util.MemoryKeyValidator.validate(key);   // E2E-06: key format
         ReferenceUrlValidator.validate(reference);
         Resolved policy = policyResolver.resolve();
         Dtos.EffectiveWritePolicy policyDto = toDto(policy);

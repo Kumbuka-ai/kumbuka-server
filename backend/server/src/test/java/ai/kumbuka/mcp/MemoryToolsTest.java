@@ -500,4 +500,52 @@ class MemoryToolsTest {
         assertThat(out.error().code()).isEqualTo("PROTECTED_DELETE_BLOCKED");
         assertThat(out.error().key()).isEqualTo("seed.key");
     }
+
+    // ---------- memory_remember: D-CORE-11 + E2E-06 key-format validation ---
+
+    @Test
+    void remember_rejectsUnderscoreKey_atTheToolLayer_noRepoCall() {
+        // E2E-06: the underscore-key WORKLIST regression. Pre-validator the
+        // call would persist (the DB CHECK would only fire much later for a
+        // genuine bad input — the regex in V2 allows it through because
+        // [a-z0-9_]?? actually no, V2 already rejects underscores at the
+        // DB layer. The validator gives a clean BadRequestException at the
+        // tool layer instead of a constraint-violation 500.
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.PROJECT, WritePolicy.PROJECT,
+                     DefaultScopeStatus.OK, "alpha"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                tools.memory_remember("ok", "decision", "alpha", "test_1", null))
+            .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+            .hasMessageContaining("test_1");
+
+        // Validator fires BEFORE the repo call — no row attempt at all.
+        verify(memories, org.mockito.Mockito.never())
+            .remember(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void remember_acceptsDotKebabKey() {
+        Scope projectScope = scope("alpha", ScopeKind.PROJECT);
+        Memory persisted = memory(MemoryType.DECISION, projectScope,
+            "decision.d-ops-26", "shipped");
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.PROJECT, WritePolicy.PROJECT,
+                     DefaultScopeStatus.OK, "alpha"));
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> emptyQ = mock(PanacheQuery.class);
+        when(emptyQ.firstResultOptional()).thenReturn(Optional.empty());
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(emptyQ);
+        when(memories.remember(
+                eq("caller-sub"), eq("alpha"), eq(MemoryType.DECISION),
+                eq("decision.d-ops-26"), anyString(), eq(SourceChannel.MCP)))
+            .thenReturn(persisted);
+
+        Dtos.RememberResult out = tools.memory_remember(
+            "shipped", "decision", "alpha", "decision.d-ops-26", null);
+
+        assertThat(out.memory()).isNotNull();
+        assertThat(out.memory().key()).isEqualTo("decision.d-ops-26");
+    }
 }

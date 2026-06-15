@@ -69,6 +69,7 @@ public class AdminEntriesResource {
         requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
+        ai.kumbuka.util.MemoryKeyValidator.validate(req.key());   // E2E-06: key format
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = MemoryType.fromDb(req.type());
         Memory m = memories.remember(
