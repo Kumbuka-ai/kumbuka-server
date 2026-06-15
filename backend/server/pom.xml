@@ -98,6 +98,16 @@
             <version>${quarkus-mcp.version}</version>
         </dependency>
 
+        <!-- Vert.x route filters — needed for the X-Kumbuka-Version header
+             on non-JAX-RS surfaces (/mcp, served by quarkus-mcp-server-http
+             via raw Vert.x routes; the JAX-RS Provider filter doesn't see them).
+             Artifact `quarkus-reactive-routes` (formerly quarkus-vertx-web)
+             ships the @io.quarkus.vertx.web.RouteFilter annotation. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-reactive-routes</artifactId>
+        </dependency>
+
         <!-- Observability -->
         <dependency>
             <groupId>io.quarkus</groupId>
