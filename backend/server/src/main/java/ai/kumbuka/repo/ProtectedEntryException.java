@@ -9,6 +9,9 @@ package ai.kumbuka.repo;
  *   <li>{@link Reason#UPSERT_BLOCKED} — caller's write targets a key that
  *       already has a protected row in the same (tenant, scope). Pre-check;
  *       no row is created or modified.</li>
+ *   <li>{@link Reason#UPDATE_BLOCKED} — caller's update by id targets a
+ *       protected row (e.g. the admin PATCH/console editor). Pre-check;
+ *       the row is left untouched.</li>
  *   <li>{@link Reason#DELETE_BLOCKED} — caller's delete reached the
  *       structural {@code memory_protected_delete_block} trigger and was
  *       raised as PSQL SQLSTATE P0001. Surfaced as a typed error instead
@@ -19,7 +22,7 @@ package ai.kumbuka.repo;
  */
 public class ProtectedEntryException extends RuntimeException {
 
-    public enum Reason { UPSERT_BLOCKED, DELETE_BLOCKED }
+    public enum Reason { UPSERT_BLOCKED, UPDATE_BLOCKED, DELETE_BLOCKED }
 
     private final Reason reason;
     private final String key;
