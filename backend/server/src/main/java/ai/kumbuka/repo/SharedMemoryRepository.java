@@ -76,9 +76,37 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
     public int deleteShared(UUID id) {
         // Note the `scope.kind != PRIVATE` guard — the same id in a private
         // scope is NEVER deletable through this code path.
-        return (int) delete(
-            "id = ?1 and scope.kind != ?2",
-            id, ScopeKind.PRIVATE);
+        //
+        // D-CORE-11: the BEFORE DELETE trigger (memory_protected_delete_block)
+        // catches protected rows below this layer with SQLSTATE P0001. We
+        // translate that to a typed ProtectedEntryException so the admin
+        // resource can return a clean 409 instead of a raw 500.
+        try {
+            return (int) delete(
+                "id = ?1 and scope.kind != ?2",
+                id, ScopeKind.PRIVATE);
+        } catch (jakarta.persistence.PersistenceException pe) {
+            if (isProtectedDeleteBlock(pe)) {
+                throw new ProtectedEntryException(
+                    ProtectedEntryException.Reason.DELETE_BLOCKED,
+                    null,
+                    "delete blocked: row id=" + id + " is protected (D-CORE-11)");
+            }
+            throw pe;
+        }
+    }
+
+    private static boolean isProtectedDeleteBlock(Throwable t) {
+        while (t != null) {
+            if (t instanceof org.postgresql.util.PSQLException pe
+                    && "P0001".equals(pe.getSQLState())
+                    && pe.getMessage() != null
+                    && pe.getMessage().contains("memory row is protected")) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     /**

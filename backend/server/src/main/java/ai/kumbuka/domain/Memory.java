@@ -77,6 +77,17 @@ public class Memory extends PanacheEntityBase {
     @Convert(converter = SourceChannel.JpaConverter.class)
     public SourceChannel source;
 
+    /**
+     * D-CORE-11: protected system-seed flag. Set true only by the
+     * provisioning seeder ({@code SourceChannel.SYSTEM}); structurally
+     * undeletable at the DB layer via the {@code memory_protected_delete_block}
+     * trigger. Never settable through any user-facing surface — no
+     * {@code @ToolArg} on memory_remember, no field on
+     * {@code AdminDtos.CreateEntryRequest}.
+     */
+    @Column(name = "protected", nullable = false)
+    public boolean protected_ = false;
+
     @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
@@ -87,7 +98,26 @@ public class Memory extends PanacheEntityBase {
     void onCreate() {
         if (source == null) {
             throw new IllegalStateException(
-                "memory.source must be set explicitly before persist (MCP or CONSOLE)");
+                "memory.source must be set explicitly before persist (MCP, CONSOLE, or SYSTEM)");
+        }
+        // Pair invariant: SYSTEM rows must carry the system sentinel and may
+        // be protected; non-SYSTEM rows must NOT carry the sentinel and must
+        // NOT be protected. Caller code is expected to enforce this too —
+        // this is the last-line check.
+        if (source == SourceChannel.SYSTEM) {
+            if (!SystemSubject.isSystem(ownerSubject)) {
+                throw new IllegalStateException(
+                    "SYSTEM source requires owner_subject = " + SystemSubject.SENTINEL);
+            }
+        } else {
+            if (SystemSubject.isSystem(ownerSubject)) {
+                throw new IllegalStateException(
+                    "owner_subject = " + SystemSubject.SENTINEL + " is reserved for SYSTEM writes");
+            }
+            if (protected_) {
+                throw new IllegalStateException(
+                    "memory.protected = true requires source = SYSTEM");
+            }
         }
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;

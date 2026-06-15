@@ -124,13 +124,21 @@ public class MemoryTools {
             scopeSlug, callerSubject(), key
         ).firstResultOptional().isPresent();
 
-        Memory m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
+        final Memory m;
+        try {
+            m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
+        } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
+            // D-CORE-11: a protected system-seed entry already owns this key.
+            // Return a typed structured error instead of a -32603 "Internal error".
+            return new Dtos.RememberResult(null, false, null, policyDto,
+                new Dtos.ProtectedError("PROTECTED_UPSERT_BLOCKED", pex.key(), pex.getMessage()));
+        }
         // D-CORE-7: attach the provenance URL on a freshly-written row only — an
         // upsert preserves the row's original reference. Validated above; blank = none.
         if (!existed && reference != null && !reference.isBlank()) {
             m.reference = reference;
         }
-        return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, policyDto);
+        return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, policyDto, null);
     }
 
     private Dtos.PromptForScope prompt(String reason) {
@@ -187,7 +195,16 @@ public class MemoryTools {
         if (!"private".equals(scope)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
-        int n = memories.forget(callerSubject(), scope, uuid, key);
+        final int n;
+        try {
+            n = memories.forget(callerSubject(), scope, uuid, key);
+        } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
+            // D-CORE-11: caller tried to delete a protected system-seed entry.
+            // The structural trigger (memory_protected_delete_block) raised the
+            // exception; we translate to a typed result for the MCP client.
+            return new Dtos.ForgetResult(0,
+                new Dtos.ProtectedError("PROTECTED_DELETE_BLOCKED", pex.key(), pex.getMessage()));
+        }
         return new Dtos.ForgetResult(n);
     }
 
