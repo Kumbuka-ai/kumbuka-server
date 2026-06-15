@@ -67,6 +67,16 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
         if (m == null) {
             throw new MemoryNotFoundException("shared memory not found: " + id);
         }
+        // D-CORE-11: protected system-seed rows are read-only. The DB trigger
+        // only blocks DELETE; updates are guarded here so a console/admin edit
+        // (the only caller of this path) can't mutate a protected entry. The
+        // seeder rewrites protected rows through the SYSTEM remember() path, not
+        // this one, so it is unaffected.
+        if (m.protected_) {
+            throw new ProtectedEntryException(
+                ProtectedEntryException.Reason.UPDATE_BLOCKED, m.key,
+                "memory row is protected (key=" + m.key + ") — protected entries are read-only (D-CORE-11)");
+        }
         if (content != null) m.content = content;
         if (type != null) m.type = type;
         return m;

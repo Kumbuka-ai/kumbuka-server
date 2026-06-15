@@ -48,6 +48,7 @@ class ProtectedSeedTest {
     static final String ADMIN  = "44444444-4444-4444-4444-444444444444";
 
     @Inject MemoryRepository memories;
+    @Inject SharedMemoryRepository sharedMemories;
     @Inject TenantSeedService seedService;
     @Inject ScopeRepository scopes;
 
@@ -126,6 +127,22 @@ class ProtectedSeedTest {
             .isInstanceOf(ProtectedEntryException.class)
             .extracting(e -> ((ProtectedEntryException) e).reason())
             .isEqualTo(ProtectedEntryException.Reason.DELETE_BLOCKED);
+    }
+
+    @Test
+    @TestTransaction
+    void protectedRow_cannotBeUpdated_viaAdminPath() {
+        seedService.seedCurrentTenant();
+        // SharedMemoryRepository.update is the admin PATCH / console-editor path.
+        // A protected row must be read-only there too (the DB trigger only
+        // guards DELETE) — UPDATE_BLOCKED is the typed surface the mapper turns
+        // into HTTP 409.
+        Memory seed = listSeeds().get(0);
+        assertThat(seed.protected_).isTrue();
+        assertThatThrownBy(() -> sharedMemories.update(seed.id, "tampered content", null))
+            .isInstanceOf(ProtectedEntryException.class)
+            .extracting(e -> ((ProtectedEntryException) e).reason())
+            .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
     }
 
     @Test
