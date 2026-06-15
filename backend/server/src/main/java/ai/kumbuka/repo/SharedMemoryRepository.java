@@ -86,7 +86,7 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
                 "id = ?1 and scope.kind != ?2",
                 id, ScopeKind.PRIVATE);
         } catch (jakarta.persistence.PersistenceException pe) {
-            if (isProtectedDeleteBlock(pe)) {
+            if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
                 throw new ProtectedEntryException(
                     ProtectedEntryException.Reason.DELETE_BLOCKED,
                     null,
@@ -94,19 +94,6 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
             }
             throw pe;
         }
-    }
-
-    private static boolean isProtectedDeleteBlock(Throwable t) {
-        while (t != null) {
-            if (t instanceof org.postgresql.util.PSQLException pe
-                    && "P0001".equals(pe.getSQLState())
-                    && pe.getMessage() != null
-                    && pe.getMessage().contains("memory row is protected")) {
-                return true;
-            }
-            t = t.getCause();
-        }
-        return false;
     }
 
     /**

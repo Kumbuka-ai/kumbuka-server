@@ -13,7 +13,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
-import org.postgresql.util.PSQLException;
 
 import java.util.List;
 import java.util.Optional;
@@ -242,7 +241,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             // when a protected row is in the delete-set. Translate that into
             // a typed exception so the MCP / admin layers can return a clean
             // 409 instead of a raw 500. Any other PSQLException re-raises.
-            if (isProtectedDeleteBlock(pe)) {
+            if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
                 throw new ProtectedEntryException(
                     ProtectedEntryException.Reason.DELETE_BLOCKED,
                     key,
@@ -251,21 +250,6 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             }
             throw pe;
         }
-    }
-
-    /** True if the PSQLException chain includes a trigger-raised P0001. */
-    private static boolean isProtectedDeleteBlock(Throwable t) {
-        while (t != null) {
-            if (t instanceof PSQLException pe
-                    && pe.getSQLState() != null
-                    && pe.getSQLState().equals("P0001")
-                    && pe.getMessage() != null
-                    && pe.getMessage().contains("memory row is protected")) {
-                return true;
-            }
-            t = t.getCause();
-        }
-        return false;
     }
 
     /** Scopes visible to the caller: their private (one row) + all shared. */
