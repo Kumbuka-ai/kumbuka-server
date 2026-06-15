@@ -443,4 +443,62 @@ class MemoryToolsTest {
         assertThat(out.total()).isZero();
         assertThat(out.byType()).isEmpty();
     }
+
+    // ---------- memory_remember: D-CORE-11 protected-key upsert -------------
+
+    @Test
+    void remember_targetingProtectedKey_returnsTypedError_notARawThrow() {
+        // D-CORE-11: the repo raises ProtectedEntryException(UPSERT_BLOCKED).
+        // MemoryTools must translate to a typed ProtectedError in the DTO
+        // so the MCP framework returns a structured result instead of -32603.
+        Scope projectScope = scope("alpha", ScopeKind.PROJECT);
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.PROJECT, WritePolicy.PROJECT,
+                     DefaultScopeStatus.OK, "alpha"));
+
+        // The keyed path runs an existence query before the upsert; stub
+        // it to return empty (use any(Object[].class) for the varargs).
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> emptyQ = mock(PanacheQuery.class);
+        when(emptyQ.firstResultOptional()).thenReturn(Optional.empty());
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(emptyQ);
+
+        when(memories.remember(
+                eq("caller-sub"), eq("alpha"), eq(MemoryType.CONVENTION),
+                eq("convention.how-to-kumbuka.types"), anyString(), eq(SourceChannel.MCP)))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.UPSERT_BLOCKED,
+                "convention.how-to-kumbuka.types",
+                "key reserved by a protected system-seed entry"));
+
+        Dtos.RememberResult out = tools.memory_remember(
+            "spoof", "convention", "alpha",
+            "convention.how-to-kumbuka.types", null);
+
+        assertThat(out.memory()).isNull();
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("PROTECTED_UPSERT_BLOCKED");
+        assertThat(out.error().key()).isEqualTo("convention.how-to-kumbuka.types");
+        assertThat(out.error().message()).contains("protected");
+    }
+
+    // ---------- memory_forget: D-CORE-11 protected delete-block -------------
+
+    @Test
+    void forget_protectedRow_returnsTypedDeleteBlocked_notARawThrow() {
+        Scope shared = scope("alpha", ScopeKind.PROJECT);
+        when(scopes.requireBySlug("alpha")).thenReturn(shared);
+        when(memories.forget(eq("caller-sub"), eq("alpha"), isNull(), eq("seed.key")))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.DELETE_BLOCKED,
+                "seed.key",
+                "delete blocked: row carries protected = true"));
+
+        Dtos.ForgetResult out = tools.memory_forget("alpha", null, "seed.key");
+
+        assertThat(out.deleted()).isZero();
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("PROTECTED_DELETE_BLOCKED");
+        assertThat(out.error().key()).isEqualTo("seed.key");
+    }
 }
