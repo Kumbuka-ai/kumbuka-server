@@ -139,3 +139,38 @@ org_mapper_check() {
   log "org_mapper_check FAILED -- kumbuka-admin is MISSING the organization->tenant_alias mapper; tenant resolution would break (TOKEN_ORG_MISSING). Re-run keycloak/06-add-organization-mapper.sh"
   return 1
 }
+
+# oidc_issuer_check — assert the backend is validating tokens against the
+# same issuer Keycloak is now minting (E2E-10). The realm's `frontendUrl`
+# attribute (or any change to KC_HOSTNAME) flips the `iss` claim, but the
+# backend cached the previous discovery at startup → silently rejects
+# every fresh token until restart. Mint a fresh client_credentials token,
+# decode the `iss` claim, compare to KUMBUKA_OIDC_ISSUER. Read-only.
+oidc_issuer_check() {
+  command -v jq >/dev/null 2>&1 || { log "oidc_issuer_check: jq not on PATH"; return 1; }
+  local expected="${KUMBUKA_OIDC_ISSUER:-}"
+  [[ -n "$expected" ]] || { log "oidc_issuer_check: KUMBUKA_OIDC_ISSUER unset — skipping"; return 0; }
+  [[ -n "${KUMBUKA_BACKEND_CLIENT_SECRET:-}" ]] || { log "oidc_issuer_check: KUMBUKA_BACKEND_CLIENT_SECRET unset"; return 1; }
+  local base="https://${KC_HOSTNAME}" realm="${KUMBUKA_REALM:-kumbuka}" tok iss b64
+  tok="$(curl -fsS -m 10 -X POST "$base/realms/$realm/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d client_id=kumbuka-backend \
+    --data-urlencode "client_secret=$KUMBUKA_BACKEND_CLIENT_SECRET" 2>/dev/null \
+    | jq -r '.access_token // empty')" || true
+  [[ -n "$tok" ]] || { log "oidc_issuer_check: could not mint backend token"; return 1; }
+  # JWT payload is the 2nd segment; base64url decode it. Pad to a multiple
+  # of 4 so base64 -d doesn't choke; tr -_/+ handles the URL-safe alphabet.
+  b64="$(printf '%s' "$tok" | cut -d. -f2 | tr '_-' '/+')"
+  case $(( ${#b64} % 4 )) in
+    2) b64="$b64==" ;;
+    3) b64="$b64=" ;;
+  esac
+  iss="$(printf '%s' "$b64" | base64 -d 2>/dev/null | jq -r '.iss // empty')" || true
+  [[ -n "$iss" ]] || { log "oidc_issuer_check: token had no iss claim"; return 1; }
+  if [[ "$iss" == "$expected" ]]; then
+    log "oidc_issuer_check OK -- token iss matches KUMBUKA_OIDC_ISSUER ($iss)"
+    return 0
+  fi
+  log "oidc_issuer_check FAILED -- token iss=$iss but backend expects KUMBUKA_OIDC_ISSUER=$expected"
+  log "  the realm's frontendUrl or KC_HOSTNAME changed; restart kumbuka-saas + ops-backend to refetch OIDC discovery"
+  return 1
+}

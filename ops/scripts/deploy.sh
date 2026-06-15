@@ -68,7 +68,7 @@ fi
 # --- healthchecks --------------------------------------------------------
 # Containers first (first boot needs time for realm import + Flyway), then the
 # public HTTPS surface (spec gate: 60s / 2s).
-if wait_containers_healthy 180 && public_healthcheck 60 && org_mapper_check; then
+if wait_containers_healthy 180 && public_healthcheck 60 && org_mapper_check && oidc_issuer_check; then
   log "=== deployed $NEW ==="
   exit 0
 fi
