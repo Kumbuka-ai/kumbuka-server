@@ -43,8 +43,14 @@ public class SessionResource {
         String subject = identity.getPrincipal().getName();
         String email = attr("email");
         UserAccount account = UserAccount.find("subject = ?1", subject).firstResult();
-        String displayName = (account != null && account.displayName != null)
-            ? account.displayName : email;
+        // displayName fallback: the in-app name, then the Keycloak profile name,
+        // then preferred_username, then email. Never the raw sub — the console
+        // chrome must render a human label, not a UUID (D-CORE-12).
+        String displayName = firstNonBlank(
+            account != null ? account.displayName : null,
+            attr("name"),
+            attr("preferred_username"),
+            email);
         boolean muted = account != null && Boolean.TRUE.equals(account.muted);   // D-CORE-2
         String role = identity.getRoles().contains("admin") ? "admin" : "member";
         String accountConsoleUrl = config.authBaseUrl()
@@ -76,5 +82,15 @@ public class SessionResource {
     private String attr(String name) {
         Object v = identity.getAttribute(name);
         return v == null ? null : v.toString();
+    }
+
+    /** First non-null, non-blank value, or null when all are absent. */
+    static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
     }
 }

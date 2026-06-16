@@ -5,6 +5,7 @@ import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
+import ai.kumbuka.mcp.MuteTestSupport;
 import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.repo.SharedMemoryRepository;
@@ -12,6 +13,7 @@ import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
+import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -29,8 +31,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * /api/scopes/{slug}/entries — memory entries inside a shared scope.
- * Member-readable, admin-write. Private scope addressing → 404 across
- * every method.
+ * Member-readable and member-writable: the role gate admits members, then
+ * {@link ai.kumbuka.service.MemberWritePolicy} decides at runtime (normal
+ * member writes, muted member rejected — D-CORE-2), mirroring the MCP write
+ * tools. Private scope addressing → 404 across every method.
  */
 @QuarkusTest
 class AdminEntriesResourceTest {
@@ -38,6 +42,7 @@ class AdminEntriesResourceTest {
     @InjectMock ScopeRepository scopes;
     @InjectMock MemoryRepository memories;
     @InjectMock SharedMemoryRepository sharedMemories;
+    @Inject MuteTestSupport mute;   // seeds a real user_account.muted row (D-CORE-2)
 
     private Scope sharedScope(String slug) {
         Scope s = new Scope();
@@ -137,8 +142,39 @@ class AdminEntriesResourceTest {
     }
 
     @Test
-    @TestSecurity(user = "u", roles = {"member"})
-    void create_member_isForbidden() {
+    @TestSecurity(user = "member-writer", roles = {"member"})
+    void create_member_nonLocked_returnsCreated() {
+        // D-CORE-2: a normal (non-muted) member is entitled to shared writes —
+        // the console path must match the MCP path. Parity with
+        // MemoryToolsMuteTest#unmutedMember_canRememberToSharedScope.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
+        Memory created = mem(alpha, MemoryType.DECISION, "k", "members write shared");
+        when(memories.remember(eq("member-writer"), eq("alpha"), eq(MemoryType.DECISION),
+                               eq("k"), eq("members write shared"), eq(SourceChannel.CONSOLE)))
+            .thenReturn(created);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"type": "decision", "key": "k", "content": "members write shared"}
+                """)
+            .when().post("/api/scopes/alpha/entries")
+            .then()
+                .statusCode(201)
+                .body("content", equalTo("members write shared"));
+    }
+
+    @Test
+    @TestSecurity(user = "muted-creator", roles = {"member"})
+    void create_mutedMember_isForbidden_noWrite() {
+        // A muted member is rejected at the runtime gate, before any write —
+        // parity with the MCP-side D-CORE-2 mute tests.
+        mute.setMuted("muted-creator", true);
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
         given()
             .contentType(ContentType.JSON)
             .body("""
@@ -146,6 +182,9 @@ class AdminEntriesResourceTest {
                 """)
             .when().post("/api/scopes/alpha/entries")
             .then().statusCode(403);
+
+        verify(memories, org.mockito.Mockito.never())
+            .remember(any(), anyString(), any(), any(), any(), any());
     }
 
     // ---------- update -------------------------------------------------------
@@ -230,6 +269,47 @@ class AdminEntriesResourceTest {
             .then().statusCode(404);
     }
 
+    @Test
+    @TestSecurity(user = "member-editor", roles = {"member"})
+    void update_member_nonLocked_returns200() {
+        // D-CORE-2: a normal member may edit a non-locked shared entry.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        UUID id = UUID.randomUUID();
+        Memory updated = mem(alpha, MemoryType.STATUS, null, "green");
+        updated.id = id;
+        when(sharedMemories.update(eq(id), eq("green"), eq(MemoryType.STATUS)))
+            .thenReturn(updated);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"type": "status", "content": "green"}
+                """)
+            .when().patch("/api/scopes/alpha/entries/" + id)
+            .then()
+                .statusCode(200)
+                .body("content", equalTo("green"));
+    }
+
+    @Test
+    @TestSecurity(user = "muted-editor", roles = {"member"})
+    void update_mutedMember_isForbidden_noWrite() {
+        mute.setMuted("muted-editor", true);
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"content": "x"}
+                """)
+            .when().patch("/api/scopes/alpha/entries/" + UUID.randomUUID())
+            .then().statusCode(403);
+
+        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any());
+    }
+
     // ---------- delete -------------------------------------------------------
 
     @Test
@@ -283,11 +363,35 @@ class AdminEntriesResourceTest {
     }
 
     @Test
-    @TestSecurity(user = "u", roles = {"member"})
-    void delete_member_isForbidden() {
+    @TestSecurity(user = "member-deleter", roles = {"member"})
+    void delete_member_nonLocked_returns204() {
+        // D-CORE-2: a normal member may delete a non-locked shared entry.
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        UUID id = UUID.randomUUID();
+        Memory existing = mem(alpha, MemoryType.DECISION, null, "x");
+        existing.id = id;
+        when(sharedMemories.findSharedById(id)).thenReturn(existing);
+
+        given()
+            .when().delete("/api/scopes/alpha/entries/" + id)
+            .then().statusCode(204);
+
+        verify(sharedMemories).deleteShared(id);
+    }
+
+    @Test
+    @TestSecurity(user = "muted-deleter", roles = {"member"})
+    void delete_mutedMember_isForbidden_noDelete() {
+        mute.setMuted("muted-deleter", true);
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
         given()
             .when().delete("/api/scopes/alpha/entries/" + UUID.randomUUID())
             .then().statusCode(403);
+
+        verify(sharedMemories, org.mockito.Mockito.never()).deleteShared(any());
     }
 
     // ---------- D-CORE-11: protected-entry surface via ExceptionMapper ------

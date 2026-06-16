@@ -36,8 +36,16 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Memory entries inside a (shared) scope. Reads are member+admin; writes
- * are admin. Private scope addressing → 404.
+ * Memory entries inside a (shared) scope. Reads and writes are member+admin:
+ * the role gate lets members past, then {@link MemberWritePolicy} decides at
+ * runtime (a muted member is rejected, a normal member writes) — the same
+ * service the MCP write tools use, so the console and the assistant gate
+ * shared writes identically (D-CORE-2). This mirrors the structural-enforcement
+ * pattern in {@link AdminScopesResource}. Private scope addressing → 404.
+ *
+ * <p>The runtime gate is also where the future D-CORE-13 admin-lock check will
+ * sit (admin-locked entries reject member writes); it is intentionally not
+ * built here.
  */
 @TenantBound
 @Transactional
@@ -63,11 +71,13 @@ public class AdminEntriesResource {
     }
 
     @POST
-    @RolesAllowed("admin")
+    @RolesAllowed({"admin", "member"})
     @Transactional
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         requireSharedSlug(slug);
-        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
+        // Runtime write-gate (D-CORE-2): muted members are rejected here, normal
+        // members pass. This is also the seam for the future D-CORE-13 lock check.
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ai.kumbuka.util.MemoryKeyValidator.validate(req.key());   // E2E-06: key format
         ReferenceUrlValidator.validate(req.reference());
@@ -90,13 +100,13 @@ public class AdminEntriesResource {
 
     @PATCH
     @Path("/{id}")
-    @RolesAllowed("admin")
+    @RolesAllowed({"admin", "member"})
     @Transactional
     public EntryView update(@PathParam("slug") String slug,
                             @PathParam("id") UUID id,
                             UpdateEntryRequest req) {
         requireSharedSlug(slug);
-        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
@@ -113,11 +123,11 @@ public class AdminEntriesResource {
 
     @DELETE
     @Path("/{id}")
-    @RolesAllowed("admin")
+    @RolesAllowed({"admin", "member"})
     @Transactional
     public Response delete(@PathParam("slug") String slug, @PathParam("id") UUID id) {
         requireSharedSlug(slug);
-        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2
+        writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
         // Lookup first so we 404 cleanly when the id is wrong; deleteShared
         // returns 0 silently otherwise.
         Memory m = sharedMemories.findSharedById(id);
