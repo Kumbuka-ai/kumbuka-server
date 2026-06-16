@@ -53,6 +53,13 @@ public class SessionResource {
     /** UI languages the console ships translations for. */
     private static final Set<String> SUPPORTED_LOCALES = Set.of("en", "de");
 
+    private static final String ROLE_ADMIN = "admin";
+    private static final String ROLE_MEMBER = "member";
+
+    private String callerRole() {
+        return identity.getRoles().contains(ROLE_ADMIN) ? ROLE_ADMIN : ROLE_MEMBER;
+    }
+
     @GET
     @Authenticated
     public SessionView me() {
@@ -68,7 +75,7 @@ public class SessionResource {
             attr("preferred_username"),
             email);
         boolean muted = Boolean.TRUE.equals(account.muted);   // D-CORE-2
-        String role = identity.getRoles().contains("admin") ? "admin" : "member";
+        String role = callerRole();
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
         return new SessionView(subject, email, displayName, role, accountConsoleUrl, muted, account.locale);
@@ -106,28 +113,37 @@ public class SessionResource {
     private UserAccount ensureAccount(String subject) {
         UserAccount u = UserAccount.find("subject = ?1", subject).firstResult();
         if (u == null) {
-            KeycloakUser ku = lookupKeycloak(subject);
-            u = new UserAccount();
-            u.subject = subject;
-            // email is NOT NULL; prefer the token claim, then the KC profile.
-            // The subject is a last-resort placeholder for the degenerate case
-            // where neither is present (real members always carry an email).
-            u.email = firstNonBlank(attr("email"), ku != null ? ku.email() : null, subject);
-            u.role = identity.getRoles().contains("admin") ? "admin" : "member";
-            u.status = UserStatus.fromDb(ku != null && ku.status() != null ? ku.status() : "active");
-            u.displayName = ku != null ? blankToNull(fullName(ku)) : null;
-            u.persist();
-        } else if (u.displayName == null || u.displayName.isBlank()) {
+            return provision(subject);
+        }
+        if (u.displayName == null || u.displayName.isBlank()) {
             // Existing row never got a name — backfill from the KC profile.
-            KeycloakUser ku = lookupKeycloak(subject);
-            if (ku != null) {
-                String name = blankToNull(fullName(ku));
-                if (name != null) {
-                    u.displayName = name;
-                }
+            String name = keycloakName(subject);
+            if (name != null) {
+                u.displayName = name;
             }
         }
         return u;
+    }
+
+    private UserAccount provision(String subject) {
+        KeycloakUser ku = lookupKeycloak(subject);
+        UserAccount u = new UserAccount();
+        u.subject = subject;
+        // email is NOT NULL; prefer the token claim, then the KC profile. The
+        // subject is a last-resort placeholder for the degenerate case where
+        // neither is present (real members always carry an email).
+        u.email = firstNonBlank(attr("email"), ku != null ? ku.email() : null, subject);
+        u.role = callerRole();
+        u.status = UserStatus.fromDb(ku != null && ku.status() != null ? ku.status() : "active");
+        u.displayName = ku != null ? blankToNull(fullName(ku)) : null;
+        u.persist();
+        return u;
+    }
+
+    /** Composed first+last name from the KC profile, or null when absent/unreachable. */
+    private String keycloakName(String subject) {
+        KeycloakUser ku = lookupKeycloak(subject);
+        return ku == null ? null : blankToNull(fullName(ku));
     }
 
     /** Best-effort KC profile lookup; never fails the request if KC is unreachable. */

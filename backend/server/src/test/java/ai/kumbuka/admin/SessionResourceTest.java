@@ -162,6 +162,35 @@ class SessionResourceTest {
     }
 
     @Test
+    @TestSecurity(user = "sub-backfill", roles = {"member"})
+    void me_backfillsBlankDisplayNameFromKeycloak() {
+        // Existing row with no name (pre-S018 provisioning) → backfill from KC.
+        seed.setMuted("sub-backfill", false);   // creates the row, display_name blank
+        when(keycloak.findById(anyString())).thenReturn(
+            new KeycloakUser("sub-backfill", "bf", "bf@x", "Back", "Fill", "member", "active", Instant.EPOCH));
+
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("displayName", equalTo("Back Fill"));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-kcdown", roles = {"member"})
+    void me_whenKeycloakUnreachable_stillReturns200() {
+        // KC lookup is best-effort: a failure must not break the session view.
+        when(keycloak.findById(anyString())).thenThrow(new RuntimeException("kc down"));
+
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("subject", equalTo("sub-kcdown"))
+                .body("displayName", nullValue());
+    }
+
+    @Test
     @TestSecurity(user = "sub-x", roles = {"member"})
     void updateMe_nullDisplayName_isTolerated() {
         // displayName=null means "no change" (clearing it is not a supported
