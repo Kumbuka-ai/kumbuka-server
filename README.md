@@ -181,34 +181,25 @@ just clean              # tear down + DROP volumes (destroys data)
 ```
 
 The login screen, the account console, and the invitation / verification /
-password-reset emails are all themed by the **kumbuka** Keycloak theme
-(`keycloak/themes/kumbuka/`). In dev the theme is bind-mounted into the
-canonical `quay.io/keycloak/keycloak:26.0` image with caching disabled,
-so edits hot-reload. To exercise the email surfaces, bring up MailHog:
+password-reset emails are all themed by the **kumbuka** Keycloak theme, which
+— along with both realm definitions and the production image — now lives in its
+own repository: **[kumbuka-keycloak](https://github.com/kumbuka-ai/kumbuka-keycloak)**
+(extracted under D-OPS-29). Both dev and prod consume the same published image
+`ghcr.io/kumbuka-ai/kumbuka-keycloak`, pinned via `KEYCLOAK_VERSION`. Theme and
+realm edits, and the build/verify loop, happen in that repo.
+
+To exercise the email surfaces, bring up MailHog:
 
 ```bash
 docker compose --profile app --profile dev-mail up -d
 # MailHog UI:   http://localhost:8025
 ```
 
-For production, bake the theme into a dedicated image
-(`keycloak/Dockerfile`) and start it via the `prod-kc` profile:
+See [ADR-0010](docs/adr/0010-keycloak-theme.md) for the theme's scope, parent
+themes, and packaging decisions.
 
-```bash
-docker compose --profile app --profile prod-kc up -d --build kumbuka-keycloak
-```
-
-This swaps the bind-mounted dev `keycloak` service for `kumbuka-keycloak`,
-which has the theme compiled into the image and runs with `kc.sh start
---optimized`. See [ADR-0010](docs/adr/0010-keycloak-theme.md) for the
-theme's scope, parent themes, and packaging decisions.
-
-Dev test users (created by the realm import, **disable before any non-local deployment**):
-
-| Username        | Password | Role            |
-| --------------- | -------- | --------------- |
-| `admin@local`   | `admin`  | admin + member  |
-| `member@local`  | `member` | member          |
+> Dev test users are no longer seeded by a realm import here — create them via
+> the Keycloak admin console or `kcadm.sh` against the running `kumbuka` realm.
 
 ---
 
@@ -569,9 +560,9 @@ The release-gate path until the IT is re-enabled:
    ```
 3. In Inspector → **Add Server** → Transport: **Streamable HTTP** →
    URL: `https://dev.kumbuka.ai/mcp`.
-4. Inspector triggers the OAuth flow: Keycloak prompts for
-   `member@local` / `member` (or `admin@local` / `admin`); on consent
-   it returns with a token.
+4. Inspector triggers the OAuth flow: Keycloak prompts for a user in the
+   `kumbuka` realm (create one via the admin console / `kcadm.sh` first —
+   dev test users are no longer auto-seeded); on consent it returns a token.
 5. Tools tab should list the five `memory_*` tools. Call
    `memory_remember scope=private` with some content; in a second
    Inspector session signed in as a different user, call `memory_recall
@@ -589,13 +580,11 @@ security incident.
   endpoint trusts bearer tokens; without TLS, tokens leak.
 - All secrets live in `.env`. **Never commit `.env`.** The repo only
   ships `.env.example` with placeholder values.
-- Change every default password and client secret in
-  `keycloak/realm-import/kumbuka-realm.json` and `.env.example` before
-  deploying anywhere beyond your laptop.
-- Keycloak runs in `start-dev` mode in this scaffold. That mode is
-  **not** hardened for production — for prod use `start` with proper
-  `KC_HOSTNAME` and HTTPS termination. (A prod-hardening ADR is
-  tracked.)
+- Change every default password and client secret in `.env` (client
+  secrets are rendered into the realms by the `kumbuka-keycloak` image at
+  boot) before deploying anywhere beyond your laptop.
+- The `kumbuka-keycloak` image runs `kc.sh start --optimized` with proper
+  `KC_HOSTNAME` and HTTPS termination via Caddy — both dev and prod use it.
 - Private memories are an inviolable invariant. `PrivateIsolationTest`
   must stay green; treat its failure as a security incident, not a
   flake.
@@ -627,7 +616,6 @@ backend/                Quarkus + Java 21 (MCP server, BFF, admin API)
     application.properties
     db/migration/       V1__init.sql + V2__scope_settings_source.sql
 frontend/               Next.js + Tailwind (planned)
-keycloak/realm-import/  kumbuka-realm.json (imported on first KC boot)
 postgres/               init-db.sh (creates keycloak + kumbuka DBs)
 docs/
   DESIGN_HANDOFF.md     the binding spec from the design return

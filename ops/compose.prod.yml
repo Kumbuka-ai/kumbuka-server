@@ -67,7 +67,10 @@ services:
       retries: 10
 
   kumbuka-keycloak:
-    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KUMBUKA_VERSION}
+    # Theme + both realms are now baked into this image and rendered at boot
+    # from the source of truth in github.com/kumbuka-ai/kumbuka-keycloak
+    # (D-OPS-29). Versioned independently of KUMBUKA_VERSION via KEYCLOAK_VERSION.
+    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KEYCLOAK_VERSION}
     restart: unless-stopped
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
@@ -80,17 +83,20 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
+      # Realm secrets rendered into the baked realm imports by the image's
+      # entrypoint. The realms already exist in the DB, so import is a no-op and
+      # a missing var only skips (never crashes) that realm — but keep these in
+      # deploy.env so a fresh bootstrap imports cleanly. (See kumbuka-keycloak.)
+      KUMBUKA_ADMIN_CLIENT_SECRET: ${KUMBUKA_ADMIN_CLIENT_SECRET}
+      KUMBUKA_BACKEND_CLIENT_SECRET: ${KUMBUKA_BACKEND_CLIENT_SECRET}
+      KUMBUKA_CONNECTOR_CLIENT_SECRET: ${KUMBUKA_CONNECTOR_CLIENT_SECRET}
+      KUMBUKA_OPS_CLIENT_SECRET: ${KUMBUKA_OPS_CLIENT_SECRET}
+      KUMBUKA_OPS_ADMIN_CLIENT_SECRET: ${KUMBUKA_OPS_ADMIN_CLIENT_SECRET}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD}
       # NOTE: KC_HEALTH_ENABLED removed. It is a BUILD-TIME option and the
-      # published v0.1.0 image was baked (kc.sh build) WITHOUT it. Passing it at
-      # runtime under `start --optimized` aborts the boot (exit 2). With health
-      # disabled, the healthcheck below probes the realm OIDC endpoint instead.
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import:ro
-      # Override the baked-in email theme: the shipped templates load the logo via
-      # ${url.resourcesUrl} (email-theme resources are NOT served over HTTP -> broken
-      # image in mail clients). This override points the <img> at an absolute public
-      # PNG (https://www.kumbuka.ai/assets/email/...). Revert once fixed upstream.
-      - ./keycloak/email-theme-override:/opt/keycloak/themes/kumbuka/email:ro
+      # image is baked (kc.sh build) WITHOUT it. Passing it at runtime under
+      # `start --optimized` aborts the boot (exit 2). With health disabled, the
+      # healthcheck below probes the realm OIDC endpoint instead.
     networks:
       # On both: internal so it can reach postgres; caddy-external so the
       # host Caddy reaches it by container name.

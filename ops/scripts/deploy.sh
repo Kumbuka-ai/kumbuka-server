@@ -19,7 +19,11 @@ flock -n 9 || die "another deploy is already running (lock held: /var/lock/kumbu
 load_env
 OLD="${KUMBUKA_VERSION:-}"
 [[ -n "$OLD" ]] || die "KUMBUKA_VERSION not set in .env"
-log "=== deploy start: OLD=$OLD NEW=$NEW ==="
+# Keycloak is versioned independently since D-OPS-29. compose resolves the image
+# as kumbuka-keycloak:${KEYCLOAK_VERSION}; an unset var would pull an invalid
+# ':' tag and break the rollout. Fail fast with guidance instead.
+[[ -n "${KEYCLOAK_VERSION:-}" ]] || die "KEYCLOAK_VERSION not set in .env (added in D-OPS-29 — see ops/.env.example; pin the desired kumbuka-keycloak release)"
+log "=== deploy start: OLD=$OLD NEW=$NEW KEYCLOAK_VERSION=$KEYCLOAK_VERSION ==="
 
 # First boot? (no running postgres yet → nothing to snapshot, full up.)
 if postgres_running; then FIRST_BOOT=0; else FIRST_BOOT=1; fi

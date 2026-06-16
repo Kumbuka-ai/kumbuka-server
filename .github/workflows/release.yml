@@ -155,64 +155,16 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
-  # ---------------------------------------------------------------------
-  # Keycloak prod image (with the kumbuka theme baked in):
-  #   ghcr.io/<owner>/kumbuka-keycloak:{tag,latest}
-  # ---------------------------------------------------------------------
-  keycloak-image:
-    name: keycloak · build & push
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: meta
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          REF="${GITHUB_REF#refs/tags/}"
-          if [ -z "$REF" ] || [ "$REF" = "$GITHUB_REF" ]; then
-            REF="$INPUT_TAG"
-          fi
-          echo "tag=$REF" >> "$GITHUB_OUTPUT"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
-          echo "owner=$(printf "%s" "${{ github.repository_owner }}" | tr "[:upper:]" "[:lower:]")" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: docker/build-push-action@v6
-        with:
-          context: keycloak
-          file: keycloak/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-keycloak:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-keycloak:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-keycloak:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-          cache-from: type=gha,scope=keycloak
-          cache-to: type=gha,scope=keycloak,mode=max
+  # The Keycloak image is built & released from its own repository since
+  # D-OPS-29: github.com/kumbuka-ai/kumbuka-keycloak (versioned independently
+  # via KEYCLOAK_VERSION). It is no longer built here.
 
   # ---------------------------------------------------------------------
   # GitHub Release with auto-generated notes + image coordinates.
   # ---------------------------------------------------------------------
   github-release:
     name: github release
-    needs: [maven-publish, backend-image, keycloak-image]
+    needs: [maven-publish, backend-image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -246,8 +198,11 @@ jobs:
 
           \`\`\`
           ghcr.io/$OWNER/kumbuka-backend:$TAG
-          ghcr.io/$OWNER/kumbuka-keycloak:$TAG
           \`\`\`
+
+          The Keycloak image is released separately and pinned via
+          \`KEYCLOAK_VERSION\` in deploy.env — see
+          github.com/$OWNER/kumbuka-keycloak.
 
           ## Maven artifact (GitHub Packages)
 
