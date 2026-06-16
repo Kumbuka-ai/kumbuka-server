@@ -71,8 +71,8 @@ class AdminUsersResourceTest {
     @TestSecurity(user = "member-sub", roles = {"member"})
     void directory_asMember_returnsNamesOnly_noPii() {
         when(keycloak.listUsers()).thenReturn(List.of(
-            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.now()),
-            new KeycloakUser("k2", "bob", "bob@kumbuka.ai", "Bob", "Jones", "member", "invited", Instant.now())
+            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.EPOCH),
+            new KeycloakUser("k2", "bob", "bob@kumbuka.ai", "Bob", "Jones", "member", "invited", Instant.EPOCH)
         ));
 
         given()
@@ -92,7 +92,7 @@ class AdminUsersResourceTest {
     @TestSecurity(user = "admin-sub", roles = {"admin"})
     void directory_asAdmin_isAllowed() {
         when(keycloak.listUsers()).thenReturn(List.of(
-            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.now())
+            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.EPOCH)
         ));
 
         given()

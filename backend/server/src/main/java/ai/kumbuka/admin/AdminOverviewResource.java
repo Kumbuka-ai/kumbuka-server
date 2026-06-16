@@ -69,12 +69,10 @@ public class AdminOverviewResource {
             .map(RecentActivity::from)
             .toList();
 
-        // Member summary — ADMIN ONLY. It carries roster PII (email, role,
-        // status), so it must not reach a plain member; that was the same P0
-        // read-leak as GET /api/users. Members get an empty list here and
-        // resolve author display names via GET /api/users/directory instead.
-        // Pulls from the cached user_account rows (Keycloak is authoritative;
-        // Phase 8 reconciles).
+        // Member summary is ADMIN ONLY. It carries roster PII such as email
+        // and role, so it must not reach a plain member -- the same P0 read
+        // leak as the admin users list. A member receives an empty list and
+        // resolves author display names through the members directory instead.
         List<MemberSummary> members = security.isUserInRole("admin")
             ? UserAccount.<UserAccount>list("order by email").stream()
                 .map(u -> new MemberSummary(
