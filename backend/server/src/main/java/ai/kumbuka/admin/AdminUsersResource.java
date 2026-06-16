@@ -82,12 +82,50 @@ public class AdminUsersResource {
         boolean keycloakRemoved
     ) {}
 
+    /**
+     * Full team roster — emails, roles, status. ADMIN ONLY.
+     *
+     * P0 read-authz fix: this was {@code {"admin","member"}}, which let any
+     * authenticated member enumerate the whole tenant roster (intra-tenant
+     * role-escalation recon — who the admins are, their emails). The roster is
+     * management data; members must not read it. Members that legitimately need
+     * to resolve author display names use {@link #directory()} instead, which
+     * returns names only — never email/role/status. Same lesson as the
+     * SESSION_012 cross-tenant leak, one layer in: every READ endpoint is part
+     * of the isolation surface, enforced server-side.
+     */
     @GET
-    @RolesAllowed({"admin", "member"})
+    @RolesAllowed("admin")
     public List<UserView> list() {
         Map<String, Boolean> mutedBySubject = mutedMap();
         return keycloak.listUsers().stream()
             .map(u -> UserView.from(u, mutedBySubject.getOrDefault(u.id(), false)))
+            .toList();
+    }
+
+    /** Member-safe directory entry: subject + display name only, no PII. */
+    public record DirectoryEntry(String subject, String displayName) {
+        static DirectoryEntry from(KeycloakUser u) {
+            String name = ((u.firstName() == null ? "" : u.firstName()) + " "
+                         + (u.lastName() == null ? "" : u.lastName())).trim();
+            return new DirectoryEntry(u.id(), name.isBlank() ? null : name);
+        }
+    }
+
+    /**
+     * Narrow, member-safe projection of the tenant's users: {@code subject →
+     * displayName} only. Exists so the console can render authorship of shared
+     * entries (feed, scope lists, avatars) for members WITHOUT exposing the
+     * roster ({@link #list()} is admin-only). Deliberately omits email, role,
+     * status, and muted — a member sees teammate names (already visible via
+     * shared-entry authorship), nothing that enables role-escalation recon.
+     */
+    @GET
+    @Path("/directory")
+    @RolesAllowed({"admin", "member"})
+    public List<DirectoryEntry> directory() {
+        return keycloak.listUsers().stream()
+            .map(DirectoryEntry::from)
             .toList();
     }
 
