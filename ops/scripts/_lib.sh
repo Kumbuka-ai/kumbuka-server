@@ -129,14 +129,19 @@ org_mapper_check() {
   cid="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
     "$base/admin/realms/$realm/clients?clientId=kumbuka-admin" 2>/dev/null | jq -r '.[0].id // empty')" || true
   [[ -n "$cid" ]] || { log "org_mapper_check: kumbuka-admin client not found"; return 1; }
+  # D-CORE-14: the 'organization' claim is sourced from KC-Organization
+  # membership, not the tenant_alias attribute. Assert the built-in
+  # 'organization' client scope is a DEFAULT scope on kumbuka-admin — that is
+  # what makes the (multivalued, membership) organization claim flow without a
+  # scope request. The scope itself carries the membership mapper (realm template).
   n="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
-    "$base/admin/realms/$realm/clients/$cid/protocol-mappers/models" 2>/dev/null \
-    | jq -r '[.[] | select(.config["claim.name"]=="organization" and .config["user.attribute"]=="tenant_alias")] | length')" || true
+    "$base/admin/realms/$realm/clients/$cid/default-client-scopes" 2>/dev/null \
+    | jq -r '[.[] | select(.name=="organization")] | length')" || true
   if [[ "${n:-0}" -ge 1 ]]; then
-    log "org_mapper_check OK -- kumbuka-admin emits 'organization' (from tenant_alias)"
+    log "org_mapper_check OK -- kumbuka-admin has the 'organization' client scope as default (membership-sourced claim, D-CORE-14)"
     return 0
   fi
-  log "org_mapper_check FAILED -- kumbuka-admin is MISSING the organization->tenant_alias mapper; tenant resolution would break (TOKEN_ORG_MISSING). Re-run keycloak/06-add-organization-mapper.sh"
+  log "org_mapper_check FAILED -- kumbuka-admin is MISSING the 'organization' default client scope; tenant resolution would break (TOKEN_ORG_MISSING). The kumbuka-keycloak realm template must carry 'organization' in defaultClientScopes."
   return 1
 }
 
