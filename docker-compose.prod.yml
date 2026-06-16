@@ -62,7 +62,9 @@ services:
       retries: 10
 
   kumbuka-keycloak:
-    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KUMBUKA_VERSION}
+    # Theme + both realms baked into the image, rendered at boot from
+    # github.com/kumbuka-ai/kumbuka-keycloak (D-OPS-29). Versioned via KEYCLOAK_VERSION.
+    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KEYCLOAK_VERSION}
     restart: unless-stopped
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
@@ -76,8 +78,13 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import:ro
+      # Realm secrets rendered into the baked imports by the image entrypoint.
+      KUMBUKA_ADMIN_CLIENT_SECRET: ${KUMBUKA_ADMIN_CLIENT_SECRET}
+      KUMBUKA_BACKEND_CLIENT_SECRET: ${KUMBUKA_BACKEND_CLIENT_SECRET}
+      KUMBUKA_CONNECTOR_CLIENT_SECRET: ${KUMBUKA_CONNECTOR_CLIENT_SECRET}
+      KUMBUKA_OPS_CLIENT_SECRET: ${KUMBUKA_OPS_CLIENT_SECRET}
+      KUMBUKA_OPS_ADMIN_CLIENT_SECRET: ${KUMBUKA_OPS_ADMIN_CLIENT_SECRET}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD}
     networks:
       # On both: internal so it can reach postgres; caddy-external so the
       # host Caddy reaches it by container name.

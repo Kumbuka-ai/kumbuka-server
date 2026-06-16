@@ -45,18 +45,13 @@ services:
       retries: 10
 
   keycloak:
-    # Dev: vanilla Keycloak 26 + theme mount. Prod: see profile `prod-kc`
-    # below — a baked image (./keycloak/Dockerfile) containing the theme
-    # so containers start cold without a bind mount.
-    image: quay.io/keycloak/keycloak:26.0
+    # Theme + realms now live in github.com/kumbuka-ai/kumbuka-keycloak and are
+    # baked into this published image (D-OPS-29). Dev consumes the same image as
+    # prod; theme/realm hacking happens in that repo (its docker-compose has a
+    # build-and-verify loop). Dev test users are no longer seeded here — create
+    # them via the admin console or kcadm against the running realm.
+    image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KEYCLOAK_VERSION:-latest}
     restart: unless-stopped
-    command:
-      - start-dev
-      - --import-realm
-      # Dev-only — make theme edits hot-reload. Strip in prod.
-      - --spi-theme-cache-themes=false
-      - --spi-theme-cache-templates=false
-      - --spi-theme-static-max-age=-1
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
@@ -68,12 +63,13 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
-      # Send realm transactional email through the MailHog service when the
-      # `dev-mail` profile is active — the realm import points its smtpServer
-      # block at host=mailhog port=1025 (no auth, no TLS).
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import:ro
-      - ./keycloak/themes/kumbuka:/opt/keycloak/themes/kumbuka:ro
+      # Realm secrets rendered into the baked imports by the image entrypoint.
+      KUMBUKA_ADMIN_CLIENT_SECRET: ${KUMBUKA_ADMIN_CLIENT_SECRET}
+      KUMBUKA_BACKEND_CLIENT_SECRET: ${KUMBUKA_BACKEND_CLIENT_SECRET}
+      KUMBUKA_CONNECTOR_CLIENT_SECRET: ${KUMBUKA_CONNECTOR_CLIENT_SECRET}
+      KUMBUKA_OPS_CLIENT_SECRET: ${KUMBUKA_OPS_CLIENT_SECRET:-dev-ops-secret}
+      KUMBUKA_OPS_ADMIN_CLIENT_SECRET: ${KUMBUKA_OPS_ADMIN_CLIENT_SECRET:-dev-ops-admin-secret}
+      KC_SMTP_PASSWORD: ${KC_SMTP_PASSWORD:-dev-smtp-password}
     networks:
       - internal
     depends_on:
@@ -175,32 +171,7 @@ services:
       - internal
     profiles: ["dev-mail"]
 
-  # ---------------------------------------------------------------------
-  # Production Keycloak — drop-in replacement for the dev `keycloak`
-  # service. Same realm + DB; the theme is baked into the image so the
-  # container has no bind-mount and theme caching stays on. Run with the
-  # `prod-kc` profile, replacing the dev service.
-  # ---------------------------------------------------------------------
-  kumbuka-keycloak:
-    build:
-      context: ./keycloak
-    restart: unless-stopped
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB_NAME}
-      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
-      KC_HOSTNAME: https://${KC_HOSTNAME}
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-      KC_PROXY_HEADERS: xforwarded
-      KC_HTTP_ENABLED: "true"
-    volumes:
-      - ./keycloak/realm-import:/opt/keycloak/data/import:ro
-    networks:
-      - internal
-    depends_on:
-      postgres:
-        condition: service_healthy
-    profiles: ["prod-kc"]
+  # The former `prod-kc` profile (a locally-built baked Keycloak) is gone:
+  # the dev `keycloak` service above now runs the same published image as
+  # prod (github.com/kumbuka-ai/kumbuka-keycloak, D-OPS-29), so dev already
+  # has prod parity. Pin a specific build with KEYCLOAK_VERSION.
