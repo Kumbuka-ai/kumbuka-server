@@ -8,6 +8,7 @@ import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
@@ -68,15 +69,32 @@ class SessionResourceTest {
     @Test
     @TestSecurity(user = "sub-no-email", roles = {"member"})
     void me_withoutEmailClaim_returnsNullEmailAndDisplayName() {
-        // displayName falls back to the email (also null here when no
-        // UserAccount row exists for this fresh subject). The view must
-        // serialise both as null, not propagate "Unknown" or similar.
+        // displayName walks account.displayName → name → preferred_username →
+        // email; @TestSecurity populates none of those claims and no UserAccount
+        // row exists, so every candidate is absent. The view must serialise both
+        // as null (never the raw sub), not propagate "Unknown" or similar.
         given()
             .when().get("/api/auth/me")
             .then()
                 .statusCode(200)
                 .body("email", nullValue())
                 .body("displayName", nullValue());
+    }
+
+    @Test
+    void displayNameFallback_prefersAccountThenNameThenPreferredUsernameThenEmail() {
+        // The displayName precedence (D-CORE-12: a human label, never the sub).
+        // @TestSecurity can't inject OIDC claims, so the ordering is pinned
+        // directly on the resolver the resource uses.
+        assertThat(SessionResource.firstNonBlank("Account Name", "Name Claim", "puser", "e@x"))
+            .isEqualTo("Account Name");
+        assertThat(SessionResource.firstNonBlank(null, "Name Claim", "puser", "e@x"))
+            .isEqualTo("Name Claim");
+        assertThat(SessionResource.firstNonBlank(null, "  ", "puser", "e@x"))
+            .isEqualTo("puser");
+        assertThat(SessionResource.firstNonBlank(null, null, null, "e@x"))
+            .isEqualTo("e@x");
+        assertThat(SessionResource.firstNonBlank(null, null, null, null)).isNull();
     }
 
     @Test
