@@ -44,6 +44,7 @@ public class OidcPrincipalClaimGuard {
     /** Named OIDC tenants whose principal must resolve to the KC {@code sub}. */
     static final List<String> GUARDED_TENANTS = List.of("mcp", "admin");
 
+    private static final String PREFIX = "quarkus.oidc.";
     static final String EXPECTED = "sub";
 
     @Inject
@@ -60,9 +61,9 @@ public class OidcPrincipalClaimGuard {
     }
 
     static void verifyTenant(Config config, String tenant) {
-        final String enabledKey = "quarkus.oidc." + tenant + ".tenant-enabled";
-        final String legacyKey = "quarkus.oidc." + tenant + ".principal-claim";
-        final String correctKey = "quarkus.oidc." + tenant + ".token.principal-claim";
+        final String enabledKey = PREFIX + tenant + ".tenant-enabled";
+        final String legacyKey = PREFIX + tenant + ".principal-claim";
+        final String correctKey = PREFIX + tenant + ".token.principal-claim";
 
         boolean enabled = config.getOptionalValue(enabledKey, Boolean.class).orElse(true);
         if (!enabled) {

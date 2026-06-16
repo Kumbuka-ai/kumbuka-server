@@ -35,7 +35,7 @@ class AdminUsersResourceTest {
     @InjectMock MemberErasureService erasure;
 
     private static KeycloakUser user(String id, String email, String role, String status) {
-        return new KeycloakUser(id, email, email, "First", "Last", role, status, Instant.now());
+        return new KeycloakUser(id, email, email, "First", "Last", role, status, Instant.EPOCH);
     }
 
     @Test

@@ -182,7 +182,7 @@ public class AdminUsersResource {
         if (id.equals(actor)) {
             throw new BadRequestException("an admin cannot erase their own account");
         }
-        if (ROLE_ADMIN.equals(target.role()) && isLastAdmin(id)) {
+        if (ROLE_ADMIN.equals(target.role()) && isLastAdmin()) {
             throw new BadRequestException("cannot erase the last remaining admin");
         }
         if (req == null || req.typedConfirm() == null
@@ -253,8 +253,8 @@ public class AdminUsersResource {
         return Response.noContent().build();
     }
 
-    /** True when {@code id} is the only admin in the tenant. */
-    private boolean isLastAdmin(String id) {
+    /** True when there is at most one admin left in the tenant. */
+    private boolean isLastAdmin() {
         long admins = keycloak.listUsers().stream()
             .filter(u -> ROLE_ADMIN.equals(u.role()))
             .count();
