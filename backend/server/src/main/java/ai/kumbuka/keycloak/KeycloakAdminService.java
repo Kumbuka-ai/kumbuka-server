@@ -126,6 +126,29 @@ public class KeycloakAdminService {
         user.update(rep);
     }
 
+    /**
+     * Permanently removes the Keycloak user. Used by the member-erasure
+     * orchestration (after the OSS content purge) and by cancel-invite. The
+     * tenant-visibility check fires first so an admin can never delete a user
+     * in another tenant (SaaS); in the OSS edition it is a pass-through.
+     */
+    public void deleteUser(String id) {
+        UserResource user = realm().users().get(id);
+        userScope.assertVisible(user.toRepresentation());
+        user.remove();
+    }
+
+    /**
+     * Re-sends the enrolment email (the UPDATE_PASSWORD magic link) for a user
+     * who is still pending — e.g. an invite the member never accepted. Same
+     * action the initial {@link #invite} triggers; safe to call repeatedly.
+     */
+    public void resendInvite(String id) {
+        UserResource user = realm().users().get(id);
+        userScope.assertVisible(user.toRepresentation());
+        user.executeActionsEmail(List.of("UPDATE_PASSWORD"));
+    }
+
     // ---- Member session self-management (D-CORE-8) ------------------------
 
     public record KeycloakSession(

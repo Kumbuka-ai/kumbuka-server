@@ -1,5 +1,6 @@
 package ai.kumbuka.admin;
 
+import ai.kumbuka.erasure.MemberErasureService;
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
 import io.quarkus.test.InjectMock;
@@ -31,6 +32,11 @@ import static org.mockito.Mockito.when;
 class AdminUsersResourceTest {
 
     @InjectMock KeycloakAdminService keycloak;
+    @InjectMock MemberErasureService erasure;
+
+    private static KeycloakUser user(String id, String email, String role, String status) {
+        return new KeycloakUser(id, email, email, "First", "Last", role, status, Instant.now());
+    }
 
     @Test
     @TestSecurity(user = "admin-sub", roles = {"admin"})
@@ -284,5 +290,175 @@ class AdminUsersResourceTest {
                 """)
             .when().patch("/api/users/whoever")
             .then().statusCode(403);
+    }
+
+    // ---------- erasure (D-OPS-16 rev., team-admin primary path) --------------
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void erase_happyPath_purgesDeletesAndReturnsCounts() {
+        when(keycloak.findById("erase-1"))
+            .thenReturn(user("erase-1", "victim@kumbuka.ai", "member", "active"));
+        when(erasure.eraseSubject("erase-1"))
+            .thenReturn(new MemberErasureService.EraseResult(2, 1, 0));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "victim@kumbuka.ai"}
+                """)
+            .when().post("/api/users/erase-1/erase")
+            .then()
+                .statusCode(200)
+                .body("privatePurged", equalTo(2))
+                .body("sharedTombstoned", equalTo(1))
+                .body("keycloakRemoved", equalTo(true));
+
+        verify(erasure).eraseSubject("erase-1");
+        verify(keycloak).deleteUser("erase-1");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void erase_keycloakDeleteFails_reportsKcRemovedFalse_doesNotUndoPurge() {
+        when(keycloak.findById("erase-kc"))
+            .thenReturn(user("erase-kc", "victim@kumbuka.ai", "member", "active"));
+        when(erasure.eraseSubject("erase-kc"))
+            .thenReturn(new MemberErasureService.EraseResult(3, 0, 0));
+        org.mockito.Mockito.doThrow(new RuntimeException("kc down"))
+            .when(keycloak).deleteUser("erase-kc");
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "victim@kumbuka.ai"}
+                """)
+            .when().post("/api/users/erase-kc/erase")
+            .then()
+                .statusCode(200)
+                // Content is already purged (lawful basis) — we report the KC
+                // failure rather than roll back the erase.
+                .body("privatePurged", equalTo(3))
+                .body("keycloakRemoved", equalTo(false));
+
+        verify(erasure).eraseSubject("erase-kc");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void erase_typedConfirmMismatch_rejectsAndDoesNotPurge() {
+        when(keycloak.findById("erase-2"))
+            .thenReturn(user("erase-2", "victim@kumbuka.ai", "member", "active"));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "wrong@kumbuka.ai"}
+                """)
+            .when().post("/api/users/erase-2/erase")
+            .then().statusCode(400);
+
+        verify(erasure, org.mockito.Mockito.never()).eraseSubject(any());
+        verify(keycloak, org.mockito.Mockito.never()).deleteUser(any());
+    }
+
+    @Test
+    @TestSecurity(user = "self-admin", roles = {"admin"})
+    void erase_self_isRejected() {
+        when(keycloak.findById("self-admin"))
+            .thenReturn(user("self-admin", "me@kumbuka.ai", "admin", "active"));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "me@kumbuka.ai"}
+                """)
+            .when().post("/api/users/self-admin/erase")
+            .then().statusCode(400);
+
+        verify(erasure, org.mockito.Mockito.never()).eraseSubject(any());
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void erase_lastAdmin_isRejected() {
+        when(keycloak.findById("only-admin"))
+            .thenReturn(user("only-admin", "boss@kumbuka.ai", "admin", "active"));
+        when(keycloak.listUsers())
+            .thenReturn(List.of(user("only-admin", "boss@kumbuka.ai", "admin", "active")));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "boss@kumbuka.ai"}
+                """)
+            .when().post("/api/users/only-admin/erase")
+            .then().statusCode(400);
+
+        verify(erasure, org.mockito.Mockito.never()).eraseSubject(any());
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void erase_asMember_isForbidden() {
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"typedConfirm": "x@x"}
+                """)
+            .when().post("/api/users/whoever/erase")
+            .then().statusCode(403);
+
+        verify(erasure, org.mockito.Mockito.never()).eraseSubject(any());
+    }
+
+    // ---------- invite lifecycle (re-invite / cancel) ------------------------
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void resendInvite_invitedMember_delegates() {
+        when(keycloak.findById("inv-1"))
+            .thenReturn(user("inv-1", "pending@kumbuka.ai", "member", "invited"));
+
+        given().when().post("/api/users/inv-1/resend-invite")
+            .then().statusCode(204);
+
+        verify(keycloak).resendInvite("inv-1");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void resendInvite_activeMember_rejectedAs400() {
+        when(keycloak.findById("act-1"))
+            .thenReturn(user("act-1", "active@kumbuka.ai", "member", "active"));
+
+        given().when().post("/api/users/act-1/resend-invite")
+            .then().statusCode(400);
+
+        verify(keycloak, org.mockito.Mockito.never()).resendInvite(any());
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void cancelInvite_invitedMember_deletesKcUser() {
+        when(keycloak.findById("inv-2"))
+            .thenReturn(user("inv-2", "pending2@kumbuka.ai", "member", "invited"));
+
+        given().when().delete("/api/users/inv-2")
+            .then().statusCode(204);
+
+        verify(keycloak).deleteUser("inv-2");
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void cancelInvite_activeMember_rejectedAs409() {
+        when(keycloak.findById("act-2"))
+            .thenReturn(user("act-2", "active2@kumbuka.ai", "member", "active"));
+
+        given().when().delete("/api/users/act-2")
+            .then().statusCode(409);
+
+        verify(keycloak, org.mockito.Mockito.never()).deleteUser(any());
     }
 }

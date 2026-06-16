@@ -349,6 +349,32 @@ class KeycloakAdminServiceTest {
         assertThat(sent.getValue().isEnabled()).isTrue();
     }
 
+    // ---------- deleteUser / resendInvite ------------------------------------
+
+    @Test
+    void deleteUser_removesViaUserResource() {
+        UserRepresentation u = rep("del-1", "del@x", true, true, 1L);
+        UserResource ur = mock(UserResource.class);
+        when(ur.toRepresentation()).thenReturn(u);
+        stubUserResource("del-1", ur);
+
+        svc.deleteUser("del-1");
+
+        verify(ur).remove();
+    }
+
+    @Test
+    void resendInvite_triggersUpdatePasswordEmail() {
+        UserRepresentation u = rep("inv-1", "inv@x", true, false, 1L);
+        UserResource ur = mock(UserResource.class);
+        when(ur.toRepresentation()).thenReturn(u);
+        stubUserResource("inv-1", ur);
+
+        svc.resendInvite("inv-1");
+
+        verify(ur).executeActionsEmail(List.of("UPDATE_PASSWORD"));
+    }
+
     // ---------- connector client + mask --------------------------------------
 
     @Test
