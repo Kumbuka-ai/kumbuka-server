@@ -23,7 +23,10 @@ class AdminReadResourceContractTest {
     private static final List<Class<?>> TENANT_SCOPED_RESOURCES = List.of(
         AdminScopesResource.class,
         AdminEntriesResource.class,
-        AdminSettingsResource.class);
+        AdminSettingsResource.class,
+        // S018: me()/updateMe read+write the caller's user_account; without a tx
+        // the app.tenant_id GUC is unset and RLS hides the row (rendered the sub).
+        SessionResource.class);
 
     @Test
     void tenant_scoped_resources_are_transactional_and_tenant_bound() {

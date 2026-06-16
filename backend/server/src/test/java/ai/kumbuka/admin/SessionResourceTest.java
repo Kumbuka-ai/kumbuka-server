@@ -1,17 +1,26 @@
 package ai.kumbuka.admin;
 
+import ai.kumbuka.keycloak.KeycloakAdminService;
+import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
 import ai.kumbuka.mcp.MuteTestSupport;
+import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;
 import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.time.Instant;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 /**
  * Verifies the session surface (D2 — account = link-out hybrid):
@@ -30,6 +39,18 @@ class SessionResourceTest {
     // Seeds a real user_account row (RLS'd) so the locale write-path runs — the
     // PATCH only persists locale when the caller's row exists.
     @Inject MuteTestSupport seed;
+
+    // me()/updateMe lazily provision the caller's row and seed the display name
+    // from the KC profile. Mock the lookup; the default mock returns null
+    // (no profile) so the name falls through, matching the no-claim tests.
+    @InjectMock KeycloakAdminService keycloak;
+
+    @BeforeEach
+    void resetKeycloakMock() {
+        // No stub leak between tests: default findById → null (no KC profile),
+        // so the display-name fallback tests see an absent profile.
+        Mockito.reset(keycloak);
+    }
 
     @Test
     void me_unauthenticated_returns401() {
@@ -70,9 +91,10 @@ class SessionResourceTest {
     @TestSecurity(user = "sub-no-email", roles = {"member"})
     void me_withoutEmailClaim_returnsNullEmailAndDisplayName() {
         // displayName walks account.displayName → name → preferred_username →
-        // email; @TestSecurity populates none of those claims and no UserAccount
-        // row exists, so every candidate is absent. The view must serialise both
-        // as null (never the raw sub), not propagate "Unknown" or similar.
+        // email; @TestSecurity populates no claims and the mocked KC profile is
+        // null, so the lazily-provisioned row carries no name and every
+        // candidate is absent. The view must serialise both as null (never the
+        // raw sub), not propagate "Unknown" or similar.
         given()
             .when().get("/api/auth/me")
             .then()
@@ -100,9 +122,8 @@ class SessionResourceTest {
     @Test
     @TestSecurity(user = "sub-patch", roles = {"member"})
     void updateMe_setsDisplayName_thenReadBack() {
-        // PATCH is a no-op when no UserAccount row exists for this subject —
-        // Phase 8 will sync rows on first IdP claim. The endpoint still
-        // returns the current session view rather than 404.
+        // S018: PATCH now lazily provisions the caller's row (no pre-existing
+        // row needed) and the write round-trips — was a silent no-op before.
         given()
             .contentType(ContentType.JSON)
             .body("""
@@ -111,7 +132,33 @@ class SessionResourceTest {
             .when().patch("/api/auth/me")
             .then()
                 .statusCode(200)
-                .body("subject", equalTo("sub-patch"));
+                .body("subject", equalTo("sub-patch"))
+                .body("displayName", equalTo("Patch User"));
+
+        // Persisted — a fresh read returns it.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("displayName", equalTo("Patch User"));
+    }
+
+    @Test
+    @TestSecurity(user = "57ef0fe1-sub", roles = {"member"})
+    void me_provisionsRowAndSeedsDisplayNameFromKeycloak() {
+        // S018 root case: invited member with NO user_account row. me() must
+        // provision the row keyed by the sub and seed the display name from the
+        // Keycloak profile (the same source the roster uses) — never the sub.
+        when(keycloak.findById(anyString())).thenReturn(
+            new KeycloakUser("57ef0fe1-sub", "familie", "familie@wirsinddiealberts.de",
+                "Familie", "Albert", "member", "active", Instant.EPOCH));
+
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("subject", equalTo("57ef0fe1-sub"))
+                .body("displayName", equalTo("Familie Albert"));
     }
 
     @Test
