@@ -17,6 +17,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,6 +54,51 @@ class AdminUsersResourceTest {
                 .body("$", hasSize(2))
                 .body("[0].email", equalTo("alice@kumbuka.ai"))
                 .body("[1].status", equalTo("invited"));
+    }
+
+    // ---------- P0 read-authz: roster is admin-only ---------------------------
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void list_asMember_isForbidden() {
+        // The full roster (email/role/status) must never reach a plain member.
+        given()
+            .when().get("/api/users")
+            .then().statusCode(403);
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void directory_asMember_returnsNamesOnly_noPii() {
+        when(keycloak.listUsers()).thenReturn(List.of(
+            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.EPOCH),
+            new KeycloakUser("k2", "bob", "bob@kumbuka.ai", "Bob", "Jones", "member", "invited", Instant.EPOCH)
+        ));
+
+        given()
+            .when().get("/api/users/directory")
+            .then()
+                .statusCode(200)
+                .body("$", hasSize(2))
+                .body("[0].subject", equalTo("k1"))
+                .body("[0].displayName", equalTo("Alice Smith"))
+                // PII is NOT projected for members
+                .body("[0].email", nullValue())
+                .body("[0].role", nullValue())
+                .body("[0].status", nullValue());
+    }
+
+    @Test
+    @TestSecurity(user = "admin-sub", roles = {"admin"})
+    void directory_asAdmin_isAllowed() {
+        when(keycloak.listUsers()).thenReturn(List.of(
+            new KeycloakUser("k1", "alice", "alice@kumbuka.ai", "Alice", "Smith", "admin", "active", Instant.EPOCH)
+        ));
+
+        given()
+            .when().get("/api/users/directory")
+            .then().statusCode(200).body("$", hasSize(1))
+                .body("[0].displayName", equalTo("Alice Smith"));
     }
 
     @Test
