@@ -230,6 +230,66 @@ class PrivateIsolationTest {
         assertThat(recalled).anyMatch(x -> "https://example.com/origin".equals(x.reference));
     }
 
+    // ---------------------------------------------------------------------
+    // D-CORE-5.1 — an unscoped read WITH a query becomes a discovery search
+    // across private + global + every PROJECT scope the caller sees by RLS;
+    // WITHOUT a query it stays the D-CORE-5 default (private + global only).
+    // RLS + the untouched private predicate remain the hard boundary.
+    // ---------------------------------------------------------------------
+
+    @Test
+    @Transactional
+    void unscopedRecall_queryGatesProjectVisibility_andHitCarriesScopeSlug() {
+        String proj = ensureProject("dcore51-discovery");
+        Memory inProj = memories.remember(
+            SUBJECT_A, proj, MemoryType.DECISION, null, "dcore51 needle alpha", SourceChannel.MCP);
+
+        // WITH a query → the project row is discoverable without naming its scope,
+        // and the returned row carries its scope slug so the caller can pin it.
+        List<Memory> withQuery = memories.recall(SUBJECT_A, null, null, "needle alpha", false);
+        assertThat(withQuery).anyMatch(x -> x.id.equals(inProj.id));
+        assertThat(withQuery)
+            .filteredOn(x -> x.id.equals(inProj.id))
+            .allMatch(x -> proj.equals(x.scope.slug));
+
+        // WITHOUT a query → the same project row is NOT in the default unscoped
+        // view (D-CORE-5 still holds; the widening is query-gated only).
+        List<Memory> noQuery = memories.recall(SUBJECT_A, null, null, null, false);
+        assertThat(noQuery).noneMatch(x -> x.id.equals(inProj.id));
+    }
+
+    @Test
+    @Transactional
+    void unscopedRecall_withQuery_includesOwnPrivateButNeverAnotherUsersPrivate() {
+        // Both users write a private row whose content matches the query. The
+        // discovery search must return the CALLER's own private hit and never the
+        // other user's private row — the private predicate is untouched.
+        Memory aPriv = memories.remember(
+            SUBJECT_A, "private", MemoryType.DECISION, null, "dcore51 secret marker", SourceChannel.MCP);
+        Memory bPriv = memories.remember(
+            SUBJECT_B, "private", MemoryType.DECISION, null, "dcore51 secret marker", SourceChannel.MCP);
+
+        List<Memory> aHits = memories.recall(SUBJECT_A, null, null, "secret marker", false);
+        assertThat(aHits)
+            .anyMatch(x -> x.id.equals(aPriv.id))
+            .noneMatch(x -> x.id.equals(bPriv.id));
+    }
+
+    @Test
+    @Transactional
+    void unscopedLoadContext_withMatchingProjectRow_stillExcludesProject() {
+        // Regression: loadContext calls recall with query=null, so the D-CORE-5.1
+        // query-gated widening must never reach it — project rows stay out of the
+        // digest even when their content would match a hypothetical query.
+        String proj = ensureProject("dcore51-ctx");
+        Memory inProj = memories.remember(
+            SUBJECT_A, proj, MemoryType.CONVENTION, null, "dcore51 ctx needle", SourceChannel.MCP);
+
+        List<Memory> digest = memories.loadContext(SUBJECT_A, null).values().stream()
+            .flatMap(List::stream).toList();
+        assertThat(digest).noneMatch(x -> x.id.equals(inProj.id));
+    }
+
     @Test
     @Transactional
     void explicitProjectWithIncludeGlobal_stillAddsGlobal() {

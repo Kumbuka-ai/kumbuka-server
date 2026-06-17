@@ -160,12 +160,19 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      *   - Private scope: only the caller's own rows.
      *   - Shared scopes (project/global): all rows in that scope.
      *
-     * When {@code scopeSlug} is null (an <em>unscoped</em> read), returns the
-     * caller's private rows plus the <strong>global</strong> scope only —
-     * project scopes are NOT included in the default view (D-CORE-5). Project
-     * memories surface only when the caller asks for that project explicitly
-     * via {@code scopeSlug}. When {@code scopeSlug} is given and
-     * {@code includeGlobal} is true, the global scope is added to the result.
+     * When {@code scopeSlug} is null (an <em>unscoped</em> read) the shared
+     * coverage depends on whether a {@code query} is given (D-CORE-5.1):
+     * <ul>
+     *   <li><b>no query</b> → caller's private rows + the <strong>global</strong>
+     *       scope only; PROJECT scopes are NOT in the default view (D-CORE-5).</li>
+     *   <li><b>with a non-blank query</b> → a discovery search across private +
+     *       global + every PROJECT scope the caller sees by RLS, so a project
+     *       memory is findable without naming its scope. Each hit carries its
+     *       scope slug so the caller can pin it.</li>
+     * </ul>
+     * When {@code scopeSlug} is given the result is that scope (plus the global
+     * scope when {@code includeGlobal} is true). RLS confines every case to the
+     * caller's tenant and the private predicate to the caller's own rows.
      */
     public List<Memory> recall(String callerSubject,
                                String scopeSlug,
@@ -178,11 +185,20 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         java.util.Map<String, Object> params = new java.util.HashMap<>();
         params.put("caller", callerSubject);
         params.put("privateKind", ScopeKind.PRIVATE);
-        // D-CORE-5: an unscoped read (scopeSlug == null) sees private + global
-        // only. With an explicit scopeSlug the PROJECT kind must stay in the
-        // set, otherwise a row in the requested project scope — matched below by
-        // `scope.slug = :scopeSlug` — would be filtered out by this predicate.
-        params.put("sharedKinds", scopeSlug == null
+        boolean hasQuery = query != null && !query.isBlank();
+        // D-CORE-5.1: which shared kinds an unscoped read sees, in three cases:
+        //   - scopeSlug == null, NO query  → GLOBAL only (the D-CORE-5 default
+        //     digest view; PROJECT scopes surface only when asked for explicitly).
+        //   - scopeSlug == null, WITH query → GLOBAL + PROJECT: a discovery search
+        //     spans every project scope the caller sees by RLS, so a forgotten
+        //     project memory is findable without naming its scope. Each hit
+        //     carries its scope slug (MemoryDto.scope) so the assistant can pin it.
+        //   - scopeSlug != null → GLOBAL + PROJECT: the PROJECT kind must stay in
+        //     the set or a row in the requested project scope — matched below by
+        //     `scope.slug = :scopeSlug` — would be filtered out by this predicate.
+        // The private predicate above is UNCHANGED: a caller still sees only their
+        // own private rows, and RLS still confines results to the caller's tenant.
+        params.put("sharedKinds", scopeSlug == null && !hasQuery
             ? List.of(ScopeKind.GLOBAL)
             : List.of(ScopeKind.GLOBAL, ScopeKind.PROJECT));
 
@@ -199,7 +215,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             jpql.append(" and type = :type");
             params.put("type", type);
         }
-        if (query != null && !query.isBlank()) {
+        if (hasQuery) {
             jpql.append(" and lower(content) like :q");
             params.put("q", "%" + query.toLowerCase() + "%");
         }
