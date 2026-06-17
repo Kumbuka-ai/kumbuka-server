@@ -123,6 +123,11 @@ public final class AdminDtos {
         String displayName,
         String role,
         String accountConsoleUrl,
+        // Authorize-endpoint base for Keycloak Application Initiated Actions; the
+        // console appends &redirect_uri=…&kc_action=… to deep-link password / 2FA
+        // / passkey management. Carries a fresh PKCE challenge (kumbuka-admin
+        // enforces S256). See SessionResource.securityActionUrl().
+        String securityActionUrl,
         boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
         String locale   // the caller's UI language preference (en | de); null = unset
     ) {}
