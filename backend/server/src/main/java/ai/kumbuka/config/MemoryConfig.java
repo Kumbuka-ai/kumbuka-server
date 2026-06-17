@@ -42,6 +42,18 @@ public interface MemoryConfig {
     @WithName("auth-base-url")
     String authBaseUrl();
 
+    /**
+     * Public base URL of the team console (e.g. https://console.kumbuka.ai/).
+     * Used as the {@code redirect_uri} on the invite / password-setup email
+     * action so Keycloak returns the user to the console after they set their
+     * password (otherwise the flow ends on Keycloak's generic "account updated"
+     * page). Empty in the CE single-tenant default → the email omits the
+     * redirect and Keycloak shows its own confirmation page. The value must be
+     * a registered redirect URI of the {@code kumbuka-admin} client.
+     */
+    @WithName("console-base-url")
+    Optional<String> consoleBaseUrl();
+
     /** Singleton-tenant id for this edition. See ADR-0005. */
     @WithName("tenant-id")
     UUID tenantId();
