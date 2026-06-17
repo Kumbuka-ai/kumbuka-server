@@ -232,9 +232,9 @@ class PrivateIsolationTest {
 
     // ---------------------------------------------------------------------
     // D-CORE-5.1 — an unscoped read WITH a query becomes a discovery search
-    // across private + global + every PROJECT scope the caller sees by RLS;
-    // WITHOUT a query it stays the D-CORE-5 default (private + global only).
-    // RLS + the untouched private predicate remain the hard boundary.
+    // across private, global, and every PROJECT scope the caller sees by RLS.
+    // WITHOUT a query it stays the D-CORE-5 default of private and global only.
+    // RLS and the untouched private predicate remain the hard boundary.
     // ---------------------------------------------------------------------
 
     @Test
@@ -252,8 +252,8 @@ class PrivateIsolationTest {
             .filteredOn(x -> x.id.equals(inProj.id))
             .allMatch(x -> proj.equals(x.scope.slug));
 
-        // WITHOUT a query → the same project row is NOT in the default unscoped
-        // view (D-CORE-5 still holds; the widening is query-gated only).
+        // WITHOUT a query the same project row is NOT in the default unscoped
+        // view — D-CORE-5 still holds and the widening is query-gated only.
         List<Memory> noQuery = memories.recall(SUBJECT_A, null, null, null, false);
         assertThat(noQuery).noneMatch(x -> x.id.equals(inProj.id));
     }
@@ -278,7 +278,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void unscopedLoadContext_withMatchingProjectRow_stillExcludesProject() {
-        // Regression: loadContext calls recall with query=null, so the D-CORE-5.1
+        // Regression: loadContext recalls with a null query, so the D-CORE-5.1
         // query-gated widening must never reach it — project rows stay out of the
         // digest even when their content would match a hypothetical query.
         String proj = ensureProject("dcore51-ctx");
