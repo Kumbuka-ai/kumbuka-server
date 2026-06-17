@@ -96,7 +96,7 @@ class KeycloakAdminServiceTenantScopeTest {
         UserResource ur = userWithRoles(foreign, "admin");
         when(users.get("beta-9")).thenReturn(ur);
         doThrow(new NotFoundException("user not found in this tenant"))
-            .when(scope).assertVisible(any());
+            .when(scope).assertVisible(any(), any());
 
         assertThatThrownBy(() -> svc.findById("beta-9"))
             .isInstanceOf(NotFoundException.class);
@@ -108,7 +108,7 @@ class KeycloakAdminServiceTenantScopeTest {
         UserResource ur = userWithRoles(foreign, "admin");
         when(users.get("beta-9")).thenReturn(ur);
         doThrow(new NotFoundException("user not found in this tenant"))
-            .when(scope).assertVisible(any());
+            .when(scope).assertVisible(any(), any());
 
         assertThatThrownBy(() -> svc.updateEnabled("beta-9", false))
             .isInstanceOf(NotFoundException.class);
