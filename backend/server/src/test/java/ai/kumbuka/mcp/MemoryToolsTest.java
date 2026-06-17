@@ -119,6 +119,9 @@ class MemoryToolsTest {
         assertThat(out.memory().content()).isEqualTo("we ship daily");
         // No prompt — explicit scope means the policy is not the gate.
         assertThat(out.prompt()).isNull();
+        // dogfood-11: the policy receipt is omitted on a successful write — the real
+        // scope is already in MemoryDto; policy is decision-bearing only on the prompt.
+        assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("alpha"), any(), any(), any(), eq(SourceChannel.MCP));
     }
 
@@ -170,6 +173,8 @@ class MemoryToolsTest {
         Dtos.RememberResult out = tools.memory_remember("x", "convention", null, null, null);
 
         assertThat(out.memory()).isNotNull();
+        // dogfood-11: policy-resolved (PROJECT) success also omits the policy receipt.
+        assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("alpha"), eq(MemoryType.CONVENTION), any(), any(), any());
     }
 
@@ -184,6 +189,8 @@ class MemoryToolsTest {
         Dtos.RememberResult out = tools.memory_remember("y", "constraint", null, null, null);
 
         assertThat(out.memory()).isNotNull();
+        // dogfood-11: policy-resolved (GLOBAL) success also omits the policy receipt.
+        assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("global"), eq(MemoryType.CONSTRAINT), any(), any(), any());
     }
 
@@ -204,6 +211,9 @@ class MemoryToolsTest {
 
         assertThat(out.memory()).isNull();
         assertThat(out.prompt()).isNotNull();
+        // dogfood-11: on the prompt-for-scope path the policy receipt is retained —
+        // here it is genuinely decision-bearing (explains why a scope is required).
+        assertThat(out.policy()).isNotNull();
         assertThat(out.prompt().reason()).contains("write policy is 'ask'");
         assertThat(out.prompt().available())
             .extracting(Dtos.ScopeDto::slug)
