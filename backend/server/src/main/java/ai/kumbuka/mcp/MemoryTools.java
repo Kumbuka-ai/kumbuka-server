@@ -84,13 +84,15 @@ public class MemoryTools {
         MemoryContentValidator.validate(content);   // F-1: ≤1500, server-side
         ai.kumbuka.util.MemoryKeyValidator.validate(key);   // E2E-06: key format
         ReferenceUrlValidator.validate(reference);
-        Resolved policy = policyResolver.resolve();
-        Dtos.EffectiveWritePolicy policyDto = toDto(policy);
 
         String scopeSlug = scope;
         if (scopeSlug == null) {
             // No explicit scope: consult writePolicy. Private is never the default
             // (D3 + handoff §F-2) — caller must opt in by passing 'private'.
+            // The policy DTO is decision-bearing only on the prompt-for-scope return
+            // (dogfood-11); on every successful write the real scope is in MemoryDto,
+            // so resolve + attach the policy only here, never on explicit-scope writes.
+            Resolved policy = policyResolver.resolve();
             switch (policy.effective()) {
                 case ASK -> {
                     String reason = switch (policy.defaultScopeStatus()) {
@@ -99,7 +101,7 @@ public class MemoryTools {
                         case ARCHIVED -> "the team's default scope is archived — please specify a scope";
                         case INVALID  -> "the team's default scope is no longer a project — please specify a scope";
                     };
-                    return new Dtos.RememberResult(null, false, prompt(reason), policyDto);
+                    return new Dtos.RememberResult(null, false, prompt(reason), toDto(policy));
                 }
                 case PROJECT -> scopeSlug = policy.defaultScopeSlug();
                 case GLOBAL  -> scopeSlug = "global";
@@ -131,7 +133,7 @@ public class MemoryTools {
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
             // D-CORE-11: a protected system-seed entry already owns this key.
             // Return a typed structured error instead of a -32603 "Internal error".
-            return new Dtos.RememberResult(null, false, null, policyDto,
+            return new Dtos.RememberResult(null, false, null, null,
                 new Dtos.ProtectedError("PROTECTED_UPSERT_BLOCKED", pex.key(), pex.getMessage()));
         }
         // D-CORE-7: attach the provenance URL on a freshly-written row only — an
@@ -139,7 +141,7 @@ public class MemoryTools {
         if (!existed && reference != null && !reference.isBlank()) {
             m.reference = reference;
         }
-        return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, policyDto, null);
+        return new Dtos.RememberResult(Dtos.MemoryDto.from(m), existed, null, null, null);
     }
 
     private Dtos.PromptForScope prompt(String reason) {
