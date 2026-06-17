@@ -18,10 +18,12 @@ import ai.kumbuka.util.MemoryContentValidator;
 import ai.kumbuka.util.ReferenceUrlValidator;
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
+import io.quarkiverse.mcp.server.ToolCallException;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
 
 import java.util.List;
 import java.util.Map;
@@ -57,6 +59,25 @@ public class MemoryTools {
         return s;
     }
 
+    /**
+     * Run client-input validation/parsing and, on a rejection, re-raise it as a
+     * {@link ToolCallException}. The validators are shared with the admin REST
+     * API where they throw {@link BadRequestException} (→ HTTP 400) or
+     * {@link IllegalArgumentException} (bad enum/UUID); on the MCP surface those
+     * are not {@code McpException}, so the framework would otherwise collapse
+     * them into a bare {@code -32603 "Internal error"} with no message. Mapping
+     * them to {@code ToolCallException} yields a proper tool error result
+     * ({@code isError:true}) carrying the human-readable reason (e.g. "content
+     * too long: max 1500 characters") so the assistant can correct and retry.
+     */
+    private static <T> T checkInput(java.util.function.Supplier<T> parseAndValidate) {
+        try {
+            return parseAndValidate.get();
+        } catch (BadRequestException | IllegalArgumentException e) {
+            throw new ToolCallException(e.getMessage());
+        }
+    }
+
     // -----------------------------------------------------------------------
 
     @Tool(description =
@@ -80,10 +101,17 @@ public class MemoryTools {
         @ToolArg(description = "Optional external provenance URL (http/https). Stored as metadata; never auto-fetched. Credential-bearing URLs are rejected.", required = false)
             String reference
     ) {
-        MemoryType t = MemoryType.fromDb(type);
-        MemoryContentValidator.validate(content);   // F-1: ≤1500, server-side
-        ai.kumbuka.util.MemoryKeyValidator.validate(key);   // E2E-06: key format
-        ReferenceUrlValidator.validate(reference);
+        // All client-input validation runs through checkInput so a rejection
+        // surfaces as a clean MCP tool error (isError + reason), never a bare
+        // -32603. Covers: type enum, content ≤1500 (F-1), key format (E2E-06),
+        // reference URL.
+        MemoryType t = checkInput(() -> {
+            MemoryType parsed = MemoryType.fromDb(type);
+            MemoryContentValidator.validate(content);
+            ai.kumbuka.util.MemoryKeyValidator.validate(key);
+            ReferenceUrlValidator.validate(reference);
+            return parsed;
+        });
 
         String scopeSlug = scope;
         if (scopeSlug == null) {
@@ -175,7 +203,7 @@ public class MemoryTools {
         @ToolArg(description = "Substring match (case-insensitive) on content.", required = false) String query,
         @ToolArg(description = "When a scope is given, also include the global scope. Default false.", required = false) Boolean include_global
     ) {
-        MemoryType t = type == null ? null : MemoryType.fromDb(type);
+        MemoryType t = checkInput(() -> type == null ? null : MemoryType.fromDb(type));
         boolean inclGlobal = include_global != null && include_global;
         List<Memory> rows = memories.recall(callerSubject(), scope, t, query, inclGlobal);
         return Dtos.RecallResult.of(rows);
@@ -192,7 +220,7 @@ public class MemoryTools {
         @ToolArg(description = "Memory id (UUID).", required = false) String id,
         @ToolArg(description = "Upsert key, if the entry was written with one.", required = false) String key
     ) {
-        UUID uuid = (id == null || id.isBlank()) ? null : UUID.fromString(id);
+        UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
         // D-CORE-2: shared forget is a write — suspended for muted members; a
         // muted member can still forget in their own private scope (slug "private").
         if (!"private".equals(scope)) {
@@ -236,7 +264,7 @@ public class MemoryTools {
         @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope,
         @ToolArg(description = "Optional comma-separated memory types to include (decision, constraint, convention, glossary, open_question, status). Omit for the steering-types default (which excludes open_question).", required = false) String types
     ) {
-        java.util.Set<MemoryType> wanted = parseTypes(types);
+        java.util.Set<MemoryType> wanted = checkInput(() -> parseTypes(types));
         Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope, wanted);
         Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();
         int total = 0;

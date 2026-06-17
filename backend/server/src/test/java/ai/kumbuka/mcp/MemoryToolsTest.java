@@ -12,6 +12,7 @@ import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.service.WritePolicyResolver;
 import ai.kumbuka.service.WritePolicyResolver.DefaultScopeStatus;
 import ai.kumbuka.service.WritePolicyResolver.Resolved;
+import io.quarkiverse.mcp.server.ToolCallException;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.test.InjectMock;
@@ -29,6 +30,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -123,6 +125,26 @@ class MemoryToolsTest {
         // scope is already in MemoryDto; policy is decision-bearing only on the prompt.
         assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("alpha"), any(), any(), any(), eq(SourceChannel.MCP));
+    }
+
+    // ---------- memory_remember: input validation → clean tool error ---------
+    // Regression: a client-input rejection (e.g. content > 1500) used to throw a
+    // JAX-RS BadRequestException / IllegalArgumentException, which the MCP
+    // framework collapsed into a bare {-32603 "Internal error", data:null}. It
+    // must instead surface as a ToolCallException → ToolResponse.error(message)
+    // so the assistant sees the reason and can correct.
+
+    @Test
+    void remember_unknownType_throwsToolCallExceptionWithReason() {
+        assertThatThrownBy(() -> tools.memory_remember("ok", "not-a-type", "alpha", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("unknown memory type");
+    }
+
+    @Test
+    void forget_malformedUuid_throwsToolCallException_notInternalError() {
+        assertThatThrownBy(() -> tools.memory_forget("alpha", "not-a-uuid", null))
+            .isInstanceOf(ToolCallException.class);
     }
 
     // ---------- memory_remember: keyed upsert existence check ----------------
@@ -357,9 +379,11 @@ class MemoryToolsTest {
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> tools.memory_remember(
+        // MCP surface: a rejection is a clean ToolCallException (→ isError result),
+        // not the raw IllegalArgumentException (which would collapse to -32603).
+        assertThatThrownBy(() -> tools.memory_remember(
                 "x", "decision", "global", null, "https://user:secret@example.com/x"))
-            .isInstanceOf(IllegalArgumentException.class);
+            .isInstanceOf(ToolCallException.class);
         verify(memories, org.mockito.Mockito.never())
             .remember(any(), any(), any(), any(), any(), any());
     }
@@ -371,9 +395,12 @@ class MemoryToolsTest {
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> tools.memory_remember(
+        // MCP surface: surfaced as a ToolCallException carrying the reason, not a
+        // raw BadRequestException (which the framework would turn into -32603).
+        assertThatThrownBy(() -> tools.memory_remember(
                 "a".repeat(1501), "decision", "global", null, null))
-            .isInstanceOf(jakarta.ws.rs.BadRequestException.class);
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("1500");
         verify(memories, org.mockito.Mockito.never())
             .remember(any(), any(), any(), any(), any(), any());
     }
@@ -519,15 +546,15 @@ class MemoryToolsTest {
         // call would persist (the DB CHECK would only fire much later for a
         // genuine bad input — the regex in V2 allows it through because
         // [a-z0-9_]?? actually no, V2 already rejects underscores at the
-        // DB layer. The validator gives a clean BadRequestException at the
-        // tool layer instead of a constraint-violation 500.
+        // DB layer. The validator gives a clean tool-layer rejection instead of
+        // a constraint-violation 500 — surfaced as a ToolCallException on MCP.
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.PROJECT, WritePolicy.PROJECT,
                      DefaultScopeStatus.OK, "alpha"));
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+        assertThatThrownBy(() ->
                 tools.memory_remember("ok", "decision", "alpha", "test_1", null))
-            .isInstanceOf(jakarta.ws.rs.BadRequestException.class)
+            .isInstanceOf(ToolCallException.class)
             .hasMessageContaining("test_1");
 
         // Validator fires BEFORE the repo call — no row attempt at all.
