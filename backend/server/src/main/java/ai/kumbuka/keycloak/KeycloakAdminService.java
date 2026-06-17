@@ -15,9 +15,11 @@ import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.representations.idm.UserSessionRepresentation;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Thin wrapper around the {@link Keycloak} admin REST client. Centralises
@@ -36,6 +38,30 @@ public class KeycloakAdminService {
     @Inject Keycloak keycloak;
     @Inject MemoryConfig config;
     @Inject TenantUserScope userScope;   // OSS: pass-through. SaaS: scopes users to the caller's tenant.
+
+    // The console's OIDC client; used as the redirect client on the invite /
+    // password-setup email action so Keycloak returns the user to the console.
+    @ConfigProperty(name = "quarkus.oidc.admin.client-id", defaultValue = "kumbuka-admin")
+    String adminClientId;
+
+    private static final List<String> SETUP_PASSWORD = List.of("UPDATE_PASSWORD");
+
+    /**
+     * Sends the enrolment / password-setup email (the UPDATE_PASSWORD magic
+     * link). When a console base URL is configured, it is passed as the
+     * {@code redirect_uri} (with {@code kumbuka-admin} as the client) so the
+     * user lands back on the console after setting their password instead of
+     * Keycloak's generic "account updated" page. Otherwise (CE single-tenant,
+     * no console URL) the plain email is sent and Keycloak shows its own page.
+     */
+    private void sendPasswordSetupEmail(UserResource user) {
+        Optional<String> console = config.consoleBaseUrl().filter(s -> !s.isBlank());
+        if (console.isPresent()) {
+            user.executeActionsEmail(adminClientId, console.get(), SETUP_PASSWORD);
+        } else {
+            user.executeActionsEmail(SETUP_PASSWORD);
+        }
+    }
 
     private RealmResource realm() {
         return keycloak.realm(config.realm());
@@ -109,7 +135,7 @@ public class KeycloakAdminService {
 
         // Trigger enrolment: send the user a magic link to set a password.
         try {
-            realm().users().get(id).executeActionsEmail(List.of("UPDATE_PASSWORD"));
+            sendPasswordSetupEmail(realm().users().get(id));
         } catch (Exception ex) {
             LOG.warnf(ex, "executeActionsEmail failed for new user %s — user is created but no email was sent", id);
         }
@@ -174,7 +200,7 @@ public class KeycloakAdminService {
     public void resendInvite(String id) {
         UserResource user = realm().users().get(id);
         userScope.assertVisible(realm(), user.toRepresentation());
-        user.executeActionsEmail(List.of("UPDATE_PASSWORD"));
+        sendPasswordSetupEmail(user);
     }
 
     // ---- Member session self-management (D-CORE-8) ------------------------

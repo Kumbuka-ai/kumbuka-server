@@ -105,6 +105,7 @@ class ProtectedResourceMetadataTest {
             @Override public String publicBaseUrl()  { return "https://kumbuka.ai"; }
             @Override public java.util.Optional<String> mcpPublicUrlTemplate() { return java.util.Optional.empty(); }
             @Override public String authBaseUrl()    { return "https://auth.kumbuka.ai"; }
+            @Override public java.util.Optional<String> consoleBaseUrl() { return java.util.Optional.empty(); }
             @Override public UUID   tenantId()       { return UUID.fromString("00000000-0000-0000-0000-000000000001"); }
             @Override public String realm()          { return "kumbuka"; }
             @Override public String connectorClientId() { return "kumbuka-connector"; }
