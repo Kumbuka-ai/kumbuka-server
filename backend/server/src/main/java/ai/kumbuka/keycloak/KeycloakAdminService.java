@@ -61,7 +61,7 @@ public class KeycloakAdminService {
 
     public KeycloakUser findById(String id) {
         UserRepresentation u = realm().users().get(id).toRepresentation();
-        userScope.assertVisible(u);   // SaaS: 404 if the user is in another tenant
+        userScope.assertVisible(realm(), u);   // SaaS: 404 if the user is not in the caller's Org
         return toView(u);
     }
 
@@ -78,7 +78,6 @@ public class KeycloakAdminService {
         rep.setLastName(lastName);
         rep.setEnabled(true);
         rep.setEmailVerified(false);
-        userScope.stampNewUser(rep);   // SaaS: bind the new user to the caller's tenant
 
         String id;
         try (Response response = realm().users().create(rep)) {
@@ -87,6 +86,20 @@ public class KeycloakAdminService {
                     "Keycloak rejected user create: HTTP " + response.getStatus());
             }
             id = CreatedResponseUtil.getCreatedId(response);
+        }
+
+        // Bind the new user to the caller's tenant. In SaaS this adds
+        // KC-Organization membership per D-CORE-14, the source of the
+        // organization claim — without it the invited member has no tenant
+        // binding and the SaaS resolver rejects the session as
+        // TOKEN_ORG_MISSING. In OSS it is a no-op. Membership needs the user
+        // id, so it runs after create; on failure undo the half-created user
+        // rather than leave a tenant-less orphan.
+        try {
+            userScope.enrolNewUser(realm(), id);
+        } catch (RuntimeException e) {
+            tryRemoveUser(id);
+            throw e;
         }
 
         // Realm role assignment
@@ -104,9 +117,24 @@ public class KeycloakAdminService {
         return findById(id);
     }
 
+    /**
+     * Best-effort removal of a half-created user when a later step of {@link #invite}
+     * fails (e.g. Org enrolment). Never throws — surfacing the original failure to
+     * the caller matters more than a cleanup hiccup; an orphan is logged here.
+     * Bypasses the {@code userScope} visibility guard (the user may not yet be a
+     * member of any Org, which is exactly the half-created state we are undoing).
+     */
+    private void tryRemoveUser(String id) {
+        try {
+            realm().users().get(id).remove();
+        } catch (RuntimeException ex) {
+            LOG.warnf(ex, "failed to clean up half-created user %s after a failed invite", id);
+        }
+    }
+
     public void updateRole(String id, String newRole) {
         UserResource user = realm().users().get(id);
-        userScope.assertVisible(user.toRepresentation());   // SaaS: never role-change another tenant's user
+        userScope.assertVisible(realm(), user.toRepresentation());   // SaaS: never role-change another tenant's user
         // Remove all member/admin roles, then add the new one.
         List<RoleRepresentation> current = user.roles().realmLevel().listAll();
         List<RoleRepresentation> toRemove = current.stream()
@@ -121,7 +149,7 @@ public class KeycloakAdminService {
     public void updateEnabled(String id, boolean enabled) {
         UserResource user = realm().users().get(id);
         UserRepresentation rep = user.toRepresentation();
-        userScope.assertVisible(rep);   // SaaS: never enable/disable another tenant's user
+        userScope.assertVisible(realm(), rep);   // SaaS: never enable/disable another tenant's user
         rep.setEnabled(enabled);
         user.update(rep);
     }
@@ -134,7 +162,7 @@ public class KeycloakAdminService {
      */
     public void deleteUser(String id) {
         UserResource user = realm().users().get(id);
-        userScope.assertVisible(user.toRepresentation());
+        userScope.assertVisible(realm(), user.toRepresentation());
         user.remove();
     }
 
@@ -145,7 +173,7 @@ public class KeycloakAdminService {
      */
     public void resendInvite(String id) {
         UserResource user = realm().users().get(id);
-        userScope.assertVisible(user.toRepresentation());
+        userScope.assertVisible(realm(), user.toRepresentation());
         user.executeActionsEmail(List.of("UPDATE_PASSWORD"));
     }
 

@@ -25,12 +25,12 @@ public class DefaultTenantUserScope implements TenantUserScope {
     }
 
     @Override
-    public void assertVisible(UserRepresentation user) {
+    public void assertVisible(RealmResource realm, UserRepresentation user) {
         // single tenant: every user is visible to the (single) team's admins.
     }
 
     @Override
-    public void stampNewUser(UserRepresentation user) {
-        // single tenant: no tenant attribute to stamp.
+    public void enrolNewUser(RealmResource realm, String keycloakUserId) {
+        // single tenant: no Organization to enrol into.
     }
 }

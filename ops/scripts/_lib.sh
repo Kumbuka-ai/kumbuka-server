@@ -111,15 +111,19 @@ public_healthcheck() {
 }
 
 # org_mapper_check — assert the kumbuka-admin client still emits the
-# `organization` claim (sourced from the user's tenant_alias attribute). This is
-# the exact config whose loss/tweak caused the 2026-06-13 incident: without it
-# the RequestAwareTenantResolver rejects every console request as
-# TOKEN_ORG_MISSING. Read-only: mints a client_credentials token with the
-# kumbuka-backend service account (has view-clients) and inspects the
-# kumbuka-admin protocol mappers via the Admin REST API. No writes.
+# `organization` claim. Since D-CORE-14 the claim is sourced from KC-Organization
+# MEMBERSHIP (not the former `tenant_alias` user attribute): the built-in
+# `organization` client scope carries the `oidc-organization-membership-mapper`
+# (multivalued), and that scope is a DEFAULT scope on kumbuka-admin so the claim
+# flows without an explicit scope request. This is the exact config whose
+# loss/tweak caused the 2026-06-13 incident: without it the
+# RequestAwareTenantResolver rejects every console request as TOKEN_ORG_MISSING.
+# Read-only: mints a client_credentials token with the kumbuka-backend service
+# account (has view-clients) and inspects kumbuka-admin's default client scopes +
+# that scope's protocol mappers via the Admin REST API. No writes.
 org_mapper_check() {
   command -v jq >/dev/null 2>&1 || { log "org_mapper_check: jq not on PATH"; return 1; }
-  local base="https://${KC_HOSTNAME}" realm="${KUMBUKA_REALM:-kumbuka}" tok cid n
+  local base="https://${KC_HOSTNAME}" realm="${KUMBUKA_REALM:-kumbuka}" tok cid sid n
   [[ -n "${KUMBUKA_BACKEND_CLIENT_SECRET:-}" ]] || { log "org_mapper_check: KUMBUKA_BACKEND_CLIENT_SECRET unset"; return 1; }
   tok="$(curl -fsS -m 10 -X POST "$base/realms/$realm/protocol/openid-connect/token" \
     -d grant_type=client_credentials -d client_id=kumbuka-backend \
@@ -129,19 +133,25 @@ org_mapper_check() {
   cid="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
     "$base/admin/realms/$realm/clients?clientId=kumbuka-admin" 2>/dev/null | jq -r '.[0].id // empty')" || true
   [[ -n "$cid" ]] || { log "org_mapper_check: kumbuka-admin client not found"; return 1; }
-  # D-CORE-14: the 'organization' claim is sourced from KC-Organization
-  # membership, not the tenant_alias attribute. Assert the built-in
-  # 'organization' client scope is a DEFAULT scope on kumbuka-admin — that is
-  # what makes the (multivalued, membership) organization claim flow without a
-  # scope request. The scope itself carries the membership mapper (realm template).
-  n="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
+  # 1) the `organization` scope must be a DEFAULT scope on kumbuka-admin
+  #    (else the membership claim never reaches the token).
+  sid="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
     "$base/admin/realms/$realm/clients/$cid/default-client-scopes" 2>/dev/null \
-    | jq -r '[.[] | select(.name=="organization")] | length')" || true
+    | jq -r '.[] | select(.name=="organization") | .id' | head -n1)" || true
+  if [[ -z "$sid" ]]; then
+    log "org_mapper_check FAILED -- 'organization' is not a DEFAULT client scope on kumbuka-admin; the membership-sourced 'organization' claim would not flow and tenant resolution would break (TOKEN_ORG_MISSING). See D-CORE-14."
+    return 1
+  fi
+  # 2) that scope must carry the multivalued organization-membership mapper
+  #    (multivalued=false serialises nothing — KC #34131 — so guard it).
+  n="$(curl -fsS -m 10 -H "Authorization: Bearer $tok" \
+    "$base/admin/realms/$realm/client-scopes/$sid/protocol-mappers/models" 2>/dev/null \
+    | jq -r '[.[] | select(.protocolMapper=="oidc-organization-membership-mapper" and .config["claim.name"]=="organization" and .config["multivalued"]=="true")] | length')" || true
   if [[ "${n:-0}" -ge 1 ]]; then
-    log "org_mapper_check OK -- kumbuka-admin has the 'organization' client scope as default (membership-sourced claim, D-CORE-14)"
+    log "org_mapper_check OK -- kumbuka-admin emits 'organization' (default scope, from KC-Organization membership)"
     return 0
   fi
-  log "org_mapper_check FAILED -- kumbuka-admin is MISSING the 'organization' default client scope; tenant resolution would break (TOKEN_ORG_MISSING). The kumbuka-keycloak realm template must carry 'organization' in defaultClientScopes."
+  log "org_mapper_check FAILED -- the 'organization' scope on kumbuka-admin is MISSING a multivalued oidc-organization-membership-mapper; tenant resolution would break (TOKEN_ORG_MISSING). See D-CORE-14 / realm template kumbuka-realm.json.tmpl."
   return 1
 }
 
