@@ -19,8 +19,14 @@ import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Set;
 
 /**
@@ -50,6 +56,15 @@ public class SessionResource {
     @Inject MemoryConfig config;
     @Inject KeycloakAdminService keycloak;
 
+    // The OIDC client the console BFF logs in with (the `admin` tenant). The
+    // Application-Initiated-Action deep-links MUST reuse this exact client so
+    // the user's existing SSO session and the client's registered redirect URIs
+    // both apply. Same source of truth as quarkus.oidc.admin.client-id.
+    @ConfigProperty(name = "quarkus.oidc.admin.client-id", defaultValue = "kumbuka-admin")
+    String adminClientId;
+
+    private static final SecureRandom RNG = new SecureRandom();
+
     /** UI languages the console ships translations for. */
     private static final Set<String> SUPPORTED_LOCALES = Set.of("en", "de");
 
@@ -78,7 +93,50 @@ public class SessionResource {
         String role = callerRole();
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
-        return new SessionView(subject, email, displayName, role, accountConsoleUrl, muted, account.locale);
+        return new SessionView(subject, email, displayName, role,
+            accountConsoleUrl, securityActionUrl(), muted, account.locale);
+    }
+
+    /**
+     * Authorize-endpoint base for Keycloak Application Initiated Actions (AIA).
+     * The console appends {@code &redirect_uri=<origin>/account&kc_action=<ACTION>}
+     * (UPDATE_PASSWORD / CONFIGURE_TOTP / webauthn-register-passwordless) to land
+     * the already-authenticated user straight in the password / 2FA / passkey
+     * flow instead of the generic account-console signing-in page.
+     *
+     * <p>The flow is never completed (the returned {@code code} is discarded —
+     * the action's effect is the point), but {@code kumbuka-admin} enforces
+     * PKCE S256, so a syntactically valid {@code code_challenge} must be present
+     * or Keycloak rejects the authorize request. A fresh challenge is minted per
+     * call; the verifier is never needed again. No redirect_uri is baked in here —
+     * the console supplies its own origin (the backend's public-base-url is the
+     * MCP host, not the console host).
+     */
+    private String securityActionUrl() {
+        return config.authBaseUrl()
+            + "/realms/" + config.realm()
+            + "/protocol/openid-connect/auth"
+            + "?client_id=" + adminClientId
+            + "&response_type=code"
+            + "&scope=openid"
+            + "&code_challenge_method=S256"
+            + "&code_challenge=" + freshPkceChallenge();
+    }
+
+    /** A random S256 PKCE challenge (base64url, no padding) — see {@link #securityActionUrl()}. */
+    private static String freshPkceChallenge() {
+        byte[] verifier = new byte[32];
+        RNG.nextBytes(verifier);
+        Base64.Encoder url = Base64.getUrlEncoder().withoutPadding();
+        String verifierStr = url.encodeToString(verifier);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(verifierStr.getBytes(StandardCharsets.US_ASCII));
+            return url.encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 is mandated by the JLS — unreachable on any supported JVM.
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     @PATCH

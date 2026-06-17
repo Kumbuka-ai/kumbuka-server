@@ -72,7 +72,15 @@ class SessionResourceTest {
                 .body("locale", nullValue())
                 // accountConsoleUrl is composed from authBaseUrl + /realms/{realm}/account.
                 .body("accountConsoleUrl", containsString("/realms/"))
-                .body("accountConsoleUrl", containsString("/account"));
+                .body("accountConsoleUrl", containsString("/account"))
+                // securityActionUrl is the AIA authorize base: the console appends
+                // &redirect_uri=…&kc_action=… for the password/2FA/passkey deep-links.
+                // It must carry the login client id + a PKCE challenge (kumbuka-admin
+                // enforces S256) so a hand-built authorize request isn't rejected.
+                .body("securityActionUrl", containsString("/protocol/openid-connect/auth"))
+                .body("securityActionUrl", containsString("client_id=kumbuka-admin"))
+                .body("securityActionUrl", containsString("code_challenge_method=S256"))
+                .body("securityActionUrl", containsString("code_challenge="));
     }
 
     @Test
