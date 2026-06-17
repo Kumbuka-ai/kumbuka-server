@@ -88,12 +88,14 @@ public class KeycloakAdminService {
             id = CreatedResponseUtil.getCreatedId(response);
         }
 
-        // Bind the new user to the caller's tenant. SaaS: add KC-Organization
-        // membership (D-CORE-14) — the source of the `organization` claim;
-        // without it the invited member would have no tenant binding and the
-        // SaaS resolver rejects their session (TOKEN_ORG_MISSING). OSS: no-op.
-        // Membership needs the user id, so it runs post-create; undo the
-        // half-created user on failure rather than leave a tenant-less orphan.
+        /*
+         * Bind the new user to the caller's tenant. SaaS: add KC-Organization
+         * membership (D-CORE-14) — the source of the `organization` claim;
+         * without it the invited member would have no tenant binding and the
+         * SaaS resolver rejects their session (TOKEN_ORG_MISSING). OSS: no-op.
+         * Membership needs the user id, so it runs post-create; undo the
+         * half-created user on failure rather than leave a tenant-less orphan.
+         */
         try {
             userScope.enrolNewUser(realm(), id);
         } catch (RuntimeException e) {
