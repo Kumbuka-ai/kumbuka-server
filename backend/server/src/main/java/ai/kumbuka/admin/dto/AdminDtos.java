@@ -167,6 +167,9 @@ public final class AdminDtos {
 
     public record CreateEntryRequest(String type, String key, String content, String reference) {}
     public record UpdateEntryRequest(String type, String content, String reference) {}
+    /** D-CORE-17 scope-remap: target shared scope + an optional key override to
+     *  dodge a target key-collision (rename instead of overwrite). */
+    public record RemapEntryRequest(String targetScope, String key) {}
 
     public record UpdateSettingsRequest(
         String writePolicy,      // ask | project | global

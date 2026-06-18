@@ -334,6 +334,110 @@ class PrivateIsolationTest {
             .isInstanceOf(ScopeRepository.ScopeAlreadyExistsException.class);
     }
 
+    // ---- D-CORE-16: console create never silently overwrites (dogfood-21) ----
+
+    @Test
+    @Transactional
+    void createShared_existingKeySameAuthor_throwsKeyExists_priorRowIntact() {
+        String proj = ensureProject("dcore16-create");
+        Memory first = memories.createShared(SUBJECT_A, proj, MemoryType.DECISION, "k.one", "first", SourceChannel.CONSOLE);
+        assertThatThrownBy(() ->
+            memories.createShared(SUBJECT_A, proj, MemoryType.DECISION, "k.one", "second", SourceChannel.CONSOLE))
+            .isInstanceOf(MemoryRepository.KeyExistsException.class);
+        assertThat(memories.recall(SUBJECT_A, proj, null, null, false))
+            .filteredOn(x -> x.id.equals(first.id))
+            .allMatch(x -> x.content.equals("first"));   // NOT overwritten
+    }
+
+    @Test
+    @Transactional
+    void createShared_existingKeyDifferentAuthor_throwsKeyExists_authorIndependent() {
+        String proj = ensureProject("dcore16-author");
+        memories.createShared(SUBJECT_A, proj, MemoryType.DECISION, "k.shared", "A", SourceChannel.CONSOLE);
+        assertThatThrownBy(() ->
+            memories.createShared(SUBJECT_B, proj, MemoryType.DECISION, "k.shared", "B", SourceChannel.CONSOLE))
+            .isInstanceOf(MemoryRepository.KeyExistsException.class);
+    }
+
+    @Test
+    @Transactional
+    void rememberMcpPath_existingKey_stillUpserts_unchanged() {
+        // Regression lock: the MCP path keeps upsert-by-key (D-CORE-16 leaves it).
+        String proj = ensureProject("dcore16-mcp");
+        Memory r1 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v1", SourceChannel.MCP);
+        Memory r2 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v2", SourceChannel.MCP);
+        assertThat(r2.id).isEqualTo(r1.id);
+        assertThat(r2.content).isEqualTo("v2");
+    }
+
+    @Test
+    @Transactional
+    void createShared_keylessEntries_doNotCollide() {
+        String proj = ensureProject("dcore16-keyless");
+        Memory a = memories.createShared(SUBJECT_A, proj, MemoryType.STATUS, null, "one", SourceChannel.CONSOLE);
+        Memory b = memories.createShared(SUBJECT_A, proj, MemoryType.STATUS, null, "two", SourceChannel.CONSOLE);
+        assertThat(a.id).isNotEqualTo(b.id);
+    }
+
+    // ---- D-CORE-17: scope-remap (lossless; private excluded; collision-guarded) --
+
+    @Test
+    @Transactional
+    void remap_movesEntryToTargetScope_lossless() {
+        String src = ensureProject("dcore17-src");
+        String dst = ensureProject("dcore17-dst");
+        Memory m = memories.createShared(SUBJECT_A, src, MemoryType.DECISION, "k.move", "content", SourceChannel.CONSOLE);
+        memories.remap(m, dst, null);
+        assertThat(m.scope.slug).isEqualTo(dst);
+        assertThat(m.content).isEqualTo("content");
+        assertThat(m.key).isEqualTo("k.move");
+        assertThat(memories.recall(SUBJECT_A, src, null, null, false)).noneMatch(x -> x.id.equals(m.id));
+        assertThat(memories.recall(SUBJECT_A, dst, null, null, false)).anyMatch(x -> x.id.equals(m.id));
+    }
+
+    @Test
+    @Transactional
+    void remap_toPrivate_isRejected() {
+        String src = ensureProject("dcore17-priv");
+        Memory m = memories.createShared(SUBJECT_A, src, MemoryType.DECISION, null, "x", SourceChannel.CONSOLE);
+        assertThatThrownBy(() -> memories.remap(m, "private", null))
+            .isInstanceOf(MemoryRepository.RemapPrivateForbiddenException.class);
+    }
+
+    @Test
+    @Transactional
+    void remap_keyCollisionInTarget_throwsKeyExists() {
+        String src = ensureProject("dcore17-coll-src");
+        String dst = ensureProject("dcore17-coll-dst");
+        memories.createShared(SUBJECT_A, dst, MemoryType.DECISION, "k.dup", "incumbent", SourceChannel.CONSOLE);
+        Memory m = memories.createShared(SUBJECT_A, src, MemoryType.DECISION, "k.dup", "mover", SourceChannel.CONSOLE);
+        assertThatThrownBy(() -> memories.remap(m, dst, null))
+            .isInstanceOf(MemoryRepository.KeyExistsException.class);
+    }
+
+    @Test
+    @Transactional
+    void remap_keyCollisionInTarget_withRenameOverride_succeeds() {
+        String src = ensureProject("dcore17-rn-src");
+        String dst = ensureProject("dcore17-rn-dst");
+        memories.createShared(SUBJECT_A, dst, MemoryType.DECISION, "k.dup", "incumbent", SourceChannel.CONSOLE);
+        Memory m = memories.createShared(SUBJECT_A, src, MemoryType.DECISION, "k.dup", "mover", SourceChannel.CONSOLE);
+        memories.remap(m, dst, "k.dup-2");
+        assertThat(m.scope.slug).isEqualTo(dst);
+        assertThat(m.key).isEqualTo("k.dup-2");
+    }
+
+    @Test
+    @Transactional
+    void remap_protectedEntry_isRejected() {
+        // D-CORE-11: a protected (system-seed) entry is not remappable.
+        String src = ensureProject("dcore17-prot");
+        Memory m = memories.remember("__system__", src, MemoryType.CONVENTION, "k.prot", "seed", SourceChannel.SYSTEM);
+        assertThat(m.protected_).isTrue();
+        assertThatThrownBy(() -> memories.remap(m, "global", null))
+            .isInstanceOf(ai.kumbuka.repo.ProtectedEntryException.class);
+    }
+
     // dogfood-16: archive is a reversible soft-hide — un-archive restores the row.
     @Test
     @Transactional

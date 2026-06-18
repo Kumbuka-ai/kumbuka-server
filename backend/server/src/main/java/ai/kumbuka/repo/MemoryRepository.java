@@ -58,29 +58,13 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                            String content,
                            SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
-
-        // D-CORE-11: non-system callers must NOT touch a protected key.
-        // The unique index on (tenant, scope, owner, key) means a member
-        // writing the same key as a protected SYSTEM row would silently
-        // create a *parallel* row in their own keyspace — invisible to
-        // them, confusing to read paths. Reject up-front with a typed
-        // error instead.
-        if (key != null && source != SourceChannel.SYSTEM) {
-            boolean protectedConflict = find(
-                "scope = ?1 and key = ?2 and protected_ = true",
-                scope, key).firstResultOptional().isPresent();
-            if (protectedConflict) {
-                throw new ProtectedEntryException(
-                    ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
-                    "key '" + key + "' is reserved by a protected system-seed entry " +
-                    "(D-CORE-11). The system seed cannot be overwritten or shadowed " +
-                    "by an interactive write.");
-            }
-        }
+        assertNoProtectedConflict(scope, key, source);
 
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
         // ADR-0011). Repository queries below filter on intra-tenant
         // predicates only (scope, owner, key) — never on tenant_id by hand.
+        // MCP-path upsert-by-(scope,owner,key): an existing keyed row is
+        // updated in place. D-CORE-16 keeps THIS path an intentional upsert.
         if (key != null) {
             Optional<Memory> existing = find(
                 "scope = ?1 and ownerSubject = ?2 and key = ?3",
@@ -104,6 +88,97 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             }
         }
 
+        return insertNew(callerSubject, scope, type, key, content, source);
+    }
+
+    /**
+     * D-CORE-16: the console/admin "new entry" create path. Unlike {@link
+     * #remember} (the MCP upsert-by-key), this NEVER overwrites: if {@code key}
+     * already exists in the scope — <b>author-independent</b> (one key, one
+     * meaning per scope) — it throws {@link KeyExistsException} (→ 409
+     * KEY_EXISTS) so the curator is offered a rename instead of silently
+     * replacing the prior row (closes dogfood-21). Keyless entries never collide.
+     */
+    @Transactional
+    public Memory createShared(String callerSubject,
+                               String scopeSlug,
+                               MemoryType type,
+                               String key,
+                               String content,
+                               SourceChannel source) {
+        Scope scope = scopes.requireBySlug(scopeSlug);
+        assertNoProtectedConflict(scope, key, source);
+        assertKeyFree(scope, key, null);
+        return insertNew(callerSubject, scope, type, key, content, source);
+    }
+
+    /**
+     * D-CORE-17: atomically re-home a shared entry into another shared scope.
+     * "Everything preserved, only the scope changes." Admin op; the resource
+     * gates the role + excludes private. Reuses the D-CORE-16 author-independent
+     * key-collision guard against the target. Protected (D-CORE-11) entries are
+     * not remappable. {@code newKey} (optional) lets the admin remap under a
+     * different key to dodge a target collision.
+     */
+    @Transactional
+    public Memory remap(Memory entry, String targetSlug, String newKey) {
+        if (entry.protected_) {
+            throw new ProtectedEntryException(
+                ProtectedEntryException.Reason.UPSERT_BLOCKED, entry.key,
+                "protected system-seed entries (D-CORE-11) cannot be re-homed.");
+        }
+        Scope target = scopes.requireBySlug(targetSlug);
+        if (target.kind == ScopeKind.PRIVATE) {
+            throw new RemapPrivateForbiddenException(
+                "private is not a remap endpoint (private-memory guarantee, P1).");
+        }
+        String effectiveKey = (newKey != null && !newKey.isBlank()) ? newKey : entry.key;
+        assertNoProtectedConflict(target, effectiveKey, entry.source);
+        assertKeyFree(target, effectiveKey, entry.id);
+        entry.scope = target;
+        if (newKey != null && !newKey.isBlank()) entry.key = newKey;
+        return entry;
+    }
+
+    /**
+     * D-CORE-11 guard: a non-system caller must not write a key reserved by a
+     * protected system-seed row (the unique index would otherwise let them
+     * shadow it with a parallel row, invisible to read paths).
+     */
+    private void assertNoProtectedConflict(Scope scope, String key, SourceChannel source) {
+        if (key != null && source != SourceChannel.SYSTEM) {
+            boolean protectedConflict = find(
+                "scope = ?1 and key = ?2 and protected_ = true",
+                scope, key).firstResultOptional().isPresent();
+            if (protectedConflict) {
+                throw new ProtectedEntryException(
+                    ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
+                    "key '" + key + "' is reserved by a protected system-seed entry " +
+                    "(D-CORE-11). The system seed cannot be overwritten or shadowed " +
+                    "by an interactive write.");
+            }
+        }
+    }
+
+    /**
+     * D-CORE-16: reject a key that already exists in the scope, author-independent
+     * (one key, one meaning per scope). {@code excludeId} skips the row being
+     * moved/edited so a same-key remap of the row itself doesn't self-collide.
+     * Null/blank key never collides (keyless entries are allowed to repeat).
+     */
+    private void assertKeyFree(Scope scope, String key, java.util.UUID excludeId) {
+        if (key == null || key.isBlank()) return;
+        boolean exists = excludeId == null
+            ? find("scope = ?1 and key = ?2", scope, key).firstResultOptional().isPresent()
+            : find("scope = ?1 and key = ?2 and id != ?3", scope, key, excludeId).firstResultOptional().isPresent();
+        if (exists) {
+            throw new KeyExistsException(key,
+                "an entry with key '" + key + "' already exists in scope '" + scope.slug + "'.");
+        }
+    }
+
+    private Memory insertNew(String callerSubject, Scope scope, MemoryType type,
+                             String key, String content, SourceChannel source) {
         Memory m = new Memory();
         // tenantId auto-populated by Hibernate from the @TenantId column.
         m.ownerSubject = callerSubject;
@@ -115,6 +190,20 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         m.protected_ = (source == SourceChannel.SYSTEM);
         persist(m);
         return m;
+    }
+
+    /** D-CORE-16: a console create / remap hit an existing key in the scope.
+     *  Mapped to HTTP 409 KEY_EXISTS for REST callers. */
+    public static class KeyExistsException extends RuntimeException {
+        private final String key;
+        public KeyExistsException(String key, String message) { super(message); this.key = key; }
+        public String key() { return key; }
+    }
+
+    /** D-CORE-17: private was given as a remap source/target — structurally
+     *  forbidden (P1). Mapped to HTTP 422 REMAP_PRIVATE_FORBIDDEN. */
+    public static class RemapPrivateForbiddenException extends RuntimeException {
+        public RemapPrivateForbiddenException(String message) { super(message); }
     }
 
     /**
