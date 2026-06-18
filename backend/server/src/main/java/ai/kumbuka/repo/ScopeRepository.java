@@ -80,7 +80,7 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     public void rename(String slug, String newName, String newDescription) {
         Scope s = requireBySlug(slug);
         if (s.fixed) {
-            throw new IllegalArgumentException("fixed scope cannot be renamed: " + slug);
+            throw new ScopeLockedException("fixed scope cannot be renamed: " + slug);
         }
         if (newName != null) s.name = newName;
         if (newDescription != null) s.description = newDescription;
@@ -90,12 +90,29 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     public void archive(String slug) {
         Scope s = requireBySlug(slug);
         if (s.fixed) {
-            throw new IllegalArgumentException("fixed scope cannot be archived: " + slug);
+            throw new ScopeLockedException("fixed scope cannot be archived: " + slug);
         }
         if (s.kind != ScopeKind.PROJECT) {
-            throw new IllegalArgumentException("only project scopes can be archived: " + slug);
+            throw new ScopeLockedException("only project scopes can be archived: " + slug);
         }
         s.archived = true;
+    }
+
+    /**
+     * dogfood-16: reverse of {@link #archive}. Reversible soft-hide, no delete.
+     * Mirrors archive's guards (fixed / non-project rejected). Idempotent — a
+     * no-op on an already-active scope.
+     */
+    @Transactional
+    public void unarchive(String slug) {
+        Scope s = requireBySlug(slug);
+        if (s.fixed) {
+            throw new ScopeLockedException("fixed scope cannot be un-archived: " + slug);
+        }
+        if (s.kind != ScopeKind.PROJECT) {
+            throw new ScopeLockedException("only project scopes can be un-archived: " + slug);
+        }
+        s.archived = false;
     }
 
     public static class ScopeNotFoundException extends RuntimeException {
@@ -103,5 +120,10 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     }
     public static class ScopeAlreadyExistsException extends RuntimeException {
         public ScopeAlreadyExistsException(String m) { super(m); }
+    }
+    /** A scope-lifecycle op was rejected because the scope is fixed (global) or
+     *  not a project. Mapped to HTTP 409 SCOPE_LOCKED for REST callers. */
+    public static class ScopeLockedException extends RuntimeException {
+        public ScopeLockedException(String m) { super(m); }
     }
 }

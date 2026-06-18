@@ -100,6 +100,19 @@ public class AdminScopesResource {
         return Response.noContent().build();
     }
 
+    // dogfood-16: reverse of :archive (reversible soft-hide, no delete). Admin-only,
+    // same guards (requireSharedSlug + the repo's fixed/non-project checks → 409
+    // SCOPE_LOCKED). 204 on success — mirrors :archive and the console's void call.
+    @POST
+    @Path("/{slug}:unarchive")
+    @RolesAllowed("admin")
+    @Transactional
+    public Response unarchive(@PathParam("slug") String slug) {
+        requireSharedSlug(slug);
+        scopes.unarchive(slug);
+        return Response.noContent().build();
+    }
+
     /** Reject /api/scopes/private addressing up-front — admin code paths
      *  have no business reaching the private scope (ADR-0003). */
     private void requireSharedSlug(String slug) {
