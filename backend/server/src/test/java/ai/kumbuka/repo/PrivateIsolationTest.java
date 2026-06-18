@@ -302,4 +302,20 @@ class PrivateIsolationTest {
             .anyMatch(x -> x.id.equals(inProj.id))
             .anyMatch(x -> x.id.equals(glob.id));
     }
+
+    // dogfood-16: archive is a reversible soft-hide — un-archive restores the row.
+    @Test
+    @Transactional
+    void scope_archive_thenUnarchive_roundTrips() {
+        String proj = ensureProject("dogfood16-restore");
+        scopes.archive(proj);
+        assertThat(scopes.requireBySlug(proj).archived).isTrue();
+        // gone from the shared listing while archived
+        assertThat(scopes.listShared()).noneMatch(s -> s.slug.equals(proj));
+
+        scopes.unarchive(proj);
+        assertThat(scopes.requireBySlug(proj).archived).isFalse();
+        // visible in the shared listing again
+        assertThat(scopes.listShared()).anyMatch(s -> s.slug.equals(proj));
+    }
 }

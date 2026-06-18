@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -259,5 +260,114 @@ class AdminScopesResourceTest {
             .contentType(ContentType.JSON)
             .when().post("/api/scopes/personal:archive")
             .then().statusCode(404);
+    }
+
+    // ---------- dogfood-19: scope exceptions → typed 4xx (not 500) -----------
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void create_duplicateSlug_returns409_scopeExists() {
+        when(settings.current()).thenReturn(withCreateScopes(CreateScopes.ADMINS));
+        when(scopes.createProject(eq("beta"), any(), any(), anyString()))
+            .thenThrow(new ScopeRepository.ScopeAlreadyExistsException("scope already exists: beta"));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"slug": "beta", "name": "Beta"}
+                """)
+            .when().post("/api/scopes")
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("SCOPE_EXISTS"));
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void archive_unknownSlug_returns404_scopeNotFound() {
+        when(scopes.requireBySlug("ghost"))
+            .thenThrow(new ScopeRepository.ScopeNotFoundException("scope not found: ghost"));
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/ghost:archive")
+            .then()
+                .statusCode(404)
+                .body("code", equalTo("SCOPE_NOT_FOUND"));
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void archive_fixedGlobalScope_returns409_scopeLocked() {
+        Scope global = scope("global", ScopeKind.GLOBAL, false);
+        when(scopes.requireBySlug("global")).thenReturn(global);
+        doThrow(new ScopeRepository.ScopeLockedException("fixed scope cannot be archived: global"))
+            .when(scopes).archive("global");
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/global:archive")
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("SCOPE_LOCKED"));
+    }
+
+    // ---------- dogfood-16: un-archive (admin-only, reversible) -------------
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void unarchive_existingArchivedShared_returns204() {
+        Scope alpha = scope("alpha", ScopeKind.PROJECT, true);
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/alpha:unarchive")
+            .then().statusCode(204);
+
+        verify(scopes).unarchive("alpha");
+    }
+
+    @Test
+    @TestSecurity(user = "u", roles = {"member"})
+    void unarchive_member_isForbidden() {
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/alpha:unarchive")
+            .then().statusCode(403);
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void unarchive_privateSlug_returns404() {
+        Scope priv = scope("personal", ScopeKind.PRIVATE, true);
+        when(scopes.requireBySlug("personal")).thenReturn(priv);
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/personal:unarchive")
+            .then().statusCode(404);
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void unarchive_fixedGlobalScope_returns409_scopeLocked() {
+        Scope global = scope("global", ScopeKind.GLOBAL, false);
+        when(scopes.requireBySlug("global")).thenReturn(global);
+        doThrow(new ScopeRepository.ScopeLockedException("fixed scope cannot be un-archived: global"))
+            .when(scopes).unarchive("global");
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .when().post("/api/scopes/global:unarchive")
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("SCOPE_LOCKED"));
     }
 }
