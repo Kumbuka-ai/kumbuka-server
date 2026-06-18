@@ -87,6 +87,20 @@ public class UserAccount extends PanacheEntityBase {
     @Column(name = "locale")
     public String locale;
 
+    /**
+     * D-CORE-10.1: onboarding-wizard state, per-user (keyed by KC sub). {@code
+     * onboardingDismissed} once the owner ticks "don't show again" OR completes
+     * the wizard (both reach the dismissed state); {@code onboardingLastStep} is
+     * the resume point while still pending. Server-side so the dialog stays
+     * dismissed across logins/devices (finding dogfood-15a). V15; defaults =
+     * not-yet-dismissed, step 0.
+     */
+    @Column(name = "onboarding_dismissed", nullable = false)
+    public Boolean onboardingDismissed = false;
+
+    @Column(name = "onboarding_last_step", nullable = false)
+    public Short onboardingLastStep = 0;
+
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 

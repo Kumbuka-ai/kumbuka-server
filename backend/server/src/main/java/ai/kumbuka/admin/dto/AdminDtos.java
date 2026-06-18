@@ -129,8 +129,18 @@ public final class AdminDtos {
         // enforces S256). See SessionResource.securityActionUrl().
         String securityActionUrl,
         boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
-        String locale   // the caller's UI language preference (en | de); null = unset
+        String locale,  // the caller's UI language preference (en | de); null = unset
+        OnboardingState onboarding  // D-CORE-10.1: per-user wizard dismiss/resume state
     ) {}
+
+    /**
+     * D-CORE-10.1 onboarding-wizard state, per-user (keyed by KC sub). Serialized
+     * as {@code {"dismissed": bool, "lastStep": int}} — mirrors the console seam
+     * (SessionView.onboarding / UpdateMeRequest.onboarding). {@code dismissed}
+     * once the owner opts out OR completes the wizard; {@code lastStep} is the
+     * resume point while pending.
+     */
+    public record OnboardingState(boolean dismissed, int lastStep) {}
 
     /**
      * D-CORE-8: one of the caller's own active Keycloak sessions. Scoped to
@@ -164,5 +174,5 @@ public final class AdminDtos {
         String createScopes      // admins | members
     ) {}
 
-    public record UpdateMeRequest(String displayName, String locale) {}
+    public record UpdateMeRequest(String displayName, String locale, OnboardingState onboarding) {}
 }
