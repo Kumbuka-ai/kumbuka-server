@@ -147,6 +147,33 @@ class MemoryToolsTest {
             .isInstanceOf(ToolCallException.class);
     }
 
+    // dogfood-14: an unknown/RLS-invisible scope slug resolves via
+    // ScopeRepository.requireBySlug INSIDE memories.remember/forget and throws
+    // ScopeNotFoundException — previously uncaught → bare -32603. It must now
+    // surface as a typed ToolCallException naming the slug.
+
+    @Test
+    void remember_unknownScope_throwsToolCallException_notInternalError() {
+        when(memories.remember(anyString(), eq("nope"), any(), any(), anyString(), any()))
+            .thenThrow(new ScopeRepository.ScopeNotFoundException("scope not found: nope"));
+
+        assertThatThrownBy(() -> tools.memory_remember("x", "decision", "nope", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("nope")
+            .hasMessageContaining("does not exist or is not visible");
+    }
+
+    @Test
+    void forget_unknownScope_throwsToolCallException_notInternalError() {
+        when(memories.forget(anyString(), eq("nope"), any(), any()))
+            .thenThrow(new ScopeRepository.ScopeNotFoundException("scope not found: nope"));
+
+        assertThatThrownBy(() -> tools.memory_forget("nope", null, "k"))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("nope")
+            .hasMessageContaining("does not exist or is not visible");
+    }
+
     // ---------- memory_remember: keyed upsert existence check ----------------
 
     @Test

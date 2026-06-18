@@ -246,4 +246,56 @@ class SessionResourceTest {
             .when().patch("/api/auth/me")
             .then().statusCode(400);
     }
+
+    // --- D-CORE-10.1: onboarding-wizard state (V15, finding dogfood-15a) -------
+
+    @Test
+    @TestSecurity(user = "sub-onb-default", roles = {"member"})
+    void me_freshAccount_onboardingDefaultsToNotDismissed() {
+        // A fresh account (V15 defaults) must report the wizard as not dismissed,
+        // step 0 — so first login opens it.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("onboarding.dismissed", equalTo(false))
+                .body("onboarding.lastStep", equalTo(0));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-onb-rt", roles = {"member"})
+    void updateMe_onboardingDismissed_roundTrips() {
+        seed.setMuted("sub-onb-rt", false);   // ensure the account row exists
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"onboarding": {"dismissed": true, "lastStep": 2}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("onboarding.dismissed", equalTo(true))
+                .body("onboarding.lastStep", equalTo(2));
+
+        // Persisted — a fresh read returns the dismissed state (survives login).
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("onboarding.dismissed", equalTo(true))
+                .body("onboarding.lastStep", equalTo(2));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-onb-isolation", roles = {"member"})
+    void onboarding_isPerUser_otherAccountUnaffected() {
+        // Per-user (keyed by KC sub): this account never dismissed, so it still
+        // defaults — independent of the sub-onb-rt account that did dismiss.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("onboarding.dismissed", equalTo(false));
+    }
 }

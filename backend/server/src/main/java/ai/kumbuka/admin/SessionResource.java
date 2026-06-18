@@ -1,6 +1,7 @@
 package ai.kumbuka.admin;
 import ai.kumbuka.tenancy.TenantBound;
 
+import ai.kumbuka.admin.dto.AdminDtos.OnboardingState;
 import ai.kumbuka.admin.dto.AdminDtos.SessionView;
 import ai.kumbuka.admin.dto.AdminDtos.UpdateMeRequest;
 import ai.kumbuka.config.MemoryConfig;
@@ -94,7 +95,10 @@ public class SessionResource {
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
         return new SessionView(subject, email, displayName, role,
-            accountConsoleUrl, securityActionUrl(), muted, account.locale);
+            accountConsoleUrl, securityActionUrl(), muted, account.locale,
+            new OnboardingState(
+                Boolean.TRUE.equals(account.onboardingDismissed),
+                account.onboardingLastStep == null ? 0 : account.onboardingLastStep));
     }
 
     /**
@@ -153,6 +157,13 @@ public class SessionResource {
                 throw new BadRequestException("unsupported locale: " + req.locale());
             }
             u.locale = loc;
+        }
+        // D-CORE-10.1: persist the onboarding-wizard state (per-user, by KC sub).
+        // Both dismiss paths from the console — "don't show again" and completing
+        // the wizard — send dismissed=true here so it survives the next login.
+        if (req.onboarding() != null) {
+            u.onboardingDismissed = req.onboarding().dismissed();
+            u.onboardingLastStep = (short) Math.max(0, req.onboarding().lastStep());
         }
         // Phase 8 will sync the display-name change back to Keycloak via the Admin REST client.
         return me();

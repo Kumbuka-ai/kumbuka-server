@@ -163,6 +163,13 @@ public class MemoryTools {
             // Return a typed structured error instead of a -32603 "Internal error".
             return new Dtos.RememberResult(null, false, null, null,
                 new Dtos.ProtectedError("PROTECTED_UPSERT_BLOCKED", pex.key(), pex.getMessage()));
+        } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
+            // dogfood-14: an unknown or RLS-invisible scope slug surfaces as a typed
+            // tool error (isError + reason), not a bare -32603 — the same MCP
+            // boundary typing as the #60 content-length fix. requireBySlug fires
+            // before any insert, so no ghost scope/entry is created. Scopes are
+            // never auto-created here (D-CORE-14: provisioning/KC-Org only).
+            throw new ToolCallException("scope '" + scopeSlug + "' does not exist or is not visible");
         }
         // D-CORE-7: attach the provenance URL on a freshly-written row only — an
         // upsert preserves the row's original reference. Validated above; blank = none.
@@ -235,6 +242,9 @@ public class MemoryTools {
             // exception; we translate to a typed result for the MCP client.
             return new Dtos.ForgetResult(0,
                 new Dtos.ProtectedError("PROTECTED_DELETE_BLOCKED", pex.key(), pex.getMessage()));
+        } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
+            // dogfood-14: unknown/invisible scope → typed tool error, not -32603.
+            throw new ToolCallException("scope '" + scope + "' does not exist or is not visible");
         }
         return new Dtos.ForgetResult(n);
     }
