@@ -42,6 +42,7 @@ class AdminEntriesResourceTest {
     @InjectMock ScopeRepository scopes;
     @InjectMock MemoryRepository memories;
     @InjectMock SharedMemoryRepository sharedMemories;
+    @InjectMock ai.kumbuka.audit.TeamAuditService audit;   // D-CORE-17 remap audit
     @Inject MuteTestSupport mute;   // seeds a real user_account.muted row (D-CORE-2)
 
     private Scope sharedScope(String slug) {
@@ -108,7 +109,7 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
 
         Memory created = mem(alpha, MemoryType.CONVENTION, "naming", "use kebab-case");
-        when(memories.remember(eq("admin"), eq("alpha"), eq(MemoryType.CONVENTION),
+        when(memories.createShared(eq("admin"), eq("alpha"), eq(MemoryType.CONVENTION),
                                eq("naming"), eq("use kebab-case"), eq(SourceChannel.CONSOLE)))
             .thenReturn(created);
 
@@ -138,7 +139,7 @@ class AdminEntriesResourceTest {
             .then().statusCode(400);
 
         verify(memories, org.mockito.Mockito.never())
-            .remember(any(), anyString(), any(), any(), any(), any());
+            .createShared(any(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -151,7 +152,7 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
 
         Memory created = mem(alpha, MemoryType.DECISION, "k", "members write shared");
-        when(memories.remember(eq("member-writer"), eq("alpha"), eq(MemoryType.DECISION),
+        when(memories.createShared(eq("member-writer"), eq("alpha"), eq(MemoryType.DECISION),
                                eq("k"), eq("members write shared"), eq(SourceChannel.CONSOLE)))
             .thenReturn(created);
 
@@ -184,7 +185,7 @@ class AdminEntriesResourceTest {
             .then().statusCode(403);
 
         verify(memories, org.mockito.Mockito.never())
-            .remember(any(), anyString(), any(), any(), any(), any());
+            .createShared(any(), anyString(), any(), any(), any(), any());
     }
 
     // ---------- update -------------------------------------------------------
@@ -406,7 +407,7 @@ class AdminEntriesResourceTest {
         // verified end-to-end.
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
-        when(memories.remember(anyString(), eq("alpha"), any(),
+        when(memories.createShared(anyString(), eq("alpha"), any(),
                                eq("convention.how-to-kumbuka.types"), anyString(), any()))
             .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
                 ai.kumbuka.repo.ProtectedEntryException.Reason.UPSERT_BLOCKED,
@@ -443,5 +444,106 @@ class AdminEntriesResourceTest {
             .then()
                 .statusCode(409)
                 .body("code", equalTo("PROTECTED_DELETE_BLOCKED"));
+    }
+
+    // ---------- D-CORE-16: console create rejects an existing key ------------
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void create_existingKey_returns409_keyExists_viaMapper() {
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(memories.createShared(anyString(), eq("alpha"), any(), eq("k.dup"), anyString(), any()))
+            .thenThrow(new MemoryRepository.KeyExistsException(
+                "k.dup", "an entry with key 'k.dup' already exists in scope 'alpha'."));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"type": "decision", "key": "k.dup", "content": "second"}
+                """)
+            .when().post("/api/scopes/alpha/entries")
+            .then()
+                .statusCode(409)
+                .body("code", equalTo("KEY_EXISTS"));
+    }
+
+    // ---------- D-CORE-17: scope-remap endpoint -----------------------------
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void remap_admin_movesEntry_writesAudit() {
+        Scope alpha = sharedScope("alpha");
+        Scope beta = sharedScope("beta");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        Memory m = mem(alpha, MemoryType.DECISION, "k.move", "content");
+        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        Memory moved = mem(beta, MemoryType.DECISION, "k.move", "content");
+        when(memories.remap(any(), eq("beta"), any())).thenReturn(moved);
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .body("""
+                {"targetScope": "beta"}
+                """)
+            .when().post("/api/scopes/alpha/entries/" + m.id + ":remap")
+            .then().statusCode(200);
+
+        verify(memories).remap(any(), eq("beta"), any());
+        verify(audit).append(eq("admin"), eq("scope.remap"), any(), any());
+    }
+
+    @Test
+    @TestSecurity(user = "member-writer", roles = {"member"})
+    void remap_member_isForbidden() {
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .body("""
+                {"targetScope": "beta"}
+                """)
+            .when().post("/api/scopes/alpha/entries/" + UUID.randomUUID() + ":remap")
+            .then().statusCode(403);
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void remap_privateTarget_returns400_remapPrivateForbidden() {
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        Memory m = mem(alpha, MemoryType.DECISION, "k", "c");
+        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        when(memories.remap(any(), eq("private"), any()))
+            .thenThrow(new MemoryRepository.RemapPrivateForbiddenException(
+                "private is not a remap endpoint (P1)."));
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .body("""
+                {"targetScope": "private"}
+                """)
+            .when().post("/api/scopes/alpha/entries/" + m.id + ":remap")
+            .then()
+                .statusCode(400)
+                .body("code", equalTo("REMAP_PRIVATE_FORBIDDEN"));
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
+    void remap_unknownEntry_returns404() {
+        Scope alpha = sharedScope("alpha");
+        when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(sharedMemories.findSharedById(any())).thenReturn(null);
+
+        given()
+            .urlEncodingEnabled(false)
+            .contentType(ContentType.JSON)
+            .body("""
+                {"targetScope": "beta"}
+                """)
+            .when().post("/api/scopes/alpha/entries/" + UUID.randomUUID() + ":remap")
+            .then().statusCode(404);
     }
 }

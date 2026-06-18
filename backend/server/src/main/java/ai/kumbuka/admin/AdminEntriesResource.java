@@ -3,6 +3,7 @@ import ai.kumbuka.tenancy.TenantBound;
 
 import ai.kumbuka.admin.dto.AdminDtos.CreateEntryRequest;
 import ai.kumbuka.admin.dto.AdminDtos.EntryView;
+import ai.kumbuka.admin.dto.AdminDtos.RemapEntryRequest;
 import ai.kumbuka.admin.dto.AdminDtos.UpdateEntryRequest;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.domain.Memory;
@@ -60,6 +61,7 @@ public class AdminEntriesResource {
     @Inject MemoryConfig config;
     @Inject SecurityIdentity identity;
     @Inject MemberWritePolicy writePolicy;
+    @Inject ai.kumbuka.audit.TeamAuditService audit;   // D-CORE-17 remap governance event
 
     @GET
     @RolesAllowed({"admin", "member"})
@@ -82,7 +84,10 @@ public class AdminEntriesResource {
         ai.kumbuka.util.MemoryKeyValidator.validate(req.key());   // E2E-06: key format
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = MemoryType.fromDb(req.type());
-        Memory m = memories.remember(
+        // D-CORE-16: the console "new entry" path must NOT silently upsert by key
+        // (dogfood-21). createShared rejects an existing key (author-independent)
+        // with KEY_EXISTS → 409; the MCP memory_remember upsert is untouched.
+        Memory m = memories.createShared(
             identity.getPrincipal().getName(),
             slug,
             t,
@@ -136,6 +141,40 @@ public class AdminEntriesResource {
         }
         sharedMemories.deleteShared(id);
         return Response.noContent().build();
+    }
+
+    // D-CORE-17: a team-admin re-homes a shared entry into another shared scope
+    // (either direction). Atomic scope_id move (lossless); private excluded
+    // structurally; target key-collision reuses D-CORE-16 (KEY_EXISTS, with an
+    // optional key override to rename). Recorded as a governance-audit event
+    // (scopes/ids only, never content). MCP never reaches this — UI-only (D-CORE-13).
+    @POST
+    @Path("/{id}:remap")
+    @RolesAllowed("admin")
+    @Transactional
+    public EntryView remap(@PathParam("slug") String slug,
+                           @PathParam("id") UUID id,
+                           RemapEntryRequest req) {
+        requireSharedSlug(slug);   // source must be shared (private → 404)
+        if (req == null || req.targetScope() == null || req.targetScope().isBlank()) {
+            throw new jakarta.ws.rs.BadRequestException("targetScope is required");
+        }
+        Memory m = sharedMemories.findSharedById(id);   // null for unknown OR private
+        if (m == null || !m.scope.slug.equals(slug)) {
+            throw new NotFoundException("entry not found in scope " + slug);
+        }
+        String fromScope = m.scope.slug;
+        Memory moved = memories.remap(m, req.targetScope().trim(), req.key());
+        audit.append(
+            identity.getPrincipal().getName(),
+            "scope.remap",
+            null,
+            java.util.Map.of(
+                "entryId", id.toString(),
+                "key", moved.key == null ? "" : moved.key,
+                "fromScope", fromScope,
+                "toScope", moved.scope.slug));
+        return EntryView.from(moved);
     }
 
     private void requireSharedSlug(String slug) {
