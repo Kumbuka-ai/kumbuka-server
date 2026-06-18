@@ -303,6 +303,37 @@ class PrivateIsolationTest {
             .anyMatch(x -> x.id.equals(glob.id));
     }
 
+    // dogfood-16/19: the fixed (global) scope cannot be archived / un-archived /
+    // renamed — the repo guards throw the typed ScopeLockedException (→ 409).
+    @Test
+    @Transactional
+    void archive_fixedGlobalScope_throwsScopeLocked() {
+        assertThatThrownBy(() -> scopes.archive("global"))
+            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+    }
+
+    @Test
+    @Transactional
+    void unarchive_fixedGlobalScope_throwsScopeLocked() {
+        assertThatThrownBy(() -> scopes.unarchive("global"))
+            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+    }
+
+    @Test
+    @Transactional
+    void rename_fixedGlobalScope_throwsScopeLocked() {
+        assertThatThrownBy(() -> scopes.rename("global", "Renamed", null))
+            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+    }
+
+    @Test
+    @Transactional
+    void createProject_duplicateSlug_throwsScopeAlreadyExists() {
+        ensureProject("dogfood19-dup");
+        assertThatThrownBy(() -> scopes.createProject("dogfood19-dup", "Dup", null, SUBJECT_A))
+            .isInstanceOf(ScopeRepository.ScopeAlreadyExistsException.class);
+    }
+
     // dogfood-16: archive is a reversible soft-hide — un-archive restores the row.
     @Test
     @Transactional
