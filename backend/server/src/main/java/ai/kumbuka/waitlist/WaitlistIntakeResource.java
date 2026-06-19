@@ -62,9 +62,14 @@ public class WaitlistIntakeResource {
      * whitespace anywhere. Deliberately permissive on the local part — this is
      * an intake gate, not RFC 5322 validation; real deliverability is checked
      * downstream (the operator approve flow + actual email send).
+     *
+     * <p>The domain's first label excludes dots ({@code [^@\s.]+}) so the split
+     * at the required {@code \.} is unambiguous — this keeps the match linear and
+     * backtracking-free (Sonar java:S8786), unlike {@code [^@\s]+\.[^@\s]+} where
+     * the dot could be placed multiple ways.
      */
     private static final Pattern EMAIL =
-        Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+        Pattern.compile("^[^@\\s]+@[^@\\s.]+\\.[^@\\s]+$");
 
     private static final String INSERT_SQL =
         "INSERT INTO ops.waitlist_entry (email, team_name, contact, message) "
