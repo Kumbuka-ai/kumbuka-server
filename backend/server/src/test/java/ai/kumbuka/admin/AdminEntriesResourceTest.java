@@ -57,7 +57,7 @@ class AdminEntriesResourceTest {
 
     private Memory mem(Scope sc, MemoryType type, String key, String content) {
         Memory m = new Memory();
-        m.id = UUID.randomUUID();
+        m.logicalId = UUID.randomUUID();
         m.scope = sc;
         m.type = type;
         m.key = key;
@@ -197,8 +197,8 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory updated = mem(alpha, MemoryType.STATUS, null, "green");
-        updated.id = id;
-        when(sharedMemories.update(eq(id), eq("green"), eq(MemoryType.STATUS)))
+        updated.logicalId = id;
+        when(sharedMemories.update(eq(id), eq("green"), eq(MemoryType.STATUS), anyString()))
             .thenReturn(updated);
 
         given()
@@ -219,8 +219,8 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory updated = mem(alpha, MemoryType.DECISION, null, "v2");
-        updated.id = id;
-        when(sharedMemories.update(eq(id), any(), eq(null))).thenReturn(updated);
+        updated.logicalId = id;
+        when(sharedMemories.update(eq(id), any(), eq(null), anyString())).thenReturn(updated);
 
         given()
             .contentType(ContentType.JSON)
@@ -230,7 +230,7 @@ class AdminEntriesResourceTest {
             .when().patch("/api/scopes/alpha/entries/" + id)
             .then().statusCode(200);
 
-        verify(sharedMemories).update(id, "v2", null);
+        verify(sharedMemories).update(id, "v2", null, "admin");
     }
 
     @Test
@@ -247,7 +247,7 @@ class AdminEntriesResourceTest {
             .when().patch("/api/scopes/alpha/entries/" + id)
             .then().statusCode(400);
 
-        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any());
+        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any(), any());
     }
 
     @Test
@@ -258,8 +258,8 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory inBeta = mem(beta, MemoryType.DECISION, null, "wrong-scope");
-        inBeta.id = id;
-        when(sharedMemories.update(eq(id), anyString(), any())).thenReturn(inBeta);
+        inBeta.logicalId = id;
+        when(sharedMemories.update(eq(id), anyString(), any(), anyString())).thenReturn(inBeta);
 
         given()
             .contentType(ContentType.JSON)
@@ -278,8 +278,8 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory updated = mem(alpha, MemoryType.STATUS, null, "green");
-        updated.id = id;
-        when(sharedMemories.update(eq(id), eq("green"), eq(MemoryType.STATUS)))
+        updated.logicalId = id;
+        when(sharedMemories.update(eq(id), eq("green"), eq(MemoryType.STATUS), anyString()))
             .thenReturn(updated);
 
         given()
@@ -308,7 +308,7 @@ class AdminEntriesResourceTest {
             .when().patch("/api/scopes/alpha/entries/" + UUID.randomUUID())
             .then().statusCode(403);
 
-        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any());
+        verify(sharedMemories, org.mockito.Mockito.never()).update(any(), any(), any(), any());
     }
 
     // ---------- delete -------------------------------------------------------
@@ -320,7 +320,7 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory existing = mem(alpha, MemoryType.DECISION, null, "x");
-        existing.id = id;
+        existing.logicalId = id;
         when(sharedMemories.findSharedById(id)).thenReturn(existing);
 
         given()
@@ -353,7 +353,7 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory inBeta = mem(beta, MemoryType.DECISION, null, "wrong");
-        inBeta.id = id;
+        inBeta.logicalId = id;
         when(sharedMemories.findSharedById(id)).thenReturn(inBeta);
 
         given()
@@ -371,7 +371,7 @@ class AdminEntriesResourceTest {
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
         Memory existing = mem(alpha, MemoryType.DECISION, null, "x");
-        existing.id = id;
+        existing.logicalId = id;
         when(sharedMemories.findSharedById(id)).thenReturn(existing);
 
         given()
@@ -432,15 +432,15 @@ class AdminEntriesResourceTest {
         Scope alpha = sharedScope("alpha");
         Memory m = mem(alpha, MemoryType.CONVENTION, "convention.how-to-kumbuka.writing", "...");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
-        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         org.mockito.Mockito.doThrow(new ai.kumbuka.repo.ProtectedEntryException(
                 ai.kumbuka.repo.ProtectedEntryException.Reason.DELETE_BLOCKED,
                 null,
-                "delete blocked: row id=" + m.id + " is protected (D-CORE-11)"))
-            .when(sharedMemories).deleteShared(m.id);
+                "delete blocked: row id=" + m.logicalId + " is protected (D-CORE-11)"))
+            .when(sharedMemories).deleteShared(m.logicalId);
 
         given()
-            .when().delete("/api/scopes/alpha/entries/" + m.id)
+            .when().delete("/api/scopes/alpha/entries/" + m.logicalId)
             .then()
                 .statusCode(409)
                 .body("code", equalTo("PROTECTED_DELETE_BLOCKED"));
@@ -477,7 +477,7 @@ class AdminEntriesResourceTest {
         Scope beta = sharedScope("beta");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         Memory m = mem(alpha, MemoryType.DECISION, "k.move", "content");
-        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         Memory moved = mem(beta, MemoryType.DECISION, "k.move", "content");
         when(memories.remap(any(), eq("beta"), any())).thenReturn(moved);
 
@@ -487,7 +487,7 @@ class AdminEntriesResourceTest {
             .body("""
                 {"targetScope": "beta"}
                 """)
-            .when().post("/api/scopes/alpha/entries/" + m.id + ":remap")
+            .when().post("/api/scopes/alpha/entries/" + m.logicalId + ":remap")
             .then().statusCode(200);
 
         verify(memories).remap(any(), eq("beta"), any());
@@ -513,7 +513,7 @@ class AdminEntriesResourceTest {
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         Memory m = mem(alpha, MemoryType.DECISION, "k", "c");
-        when(sharedMemories.findSharedById(m.id)).thenReturn(m);
+        when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         when(memories.remap(any(), eq("private"), any()))
             .thenThrow(new MemoryRepository.RemapPrivateForbiddenException(
                 "private is not a remap endpoint (P1)."));
@@ -524,7 +524,7 @@ class AdminEntriesResourceTest {
             .body("""
                 {"targetScope": "private"}
                 """)
-            .when().post("/api/scopes/alpha/entries/" + m.id + ":remap")
+            .when().post("/api/scopes/alpha/entries/" + m.logicalId + ":remap")
             .then()
                 .statusCode(400)
                 .body("code", equalTo("REMAP_PRIVATE_FORBIDDEN"));

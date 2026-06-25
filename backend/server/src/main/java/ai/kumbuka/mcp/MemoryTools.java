@@ -183,6 +183,11 @@ public class MemoryTools {
             // before any insert, so no ghost scope/entry is created. Scopes are
             // never auto-created here (D-CORE-14: provisioning/KC-Org only).
             throw new ToolCallException("scope '" + scopeSlug + "' does not exist or is not visible");
+        } catch (ai.kumbuka.repo.MemoryRepository.StaleVersionException sve) {
+            // §A1.6 optimistic lock: a concurrent edit advanced the version under
+            // this stale write — surface a typed tool error (isError + reason),
+            // not a bare -32603. The client should reload and retry.
+            throw new ToolCallException(sve.getMessage());
         }
         // D-CORE-7: attach the provenance URL on a freshly-written row only — an
         // upsert preserves the row's original reference. Validated above; blank = none.

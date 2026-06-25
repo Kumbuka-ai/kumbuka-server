@@ -14,6 +14,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -23,28 +24,33 @@ import java.util.UUID;
 public class Memory extends PanacheEntityBase {
 
     /**
-     * Physical row id (ADR-0024 §6 surrogate {@code row_id}). Renamed from the
-     * V1 {@code memory.id} in V16 — the value is preserved (A1.3 (3): old
-     * {@code memory.id} retained as {@code row_id}). This is the addressable
-     * handle the MCP / admin surfaces use; the cross-version identity is the
-     * separate {@link #logicalId}. The Java field stays {@code id} so the
-     * Panache {@code @Id} ergonomics and the unchanged wire shape carry over;
-     * only the column name moved.
+     * Entry identity across versions (ADR-0024 §2, Amendment 3). Immutable,
+     * never reused, the target of all references/relations and the wire/MCP
+     * reference handle (§8). The DB primary key is the composite
+     * {@code (logical_id, version)}; CE is head-only (one row per logical_id,
+     * {@code version} always 1), so Hibernate keys the entity by
+     * {@code logical_id} alone — the EE step promotes the JPA mapping to a
+     * composite key additively, against the same unchanged DB PK (Amendment 3
+     * §A3.2/§A3.3). Freshly generated per entry on persist; the V16 backfill
+     * stamps a fresh UUID per existing row.
      */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "row_id")
-    public UUID id;
+    @Column(name = "logical_id")
+    public UUID logicalId;
 
     /**
-     * Entry identity across versions (ADR-0024 §2). Immutable, never reused, the
-     * target of all references/relations. Freshly generated per entry on persist
-     * (and per row on the V16 backfill). In CE Step 1 the head is the only
-     * version, so {@code (logical_id) ↔ (row_id)} is 1:1; the EE history docks
-     * onto this column (A1.2). NOT NULL — set in {@link #onCreate()}.
+     * Version coordinate (ADR-0024 §6) + CE optimistic-lock counter (§A1.6,
+     * Amendment 4). {@code @Version}: Hibernate increments it on each in-place
+     * edit and rejects a stale write at flush with {@code OptimisticLockException}
+     * — concurrent-edit protection in shared scopes (§11), active in CE. No wire
+     * token (constraint.protocol-neutrality): the version travels inside the
+     * server-side load→flush cycle. CE keeps no past-version rows; the number
+     * climbs, the snapshots are EE.
      */
-    @Column(name = "logical_id", nullable = false)
-    public UUID logicalId;
+    @Version
+    @Column(name = "version", nullable = false)
+    public int version = 1;
 
     /**
      * Denormalized {@code scope.kind == PRIVATE} (A1.3 (1a)). The discriminator
@@ -67,8 +73,10 @@ public class Memory extends PanacheEntityBase {
     public String tenantId;
 
     /**
-     * Author/owner subject (Keycloak `sub`). For private rows this is the
-     * sole reader; for shared rows it records who wrote the entry.
+     * First-author subject (Keycloak `sub`) — the v1 creator. For private rows
+     * this is the sole reader; for shared rows it records who created the entry.
+     * <strong>Immutable creator authorship</strong>: never rewritten on a later
+     * edit (Amendment 4 — the last-editor identity lives in {@link #updatedBy}).
      */
     @Column(name = "owner_subject", nullable = false)
     public String ownerSubject;
@@ -98,10 +106,9 @@ public class Memory extends PanacheEntityBase {
     public String reference;
 
     /**
-     * Channel through which the row was created. Server-derived per
-     * ADR-0008: MCP tools set MCP, admin endpoints set CONSOLE. Never
-     * defaulted at this layer — the caller-side service is expected to
-     * set it explicitly.
+     * Channel through which the row was <em>created</em> (ADR-0008). Server-
+     * derived: MCP tools set MCP, admin endpoints set CONSOLE, the seeder SYSTEM.
+     * Symmetric to {@link #updatedSource} (channel of the last edit).
      */
     @Column(nullable = false)
     @Convert(converter = SourceChannel.JpaConverter.class)
@@ -110,12 +117,11 @@ public class Memory extends PanacheEntityBase {
     /**
      * Entry lock (ADR-0024 §13) — replaces the V12 boolean {@code protected}.
      * {@code SYSTEM} is the D-CORE-11 system-seed lock (set only by the SYSTEM
-     * seeder); it blocks move / rename / delete across all surfaces, enforced at
-     * the DB layer by the {@code memory_protected_delete_block} (DELETE) +
-     * {@code memory_protected_update_block} (move/rename) triggers. {@code ADMIN}
-     * is reserved (D-CORE-13, not enforced in CE). Never settable through any
-     * user-facing surface — no {@code @ToolArg} on memory_remember, no field on
-     * {@code AdminDtos.CreateEntryRequest}.
+     * seeder); it blocks move / rename / delete. DELETE is enforced structurally
+     * by the {@code memory_protected_delete_block} trigger; move/rename + edit
+     * protection is application-layer (Amendment 2 — there is NO UPDATE trigger).
+     * {@code ADMIN} is reserved (D-CORE-13, not enforced in CE). Never settable
+     * through any user-facing surface.
      */
     @Column(name = "lock", nullable = false)
     @Convert(converter = MemoryLock.JpaConverter.class)
@@ -126,6 +132,24 @@ public class Memory extends PanacheEntityBase {
 
     @Column(name = "updated_at", nullable = false)
     public Instant updatedAt;
+
+    /**
+     * Last-editor subject (Keycloak `sub`) of the most recent in-place edit
+     * (Amendment 4). NULL on an entry never edited since creation. Distinct from
+     * {@link #ownerSubject} (the immutable v1 creator). Provenance, not activity
+     * monitoring (one last-touch value per entry).
+     */
+    @Column(name = "updated_by")
+    public String updatedBy;
+
+    /**
+     * Channel (`console | mcp | system`) of the most recent in-place edit
+     * (Amendment 4), symmetric to {@link #source} (the create channel). NULL
+     * until the first edit.
+     */
+    @Column(name = "updated_source")
+    @Convert(converter = SourceChannel.JpaConverter.class)
+    public SourceChannel updatedSource;
 
     @PrePersist
     void onCreate() {
@@ -153,8 +177,6 @@ public class Memory extends PanacheEntityBase {
             }
         }
         if (lock == null) lock = MemoryLock.NONE;
-        // ADR-0024 §2: a fresh logical identity per entry (1:1 with row_id in CE).
-        if (logicalId == null) logicalId = UUID.randomUUID();
         // A1.3 (1a): is_private is derived from the scope kind, never client-set.
         isPrivate = scope != null && scope.kind == ScopeKind.PRIVATE;
         Instant now = Instant.now();
@@ -164,6 +186,10 @@ public class Memory extends PanacheEntityBase {
 
     @PreUpdate
     void onUpdate() {
+        // CE is update-in-place (Amendment 4): an in-place edit stamps updated_at.
+        // Correct UiP behaviour (dogfood-22 resolved by-design). updated_by /
+        // updated_source are set explicitly by the write paths (the entity does
+        // not know the acting subject/channel).
         updatedAt = Instant.now();
     }
 }

@@ -70,7 +70,7 @@ class MemoryToolsMuteTest {
         s.slug = scopeSlug;
         s.kind = "private".equals(scopeSlug) ? ScopeKind.PRIVATE : ScopeKind.PROJECT;
         Memory m = new Memory();
-        m.id = UUID.randomUUID();
+        m.logicalId = UUID.randomUUID();
         m.scope = s;
         m.type = MemoryType.DECISION;
         m.content = "x";

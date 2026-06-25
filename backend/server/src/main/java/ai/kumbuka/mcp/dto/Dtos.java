@@ -18,7 +18,7 @@ public final class Dtos {
     private Dtos() {}
 
     public record MemoryDto(
-        UUID id,
+        UUID logicalId,       // ADR-0024 §2/§8 (Amendment 3): the entry's reference identity
         String scope,         // slug — the addressable identity (ADR-0007)
         String type,
         String key,
@@ -31,7 +31,7 @@ public final class Dtos {
     ) {
         public static MemoryDto from(Memory m) {
             return new MemoryDto(
-                m.id,
+                m.logicalId,
                 m.scope.slug,
                 m.type.dbValue(),
                 m.key,
@@ -51,7 +51,7 @@ public final class Dtos {
          */
         public static MemoryDto forDigest(Memory m) {
             return new MemoryDto(
-                m.id,
+                m.logicalId,
                 m.scope.slug,
                 m.type.dbValue(),
                 m.key,

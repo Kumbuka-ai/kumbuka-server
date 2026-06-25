@@ -85,7 +85,7 @@ class MemoryToolsTest {
 
     private static Memory memory(MemoryType type, Scope sc, String key, String content) {
         Memory m = new Memory();
-        m.id = UUID.randomUUID();
+        m.logicalId = UUID.randomUUID();
         m.scope = sc;
         m.type = type;
         m.key = key;
