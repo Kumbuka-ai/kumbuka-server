@@ -210,11 +210,15 @@ class CrossTenantIsolationIT {
 
             assertThatThrownBy(() -> {
                 try (Statement bad = c.createStatement()) {
+                    // V16: row_id has a default (gen_random_uuid()), so it is
+                    // omitted; logical_id + is_private are NOT NULL with no
+                    // default, so they are supplied — otherwise a NOT-NULL
+                    // violation could mask the RLS rejection this asserts.
                     bad.execute(
-                        "INSERT INTO memory (id, tenant_id, owner_subject, scope_id, type, content, source) "
-                      + "VALUES (gen_random_uuid(), '" + TENANT_B + "', "
+                        "INSERT INTO memory (tenant_id, owner_subject, scope_id, type, content, source, logical_id, is_private) "
+                      + "VALUES ('" + TENANT_B + "', "
                       + "'" + CALLER_X + "', '" + scopeIdA + "', 'decision', "
-                      + "'cross-tenant write attempt', 'mcp')");
+                      + "'cross-tenant write attempt', 'mcp', gen_random_uuid(), false)");
                 }
             })
             .isInstanceOf(SQLException.class)

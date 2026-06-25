@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.test.junit.QuarkusTest;
@@ -433,7 +434,7 @@ class PrivateIsolationTest {
         // D-CORE-11: a protected (system-seed) entry is not remappable.
         String src = ensureProject("dcore17-prot");
         Memory m = memories.remember("__system__", src, MemoryType.CONVENTION, "k.prot", "seed", SourceChannel.SYSTEM);
-        assertThat(m.protected_).isTrue();
+        assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThatThrownBy(() -> memories.remap(m, "global", null))
             .isInstanceOf(ai.kumbuka.repo.ProtectedEntryException.class);
     }
@@ -452,5 +453,46 @@ class PrivateIsolationTest {
         assertThat(scopes.requireBySlug(proj).archived).isFalse();
         // visible in the shared listing again
         assertThat(scopes.listShared()).anyMatch(s -> s.slug.equals(proj));
+    }
+
+    // -----------------------------------------------------------------------
+    // V16 (ADR-0024 §A1.3 (1)): scope-kind-differentiated keyed upsert. The
+    // highest-risk correctness change — a shared keyed write by a SECOND author
+    // must update the ONE canonical live head, not insert a parallel row that
+    // the shared partial unique index then hard-rejects.
+    // -----------------------------------------------------------------------
+
+    @Test
+    @Transactional
+    void sharedKeyedUpsert_isAuthorIndependent_singleCanonicalHead() {
+        String proj = ensureProject("v16-shared-upsert");
+        Memory a = memories.remember(SUBJECT_A, proj, MemoryType.DECISION,
+            "shared.k", "A writes", SourceChannel.MCP);
+        // A different author upserts the SAME shared key — author-independent:
+        // updates the canonical head in place, no parallel row, no collision.
+        Memory b = memories.remember(SUBJECT_B, proj, MemoryType.DECISION,
+            "shared.k", "B edits", SourceChannel.MCP);
+
+        assertThat(b.id).isEqualTo(a.id);            // same canonical head
+        assertThat(b.content).isEqualTo("B edits");
+        assertThat(memories.recall(SUBJECT_A, proj, null, null, false))
+            .filteredOn(x -> "shared.k".equals(x.key))
+            .hasSize(1);                             // exactly one row for the key
+    }
+
+    @Test
+    @Transactional
+    void privateKeyedUpsert_isPerAuthor_distinctHeads() {
+        // Private keeps a per-author keyspace (the owner-inclusive private
+        // index) — A's and B's private `p.k` are distinct entries, invisible
+        // to each other (the ADR-0003 guarantee, preserved by V16).
+        Memory a = memories.remember(SUBJECT_A, "private", MemoryType.DECISION,
+            "p.k", "A private", SourceChannel.MCP);
+        Memory b = memories.remember(SUBJECT_B, "private", MemoryType.DECISION,
+            "p.k", "B private", SourceChannel.MCP);
+
+        assertThat(b.id).isNotEqualTo(a.id);         // distinct per-owner heads
+        assertThat(memories.recall(SUBJECT_A, "private", null, null, false))
+            .filteredOn(x -> "p.k".equals(x.key)).hasSize(1);
     }
 }

@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.SystemSubject;
@@ -64,7 +65,7 @@ class ProtectedSeedTest {
         List<Memory> firstRun = listSeeds();
         assertThat(firstRun).hasSize(3);
         for (Memory m : firstRun) {
-            assertThat(m.protected_).isTrue();
+            assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
             assertThat(m.source).isEqualTo(SourceChannel.SYSTEM);
             assertThat(m.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
         }
@@ -93,7 +94,7 @@ class ProtectedSeedTest {
         Memory pre = memories.remember(
             ADMIN, "global", MemoryType.CONVENTION, key,
             "an earlier hand-written version", SourceChannel.CONSOLE);
-        assertThat(pre.protected_).isFalse();
+        assertThat(pre.lock).isEqualTo(MemoryLock.NONE);
         assertThat(pre.ownerSubject).isEqualTo(ADMIN);
         assertThat(pre.source).isEqualTo(SourceChannel.CONSOLE);
 
@@ -103,7 +104,7 @@ class ProtectedSeedTest {
         // owned by the system identity, content rewritten to the fixture.
         Memory after = Memory.findById(pre.id);
         assertThat(after).isNotNull();
-        assertThat(after.protected_).isTrue();
+        assertThat(after.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThat(after.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
         assertThat(after.source).isEqualTo(SourceChannel.SYSTEM);
         // Content has been rewritten to the canonical fixture.
@@ -138,7 +139,7 @@ class ProtectedSeedTest {
         // guards DELETE) — UPDATE_BLOCKED is the typed surface the mapper turns
         // into HTTP 409.
         Memory seed = listSeeds().get(0);
-        assertThat(seed.protected_).isTrue();
+        assertThat(seed.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThatThrownBy(() -> sharedMemories.update(seed.id, "tampered content", null))
             .isInstanceOf(ProtectedEntryException.class)
             .extracting(e -> ((ProtectedEntryException) e).reason())
@@ -209,7 +210,7 @@ class ProtectedSeedTest {
             MEMBER, "global", MemoryType.GLOSSARY,
             "regression.unprotected.delete",
             "ordinary entry, no protection", SourceChannel.MCP);
-        assertThat(m.protected_).isFalse();
+        assertThat(m.lock).isEqualTo(MemoryLock.NONE);
 
         int deleted = memories.forget(MEMBER, "global", null,
                                        "regression.unprotected.delete");
@@ -250,7 +251,7 @@ class ProtectedSeedTest {
 
     private List<Memory> listSeeds() {
         return Memory.<Memory>find(
-            "ownerSubject = ?1 and protected_ = true",
-            SystemSubject.SENTINEL).list();
+            "ownerSubject = ?1 and lock = ?2",
+            SystemSubject.SENTINEL, MemoryLock.SYSTEM).list();
     }
 }

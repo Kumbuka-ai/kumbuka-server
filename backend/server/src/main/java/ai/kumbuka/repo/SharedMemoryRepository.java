@@ -3,6 +3,7 @@ package ai.kumbuka.repo;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
@@ -67,16 +68,21 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
         if (m == null) {
             throw new MemoryNotFoundException("shared memory not found: " + id);
         }
-        // D-CORE-11: protected system-seed rows are read-only. The DB trigger
-        // only blocks DELETE; updates are guarded here so a console/admin edit
-        // (the only caller of this path) can't mutate a protected entry. The
-        // seeder rewrites protected rows through the SYSTEM remember() path, not
-        // this one, so it is unaffected.
-        if (m.protected_) {
+        // D-CORE-11 / ADR-0024 §13: locked rows are read-only on this path. The
+        // DB UPDATE trigger only blocks move/rename of a locked row (not content
+        // edit, so the SYSTEM re-seed via remember() still works); the console
+        // content-edit read-only-ness is guarded HERE — this is the only caller.
+        if (m.lock != MemoryLock.NONE) {
             throw new ProtectedEntryException(
                 ProtectedEntryException.Reason.UPDATE_BLOCKED, m.key,
-                "memory row is protected (key=" + m.key + ") — protected entries are read-only (D-CORE-11)");
+                "memory row is protected (key=" + m.key + ") — locked entries are read-only (D-CORE-11 / ADR-0024 §13)");
         }
+        // §A1.6 (CoW version-bump in CE): CE is head-overwrite, last-write-wins
+        // (ADR-0024 §4) — a content edit overwrites the head in place and does
+        // NOT bump `version` (it stays at 1). The version column exists as the
+        // reserved §6 coordinate; EE activates real per-version snapshots +
+        // optimistic-lock semantics. Decision recorded in the V16 handover for
+        // Concept ratification.
         if (content != null) m.content = content;
         if (type != null) m.type = type;
         return m;

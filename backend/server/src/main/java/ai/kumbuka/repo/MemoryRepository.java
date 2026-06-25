@@ -3,6 +3,7 @@ package ai.kumbuka.repo;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
@@ -61,25 +62,34 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         assertNoProtectedConflict(scope, key, source);
 
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
-        // ADR-0011). Repository queries below filter on intra-tenant
-        // predicates only (scope, owner, key) — never on tenant_id by hand.
-        // MCP-path upsert-by-(scope,owner,key): an existing keyed row is
-        // updated in place. D-CORE-16 keeps THIS path an intentional upsert.
+        // ADR-0011). Repository queries below filter on intra-tenant predicates
+        // only — never on tenant_id by hand. The upsert lookup is scope-kind-
+        // differentiated to match the V16 partial unique indexes (A1.3 (1)):
+        //   - SHARED (global/project): author-independent (scope, key) — there is
+        //     ONE canonical live head per key, so a second author's keyed write
+        //     UPDATES that head rather than inserting a parallel row the shared
+        //     unique index would then hard-reject.
+        //   - PRIVATE: per-author (scope, owner, key) — each owner keeps their
+        //     own keyspace (the private unique index is owner-inclusive).
+        // D-CORE-16 keeps THIS path an intentional upsert.
         if (key != null) {
-            Optional<Memory> existing = find(
-                "scope = ?1 and ownerSubject = ?2 and key = ?3",
-                scope, callerSubject, key).firstResultOptional();
+            boolean privateScope = scope.kind == ScopeKind.PRIVATE;
+            Optional<Memory> existing = privateScope
+                ? find("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                       scope, callerSubject, key).firstResultOptional()
+                : find("scope = ?1 and key = ?2",
+                       scope, key).firstResultOptional();
             if (existing.isPresent()) {
                 Memory m = existing.get();
                 m.content = content;
                 if (type != null) m.type = type;
                 // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
                 // ensures the live johannesbayer how-to entries (already
-                // present as unprotected conventions) flip to protected on
+                // present as unprotected conventions) flip to the system lock on
                 // the first seed run without producing duplicates.
                 if (source == SourceChannel.SYSTEM) {
                     m.source = SourceChannel.SYSTEM;
-                    m.protected_ = true;
+                    m.lock = MemoryLock.SYSTEM;
                 }
                 // For non-system upserts: source is intentionally not updated —
                 // it records who originally wrote the row. The D-CORE-7
@@ -122,10 +132,10 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      */
     @Transactional
     public Memory remap(Memory entry, String targetSlug, String newKey) {
-        if (entry.protected_) {
+        if (entry.lock != MemoryLock.NONE) {
             throw new ProtectedEntryException(
                 ProtectedEntryException.Reason.UPSERT_BLOCKED, entry.key,
-                "protected system-seed entries (D-CORE-11) cannot be re-homed.");
+                "locked entries (ADR-0024 §13 / D-CORE-11) cannot be re-homed.");
         }
         Scope target = scopes.requireBySlug(targetSlug);
         if (target.kind == ScopeKind.PRIVATE) {
@@ -148,8 +158,8 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     private void assertNoProtectedConflict(Scope scope, String key, SourceChannel source) {
         if (key != null && source != SourceChannel.SYSTEM) {
             boolean protectedConflict = find(
-                "scope = ?1 and key = ?2 and protected_ = true",
-                scope, key).firstResultOptional().isPresent();
+                "scope = ?1 and key = ?2 and lock = ?3",
+                scope, key, MemoryLock.SYSTEM).firstResultOptional().isPresent();
             if (protectedConflict) {
                 throw new ProtectedEntryException(
                     ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
@@ -187,7 +197,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         m.key = key;
         m.content = content;
         m.source = source;
-        m.protected_ = (source == SourceChannel.SYSTEM);
+        m.lock = (source == SourceChannel.SYSTEM) ? MemoryLock.SYSTEM : MemoryLock.NONE;
         persist(m);
         return m;
     }
@@ -238,7 +248,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             m.type = type;
             m.source = SourceChannel.SYSTEM;
             m.ownerSubject = SystemSubject.SENTINEL;
-            m.protected_ = true;
+            m.lock = MemoryLock.SYSTEM;
             return m;
         }
         return remember(SystemSubject.SENTINEL, scopeSlug, type, key, content, SourceChannel.SYSTEM);

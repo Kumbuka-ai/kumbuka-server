@@ -183,11 +183,13 @@ class MemoryToolsTest {
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.PROJECT, WritePolicy.PROJECT, DefaultScopeStatus.OK, "alpha"));
 
-        // The keyed path runs an existence query before the upsert. Regression:
-        // it must scope by (scope.slug, ownerSubject, key) only and let the
-        // @TenantId discriminator handle tenant isolation — binding tenant_id by
-        // hand bound a UUID to the String discriminator and 500'd every keyed
-        // write (and in SaaS used the zero-sentinel, not the request tenant).
+        // The keyed path runs an existence probe before the upsert. Regression:
+        // it must let the @TenantId discriminator handle tenant isolation —
+        // binding tenant_id by hand bound a UUID to the String discriminator and
+        // 500'd every keyed write (and in SaaS used the zero-sentinel, not the
+        // request tenant). V16 (A1.3 (1)): for a SHARED scope ("alpha" = project)
+        // the probe is author-independent (scope.slug, key) — no ownerSubject —
+        // mirroring the new shared upsert lookup; private keeps (scope, owner, key).
         @SuppressWarnings("unchecked")
         PanacheQuery<Memory> existing = mock(PanacheQuery.class);
         when(existing.firstResultOptional()).thenReturn(Optional.of(persisted));
@@ -205,8 +207,8 @@ class MemoryToolsTest {
         ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
         verify(memories).find(query.capture(), any(Object[].class));
         assertThat(query.getValue())
-            .doesNotContain("tenantId")
-            .contains("scope.slug", "ownerSubject", "key");
+            .doesNotContain("tenantId", "ownerSubject")   // shared probe is author-independent (V16)
+            .contains("scope.slug", "key");
     }
 
     // ---------- memory_remember: implicit scope via policy ------------------
