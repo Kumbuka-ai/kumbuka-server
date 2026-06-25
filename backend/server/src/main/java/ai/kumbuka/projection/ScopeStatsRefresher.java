@@ -81,6 +81,7 @@ public class ScopeStatsRefresher {
             FROM memory m
             JOIN scope s ON s.id = m.scope_id
             WHERE s.kind != 'private'
+              AND m.is_head
               AND m.tenant_id = CAST(:tid AS uuid)
             GROUP BY m.tenant_id, m.scope_id, s.slug, s.kind, m.type
             """)

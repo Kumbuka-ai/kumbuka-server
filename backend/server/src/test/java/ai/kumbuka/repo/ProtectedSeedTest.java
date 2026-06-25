@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.SystemSubject;
@@ -64,7 +65,7 @@ class ProtectedSeedTest {
         List<Memory> firstRun = listSeeds();
         assertThat(firstRun).hasSize(3);
         for (Memory m : firstRun) {
-            assertThat(m.protected_).isTrue();
+            assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
             assertThat(m.source).isEqualTo(SourceChannel.SYSTEM);
             assertThat(m.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
         }
@@ -75,8 +76,8 @@ class ProtectedSeedTest {
         assertThat(secondRun).hasSize(3);
 
         // Same ids — no duplicates, no churn.
-        assertThat(secondRun).extracting(m -> m.id)
-            .containsExactlyInAnyOrderElementsOf(firstRun.stream().map(m -> m.id).toList());
+        assertThat(secondRun).extracting(m -> m.logicalId)
+            .containsExactlyInAnyOrderElementsOf(firstRun.stream().map(m -> m.logicalId).toList());
     }
 
     // ---------------------------------------------------------------------
@@ -93,7 +94,7 @@ class ProtectedSeedTest {
         Memory pre = memories.remember(
             ADMIN, "global", MemoryType.CONVENTION, key,
             "an earlier hand-written version", SourceChannel.CONSOLE);
-        assertThat(pre.protected_).isFalse();
+        assertThat(pre.lock).isEqualTo(MemoryLock.NONE);
         assertThat(pre.ownerSubject).isEqualTo(ADMIN);
         assertThat(pre.source).isEqualTo(SourceChannel.CONSOLE);
 
@@ -101,9 +102,9 @@ class ProtectedSeedTest {
 
         // After the seed run: same row id (no duplicate), now protected +
         // owned by the system identity, content rewritten to the fixture.
-        Memory after = Memory.findById(pre.id);
+        Memory after = Memory.findById(pre.logicalId);
         assertThat(after).isNotNull();
-        assertThat(after.protected_).isTrue();
+        assertThat(after.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThat(after.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
         assertThat(after.source).isEqualTo(SourceChannel.SYSTEM);
         // Content has been rewritten to the canonical fixture.
@@ -138,8 +139,8 @@ class ProtectedSeedTest {
         // guards DELETE) — UPDATE_BLOCKED is the typed surface the mapper turns
         // into HTTP 409.
         Memory seed = listSeeds().get(0);
-        assertThat(seed.protected_).isTrue();
-        assertThatThrownBy(() -> sharedMemories.update(seed.id, "tampered content", null))
+        assertThat(seed.lock).isEqualTo(MemoryLock.SYSTEM);
+        assertThatThrownBy(() -> sharedMemories.update(seed.logicalId, "tampered content", null, ADMIN))
             .isInstanceOf(ProtectedEntryException.class)
             .extracting(e -> ((ProtectedEntryException) e).reason())
             .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
@@ -149,18 +150,39 @@ class ProtectedSeedTest {
     @TestTransaction
     void protectedRow_cannotBeDeleted_byNonOwnerMemberEither() {
         seedService.seedCurrentTenant();
-        // Even a different subject hitting the same key gets blocked at
-        // the structural trigger — the per-owner key check in forget()
-        // makes this a 0-row delete in the unprotected case, but the
-        // trigger still fires if a row IS matched (it's not in this case,
-        // hence no exception — the structural block protects when a
-        // matching row WOULD be deleted, not when the predicate misses).
-        int deleted = memories.forget(MEMBER, "global", null,
-                                       "convention.how-to-kumbuka.types");
-        // Per-owner predicate misses (no row owned by MEMBER with this
-        // key) → 0 deleted, no exception. The protected row stays.
-        assertThat(deleted).isZero();
-        assertThat(listSeeds()).hasSize(3);
+        // V16 Delta 4 (ratified): shared forget-by-key is now author-independent
+        // (matching the shared uniqueness + forget-by-id). A different subject
+        // hitting the protected key therefore MATCHES the canonical head — and is
+        // blocked at the structural DELETE trigger (a STRONGER guarantee than the
+        // old owner-inclusive silent miss). The typed ProtectedEntryException is
+        // the surface the @Tool wrapper renders as a structured error.
+        // (No post-delete query: the P0001 trigger raise aborts the Postgres
+        // transaction, so the typed exception IS the assertion — the BEFORE DELETE
+        // block guarantees the row was never removed.)
+        assertThatThrownBy(() ->
+            memories.forget(MEMBER, "global", null, "convention.how-to-kumbuka.types"))
+            .isInstanceOf(ProtectedEntryException.class)
+            .extracting(e -> ((ProtectedEntryException) e).reason())
+            .isEqualTo(ProtectedEntryException.Reason.DELETE_BLOCKED);
+    }
+
+    @Test
+    @TestTransaction
+    void protectedRow_contentUpdate_viaSystemReseed_succeeds() {
+        // Amendment 2: there is NO UPDATE trigger — the only legitimate in-place
+        // UPDATE of a locked row is the SYSTEM re-seed, which must NOT be blocked.
+        // Re-seed the same key with CHANGED content through the SYSTEM path; it
+        // succeeds (a blanket UPDATE trigger would have broken exactly this).
+        seedService.seedCurrentTenant();
+        String key = "convention.how-to-kumbuka.types";
+        Memory updated = memories.remember(
+            SystemSubject.SENTINEL, "global", MemoryType.CONVENTION, key,
+            "re-seeded canonical content", SourceChannel.SYSTEM);
+
+        assertThat(updated.lock).isEqualTo(MemoryLock.SYSTEM);
+        assertThat(updated.content).isEqualTo("re-seeded canonical content");
+        // Last-editor provenance stamped on the in-place SYSTEM edit (Amendment 4).
+        assertThat(updated.updatedSource).isEqualTo(SourceChannel.SYSTEM);
     }
 
     // ---------------------------------------------------------------------
@@ -209,7 +231,7 @@ class ProtectedSeedTest {
             MEMBER, "global", MemoryType.GLOSSARY,
             "regression.unprotected.delete",
             "ordinary entry, no protection", SourceChannel.MCP);
-        assertThat(m.protected_).isFalse();
+        assertThat(m.lock).isEqualTo(MemoryLock.NONE);
 
         int deleted = memories.forget(MEMBER, "global", null,
                                        "regression.unprotected.delete");
@@ -250,7 +272,7 @@ class ProtectedSeedTest {
 
     private List<Memory> listSeeds() {
         return Memory.<Memory>find(
-            "ownerSubject = ?1 and protected_ = true",
-            SystemSubject.SENTINEL).list();
+            "ownerSubject = ?1 and lock = ?2",
+            SystemSubject.SENTINEL, MemoryLock.SYSTEM).list();
     }
 }

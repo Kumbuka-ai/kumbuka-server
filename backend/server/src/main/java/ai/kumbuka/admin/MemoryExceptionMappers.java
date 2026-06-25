@@ -2,6 +2,7 @@ package ai.kumbuka.admin;
 
 import ai.kumbuka.repo.MemoryRepository.KeyExistsException;
 import ai.kumbuka.repo.MemoryRepository.RemapPrivateForbiddenException;
+import ai.kumbuka.repo.MemoryRepository.StaleVersionException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
@@ -29,5 +30,15 @@ class RemapPrivateForbiddenExceptionMapper implements ExceptionMapper<RemapPriva
         // 400 — private is structurally excluded as a remap endpoint (P1).
         return ScopeExceptionMappers.typed(
             Response.Status.BAD_REQUEST, "REMAP_PRIVATE_FORBIDDEN", ex.getMessage());
+    }
+}
+
+@Provider
+class StaleVersionExceptionMapper implements ExceptionMapper<StaleVersionException> {
+    @Override
+    public Response toResponse(StaleVersionException ex) {
+        // 409 — §A1.6 optimistic lock: a concurrent edit advanced the version
+        // under a stale writer; the console should reload and retry.
+        return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "STALE_VERSION", ex.getMessage());
     }
 }

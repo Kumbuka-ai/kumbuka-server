@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.test.junit.QuarkusTest;
@@ -43,10 +44,10 @@ class PrivateIsolationTest {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "auth", "use OAuth", SourceChannel.MCP);
 
         List<Memory> bRecall = memories.recall(SUBJECT_B, "private", null, null, false);
-        assertThat(bRecall).noneMatch(x -> x.id.equals(m.id));
+        assertThat(bRecall).noneMatch(x -> x.logicalId.equals(m.logicalId));
 
         List<Memory> bRecallAll = memories.recall(SUBJECT_B, null, null, null, false);
-        assertThat(bRecallAll).noneMatch(x -> x.id.equals(m.id));
+        assertThat(bRecallAll).noneMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     @Test
@@ -54,7 +55,7 @@ class PrivateIsolationTest {
     void privateMemory_isNotDeletableByOtherUsers_viaMcpForget() {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "auth", "use OAuth", SourceChannel.MCP);
 
-        int byId = memories.forget(SUBJECT_B, "private", m.id, null);
+        int byId = memories.forget(SUBJECT_B, "private", m.logicalId, null);
         assertThat(byId).isZero();
 
         int byKey = memories.forget(SUBJECT_B, "private", null, "auth");
@@ -62,7 +63,7 @@ class PrivateIsolationTest {
 
         // The row still belongs to A.
         List<Memory> aRecall = memories.recall(SUBJECT_A, "private", null, null, false);
-        assertThat(aRecall).anyMatch(x -> x.id.equals(m.id));
+        assertThat(aRecall).anyMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     @Test
@@ -71,13 +72,13 @@ class PrivateIsolationTest {
         Memory a = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "k", "A's content", SourceChannel.MCP);
         Memory b = memories.remember(SUBJECT_B, "private", MemoryType.DECISION, "k", "B's content", SourceChannel.MCP);
 
-        assertThat(a.id).isNotEqualTo(b.id);
+        assertThat(a.logicalId).isNotEqualTo(b.logicalId);
         assertThat(memories.recall(SUBJECT_A, "private", null, null, false))
-            .anyMatch(x -> x.id.equals(a.id))
-            .noneMatch(x -> x.id.equals(b.id));
+            .anyMatch(x -> x.logicalId.equals(a.logicalId))
+            .noneMatch(x -> x.logicalId.equals(b.logicalId));
         assertThat(memories.recall(SUBJECT_B, "private", null, null, false))
-            .anyMatch(x -> x.id.equals(b.id))
-            .noneMatch(x -> x.id.equals(a.id));
+            .anyMatch(x -> x.logicalId.equals(b.logicalId))
+            .noneMatch(x -> x.logicalId.equals(a.logicalId));
     }
 
     // ---------------------------------------------------------------------
@@ -90,7 +91,7 @@ class PrivateIsolationTest {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "x", "secret", SourceChannel.MCP);
 
         List<Memory> allShared = sharedMemories.listShared(null, null);
-        assertThat(allShared).noneMatch(x -> x.id.equals(m.id));
+        assertThat(allShared).noneMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     @Test
@@ -98,7 +99,7 @@ class PrivateIsolationTest {
     void privateMemory_isNotLookupableByIdViaAdmin() {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "x", "secret", SourceChannel.MCP);
 
-        Memory looked = sharedMemories.findSharedById(m.id);
+        Memory looked = sharedMemories.findSharedById(m.logicalId);
         assertThat(looked).isNull();
     }
 
@@ -107,12 +108,12 @@ class PrivateIsolationTest {
     void privateMemory_isNotDeletableViaAdmin() {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "x", "secret", SourceChannel.MCP);
 
-        int deleted = sharedMemories.deleteShared(m.id);
+        int deleted = sharedMemories.deleteShared(m.logicalId);
         assertThat(deleted).isZero();
 
         // Still owned by A.
         List<Memory> aRecall = memories.recall(SUBJECT_A, "private", null, null, false);
-        assertThat(aRecall).anyMatch(x -> x.id.equals(m.id));
+        assertThat(aRecall).anyMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     @Test
@@ -120,7 +121,7 @@ class PrivateIsolationTest {
     void privateMemory_updateViaAdminThrowsNotFound() {
         Memory m = memories.remember(SUBJECT_A, "private", MemoryType.DECISION, "x", "secret", SourceChannel.MCP);
 
-        assertThatThrownBy(() -> sharedMemories.update(m.id, "rewritten", null))
+        assertThatThrownBy(() -> sharedMemories.update(m.logicalId, "rewritten", null, SUBJECT_A))
             .isInstanceOf(SharedMemoryRepository.MemoryNotFoundException.class);
     }
 
@@ -141,10 +142,10 @@ class PrivateIsolationTest {
         Memory m = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "team-wide thing", SourceChannel.MCP);
 
         List<Memory> bRecall = memories.recall(SUBJECT_B, "global", null, null, false);
-        assertThat(bRecall).anyMatch(x -> x.id.equals(m.id));
+        assertThat(bRecall).anyMatch(x -> x.logicalId.equals(m.logicalId));
 
         List<Memory> adminView = sharedMemories.listShared("global", null);
-        assertThat(adminView).anyMatch(x -> x.id.equals(m.id));
+        assertThat(adminView).anyMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     // ---------------------------------------------------------------------
@@ -169,9 +170,9 @@ class PrivateIsolationTest {
 
         List<Memory> unscoped = memories.recall(SUBJECT_A, null, null, null, false);
         assertThat(unscoped)
-            .anyMatch(x -> x.id.equals(priv.id))
-            .anyMatch(x -> x.id.equals(glob.id))
-            .noneMatch(x -> x.id.equals(inProj.id));
+            .anyMatch(x -> x.logicalId.equals(priv.logicalId))
+            .anyMatch(x -> x.logicalId.equals(glob.logicalId))
+            .noneMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
 
     @Test
@@ -181,7 +182,7 @@ class PrivateIsolationTest {
         Memory inProj = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, null, "explicit project", SourceChannel.MCP);
 
         List<Memory> scoped = memories.recall(SUBJECT_A, proj, null, null, false);
-        assertThat(scoped).anyMatch(x -> x.id.equals(inProj.id));
+        assertThat(scoped).anyMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
 
     @Test
@@ -194,8 +195,8 @@ class PrivateIsolationTest {
         List<Memory> digest = memories.loadContext(SUBJECT_A, null).values().stream()
             .flatMap(List::stream).toList();
         assertThat(digest)
-            .anyMatch(x -> x.id.equals(glob.id))
-            .noneMatch(x -> x.id.equals(inProj.id));
+            .anyMatch(x -> x.logicalId.equals(glob.logicalId))
+            .noneMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
 
     @Test
@@ -209,13 +210,13 @@ class PrivateIsolationTest {
         List<Memory> byDefault = memories.loadContext(SUBJECT_A, null).values().stream()
             .flatMap(List::stream).toList();
         assertThat(byDefault)
-            .anyMatch(x -> x.id.equals(dec.id))
-            .noneMatch(x -> x.id.equals(oq.id));
+            .anyMatch(x -> x.logicalId.equals(dec.logicalId))
+            .noneMatch(x -> x.logicalId.equals(oq.logicalId));
 
         List<Memory> explicit = memories.loadContext(SUBJECT_A, null,
                 java.util.EnumSet.of(MemoryType.OPEN_QUESTION)).values().stream()
             .flatMap(List::stream).toList();
-        assertThat(explicit).anyMatch(x -> x.id.equals(oq.id));
+        assertThat(explicit).anyMatch(x -> x.logicalId.equals(oq.logicalId));
     }
 
     @Test
@@ -247,15 +248,15 @@ class PrivateIsolationTest {
         // WITH a query → the project row is discoverable without naming its scope,
         // and the returned row carries its scope slug so the caller can pin it.
         List<Memory> withQuery = memories.recall(SUBJECT_A, null, null, "needle alpha", false);
-        assertThat(withQuery).anyMatch(x -> x.id.equals(inProj.id));
+        assertThat(withQuery).anyMatch(x -> x.logicalId.equals(inProj.logicalId));
         assertThat(withQuery)
-            .filteredOn(x -> x.id.equals(inProj.id))
+            .filteredOn(x -> x.logicalId.equals(inProj.logicalId))
             .allMatch(x -> proj.equals(x.scope.slug));
 
         // WITHOUT a query the same project row is NOT in the default unscoped
         // view — D-CORE-5 still holds and the widening is query-gated only.
         List<Memory> noQuery = memories.recall(SUBJECT_A, null, null, null, false);
-        assertThat(noQuery).noneMatch(x -> x.id.equals(inProj.id));
+        assertThat(noQuery).noneMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
 
     @Test
@@ -271,8 +272,8 @@ class PrivateIsolationTest {
 
         List<Memory> aHits = memories.recall(SUBJECT_A, null, null, "secret marker", false);
         assertThat(aHits)
-            .anyMatch(x -> x.id.equals(aPriv.id))
-            .noneMatch(x -> x.id.equals(bPriv.id));
+            .anyMatch(x -> x.logicalId.equals(aPriv.logicalId))
+            .noneMatch(x -> x.logicalId.equals(bPriv.logicalId));
     }
 
     @Test
@@ -287,7 +288,7 @@ class PrivateIsolationTest {
 
         List<Memory> digest = memories.loadContext(SUBJECT_A, null).values().stream()
             .flatMap(List::stream).toList();
-        assertThat(digest).noneMatch(x -> x.id.equals(inProj.id));
+        assertThat(digest).noneMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
 
     @Test
@@ -299,8 +300,8 @@ class PrivateIsolationTest {
 
         List<Memory> scoped = memories.recall(SUBJECT_A, proj, null, null, true);
         assertThat(scoped)
-            .anyMatch(x -> x.id.equals(inProj.id))
-            .anyMatch(x -> x.id.equals(glob.id));
+            .anyMatch(x -> x.logicalId.equals(inProj.logicalId))
+            .anyMatch(x -> x.logicalId.equals(glob.logicalId));
     }
 
     // dogfood-16/19: the fixed (global) scope cannot be archived / un-archived /
@@ -345,7 +346,7 @@ class PrivateIsolationTest {
             memories.createShared(SUBJECT_A, proj, MemoryType.DECISION, "k.one", "second", SourceChannel.CONSOLE))
             .isInstanceOf(MemoryRepository.KeyExistsException.class);
         assertThat(memories.recall(SUBJECT_A, proj, null, null, false))
-            .filteredOn(x -> x.id.equals(first.id))
+            .filteredOn(x -> x.logicalId.equals(first.logicalId))
             .allMatch(x -> x.content.equals("first"));   // NOT overwritten
     }
 
@@ -366,7 +367,7 @@ class PrivateIsolationTest {
         String proj = ensureProject("dcore16-mcp");
         Memory r1 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v1", SourceChannel.MCP);
         Memory r2 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v2", SourceChannel.MCP);
-        assertThat(r2.id).isEqualTo(r1.id);
+        assertThat(r2.logicalId).isEqualTo(r1.logicalId);
         assertThat(r2.content).isEqualTo("v2");
     }
 
@@ -376,7 +377,7 @@ class PrivateIsolationTest {
         String proj = ensureProject("dcore16-keyless");
         Memory a = memories.createShared(SUBJECT_A, proj, MemoryType.STATUS, null, "one", SourceChannel.CONSOLE);
         Memory b = memories.createShared(SUBJECT_A, proj, MemoryType.STATUS, null, "two", SourceChannel.CONSOLE);
-        assertThat(a.id).isNotEqualTo(b.id);
+        assertThat(a.logicalId).isNotEqualTo(b.logicalId);
     }
 
     // ---- D-CORE-17: scope-remap (lossless; private excluded; collision-guarded) --
@@ -391,8 +392,8 @@ class PrivateIsolationTest {
         assertThat(m.scope.slug).isEqualTo(dst);
         assertThat(m.content).isEqualTo("content");
         assertThat(m.key).isEqualTo("k.move");
-        assertThat(memories.recall(SUBJECT_A, src, null, null, false)).noneMatch(x -> x.id.equals(m.id));
-        assertThat(memories.recall(SUBJECT_A, dst, null, null, false)).anyMatch(x -> x.id.equals(m.id));
+        assertThat(memories.recall(SUBJECT_A, src, null, null, false)).noneMatch(x -> x.logicalId.equals(m.logicalId));
+        assertThat(memories.recall(SUBJECT_A, dst, null, null, false)).anyMatch(x -> x.logicalId.equals(m.logicalId));
     }
 
     @Test
@@ -433,7 +434,7 @@ class PrivateIsolationTest {
         // D-CORE-11: a protected (system-seed) entry is not remappable.
         String src = ensureProject("dcore17-prot");
         Memory m = memories.remember("__system__", src, MemoryType.CONVENTION, "k.prot", "seed", SourceChannel.SYSTEM);
-        assertThat(m.protected_).isTrue();
+        assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThatThrownBy(() -> memories.remap(m, "global", null))
             .isInstanceOf(ai.kumbuka.repo.ProtectedEntryException.class);
     }
@@ -452,5 +453,46 @@ class PrivateIsolationTest {
         assertThat(scopes.requireBySlug(proj).archived).isFalse();
         // visible in the shared listing again
         assertThat(scopes.listShared()).anyMatch(s -> s.slug.equals(proj));
+    }
+
+    // -----------------------------------------------------------------------
+    // V16 (ADR-0024 §A1.3 (1)): scope-kind-differentiated keyed upsert. The
+    // highest-risk correctness change — a shared keyed write by a SECOND author
+    // must update the ONE canonical live head, not insert a parallel row that
+    // the shared partial unique index then hard-rejects.
+    // -----------------------------------------------------------------------
+
+    @Test
+    @Transactional
+    void sharedKeyedUpsert_isAuthorIndependent_singleCanonicalHead() {
+        String proj = ensureProject("v16-shared-upsert");
+        Memory a = memories.remember(SUBJECT_A, proj, MemoryType.DECISION,
+            "shared.k", "A writes", SourceChannel.MCP);
+        // A different author upserts the SAME shared key — author-independent:
+        // updates the canonical head in place, no parallel row, no collision.
+        Memory b = memories.remember(SUBJECT_B, proj, MemoryType.DECISION,
+            "shared.k", "B edits", SourceChannel.MCP);
+
+        assertThat(b.logicalId).isEqualTo(a.logicalId);            // same canonical head
+        assertThat(b.content).isEqualTo("B edits");
+        assertThat(memories.recall(SUBJECT_A, proj, null, null, false))
+            .filteredOn(x -> "shared.k".equals(x.key))
+            .hasSize(1);                             // exactly one row for the key
+    }
+
+    @Test
+    @Transactional
+    void privateKeyedUpsert_isPerAuthor_distinctHeads() {
+        // Private keeps a per-author keyspace (the owner-inclusive private
+        // index) — A's and B's private `p.k` are distinct entries, invisible
+        // to each other (the ADR-0003 guarantee, preserved by V16).
+        Memory a = memories.remember(SUBJECT_A, "private", MemoryType.DECISION,
+            "p.k", "A private", SourceChannel.MCP);
+        Memory b = memories.remember(SUBJECT_B, "private", MemoryType.DECISION,
+            "p.k", "B private", SourceChannel.MCP);
+
+        assertThat(b.logicalId).isNotEqualTo(a.logicalId);         // distinct per-owner heads
+        assertThat(memories.recall(SUBJECT_A, "private", null, null, false))
+            .filteredOn(x -> "p.k".equals(x.key)).hasSize(1);
     }
 }

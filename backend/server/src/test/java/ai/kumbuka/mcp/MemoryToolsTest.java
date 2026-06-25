@@ -85,7 +85,7 @@ class MemoryToolsTest {
 
     private static Memory memory(MemoryType type, Scope sc, String key, String content) {
         Memory m = new Memory();
-        m.id = UUID.randomUUID();
+        m.logicalId = UUID.randomUUID();
         m.scope = sc;
         m.type = type;
         m.key = key;
@@ -183,11 +183,13 @@ class MemoryToolsTest {
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.PROJECT, WritePolicy.PROJECT, DefaultScopeStatus.OK, "alpha"));
 
-        // The keyed path runs an existence query before the upsert. Regression:
-        // it must scope by (scope.slug, ownerSubject, key) only and let the
-        // @TenantId discriminator handle tenant isolation — binding tenant_id by
-        // hand bound a UUID to the String discriminator and 500'd every keyed
-        // write (and in SaaS used the zero-sentinel, not the request tenant).
+        // The keyed path runs an existence probe before the upsert. Regression:
+        // it must let the @TenantId discriminator handle tenant isolation —
+        // binding tenant_id by hand bound a UUID to the String discriminator and
+        // 500'd every keyed write (and in SaaS used the zero-sentinel, not the
+        // request tenant). V16 (A1.3 (1)): for a SHARED scope ("alpha" = project)
+        // the probe is author-independent (scope.slug, key) — no ownerSubject —
+        // mirroring the new shared upsert lookup; private keeps (scope, owner, key).
         @SuppressWarnings("unchecked")
         PanacheQuery<Memory> existing = mock(PanacheQuery.class);
         when(existing.firstResultOptional()).thenReturn(Optional.of(persisted));
@@ -200,6 +202,31 @@ class MemoryToolsTest {
             .thenReturn(persisted);
 
         Dtos.RememberResult out = tools.memory_remember("ship it", "decision", "alpha", "release.notes", null);
+
+        assertThat(out.upserted()).isTrue();
+        ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
+        verify(memories).find(query.capture(), any(Object[].class));
+        assertThat(query.getValue())
+            .doesNotContain("tenantId", "ownerSubject")   // shared probe is author-independent (V16)
+            .contains("scope.slug", "key");
+    }
+
+    @Test
+    void remember_withKey_privateScope_existenceProbeStaysPerAuthor() {
+        // V16 (A1.3 (1)): the PRIVATE scope keeps a per-author keyspace, so the
+        // existed-probe for the reserved "private" slug stays (scope, owner, key).
+        Scope priv = scope("private", ScopeKind.PRIVATE);
+        Memory persisted = memory(MemoryType.DECISION, priv, "note.k", "secret");
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> existing = mock(PanacheQuery.class);
+        when(existing.firstResultOptional()).thenReturn(Optional.of(persisted));
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(existing);
+        when(memories.remember(
+            eq("caller-sub"), eq("private"), eq(MemoryType.DECISION),
+            eq("note.k"), eq("secret"), eq(SourceChannel.MCP)))
+            .thenReturn(persisted);
+
+        Dtos.RememberResult out = tools.memory_remember("secret", "decision", "private", "note.k", null);
 
         assertThat(out.upserted()).isTrue();
         ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);

@@ -115,7 +115,8 @@ public class AdminEntriesResource {
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
-        Memory m = sharedMemories.update(id, req.content(), t);
+        // Amendment 4: the acting admin is stamped as updated_by on the edit.
+        Memory m = sharedMemories.update(id, req.content(), t, identity.getPrincipal().getName());
         if (req.reference() != null) {   // D-CORE-7: null preserves, blank clears
             m.reference = req.reference().isBlank() ? null : req.reference();
         }

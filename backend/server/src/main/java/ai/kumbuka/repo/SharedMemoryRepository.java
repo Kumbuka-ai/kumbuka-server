@@ -3,9 +3,11 @@ package ai.kumbuka.repo;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
+import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -52,55 +54,71 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
         return find(jpql.toString(), params).list();
     }
 
-    /** Look up a single memory by id. Returns null if the id refers to a
-     *  private row — pretending it does not exist. */
-    public Memory findSharedById(UUID id) {
+    /** Look up a single shared memory by its {@code logical_id} (Amendment 3,
+     *  the wire reference handle). Returns null if it refers to a private row —
+     *  pretending it does not exist. */
+    public Memory findSharedById(UUID logicalId) {
         return find(
-            "id = ?1 and scope.kind != ?2",
-            id, ScopeKind.PRIVATE
+            "logicalId = ?1 and scope.kind != ?2",
+            logicalId, ScopeKind.PRIVATE
         ).firstResult();
     }
 
+    /**
+     * Console PATCH content edit. {@code editorSubject} is the acting admin's KC
+     * {@code sub} — stamped as the last-editor provenance (Amendment 4).
+     */
     @Transactional
-    public Memory update(UUID id, String content, MemoryType type) {
-        Memory m = findSharedById(id);
+    public Memory update(UUID logicalId, String content, MemoryType type, String editorSubject) {
+        Memory m = findSharedById(logicalId);
         if (m == null) {
-            throw new MemoryNotFoundException("shared memory not found: " + id);
+            throw new MemoryNotFoundException("shared memory not found: " + logicalId);
         }
-        // D-CORE-11: protected system-seed rows are read-only. The DB trigger
-        // only blocks DELETE; updates are guarded here so a console/admin edit
-        // (the only caller of this path) can't mutate a protected entry. The
-        // seeder rewrites protected rows through the SYSTEM remember() path, not
-        // this one, so it is unaffected.
-        if (m.protected_) {
+        // D-CORE-11 / ADR-0024 §13: locked rows are read-only on this path. There
+        // is NO DB UPDATE trigger (Amendment 2) — the console content-edit
+        // read-only-ness is guarded HERE (the load-bearing customer guard).
+        if (m.lock != MemoryLock.NONE) {
             throw new ProtectedEntryException(
                 ProtectedEntryException.Reason.UPDATE_BLOCKED, m.key,
-                "memory row is protected (key=" + m.key + ") — protected entries are read-only (D-CORE-11)");
+                "memory row is protected (key=" + m.key + ") — locked entries are read-only (D-CORE-11 / ADR-0024 §13)");
         }
+        // Amendment 4: an in-place edit stamps last-editor provenance; the
+        // first-author owner_subject is never rewritten. @PreUpdate stamps
+        // updated_at. version is the @Version optimistic-lock counter.
         if (content != null) m.content = content;
         if (type != null) m.type = type;
+        m.updatedBy = editorSubject;
+        m.updatedSource = SourceChannel.CONSOLE;
+        // §A1.6: surface a concurrent stale edit as a typed 409 here, not a bare
+        // exception at commit.
+        try {
+            getEntityManager().flush();
+        } catch (jakarta.persistence.OptimisticLockException ole) {
+            throw new MemoryRepository.StaleVersionException(
+                "the entry was modified concurrently (stale version) — reload and retry.", ole);
+        }
         return m;
     }
 
     @Transactional
-    public int deleteShared(UUID id) {
-        // Note the `scope.kind != PRIVATE` guard — the same id in a private
-        // scope is NEVER deletable through this code path.
+    public int deleteShared(UUID logicalId) {
+        // Note the `scope.kind != PRIVATE` guard — the same logical_id in a
+        // private scope is NEVER deletable through this code path.
         //
         // D-CORE-11: the BEFORE DELETE trigger (memory_protected_delete_block)
-        // catches protected rows below this layer with SQLSTATE P0001. We
-        // translate that to a typed ProtectedEntryException so the admin
-        // resource can return a clean 409 instead of a raw 500.
+        // catches locked rows below this layer with SQLSTATE P0001. We translate
+        // that to a typed ProtectedEntryException so the admin resource can
+        // return a clean 409 instead of a raw 500.
         try {
             return (int) delete(
-                "id = ?1 and scope.kind != ?2",
-                id, ScopeKind.PRIVATE);
+                "logicalId = ?1 and scope.kind != ?2",
+                logicalId, ScopeKind.PRIVATE);
         } catch (jakarta.persistence.PersistenceException pe) {
             if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
                 throw new ProtectedEntryException(
                     ProtectedEntryException.Reason.DELETE_BLOCKED,
                     null,
-                    "delete blocked: row id=" + id + " is protected (D-CORE-11)");
+                    "delete blocked: row logical_id=" + logicalId + " is protected (D-CORE-11)");
             }
             throw pe;
         }

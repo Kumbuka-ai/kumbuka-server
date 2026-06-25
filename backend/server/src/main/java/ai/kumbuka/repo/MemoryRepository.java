@@ -3,6 +3,7 @@ package ai.kumbuka.repo;
 import ai.kumbuka.config.MemoryConfig;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
 import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
@@ -42,6 +43,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     @Inject MemoryConfig config;
     @Inject ScopeRepository scopes;
 
+    /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
+    private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
+
     /**
      * Append or upsert. If {@code key} is non-null and a row already exists
      * for this (scope, owner, key), update content + type. Otherwise insert.
@@ -61,34 +65,65 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         assertNoProtectedConflict(scope, key, source);
 
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
-        // ADR-0011). Repository queries below filter on intra-tenant
-        // predicates only (scope, owner, key) — never on tenant_id by hand.
-        // MCP-path upsert-by-(scope,owner,key): an existing keyed row is
-        // updated in place. D-CORE-16 keeps THIS path an intentional upsert.
+        // ADR-0011). Repository queries below filter on intra-tenant predicates
+        // only — never on tenant_id by hand. The upsert lookup is scope-kind-
+        // differentiated to match the V16 partial unique indexes (A1.3 (1)):
+        //   - SHARED (global/project): author-independent (scope, key) — there is
+        //     ONE canonical live head per key, so a second author's keyed write
+        //     UPDATES that head rather than inserting a parallel row the shared
+        //     unique index would then hard-reject.
+        //   - PRIVATE: per-author (scope, owner, key) — each owner keeps their
+        //     own keyspace (the private unique index is owner-inclusive).
+        // D-CORE-16 keeps THIS path an intentional upsert.
         if (key != null) {
-            Optional<Memory> existing = find(
-                "scope = ?1 and ownerSubject = ?2 and key = ?3",
-                scope, callerSubject, key).firstResultOptional();
+            boolean privateScope = scope.kind == ScopeKind.PRIVATE;
+            Optional<Memory> existing = privateScope
+                ? find("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                       scope, callerSubject, key).firstResultOptional()
+                : find(SHARED_KEY_LOOKUP,
+                       scope, key).firstResultOptional();
             if (existing.isPresent()) {
                 Memory m = existing.get();
                 m.content = content;
                 if (type != null) m.type = type;
                 // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
                 // ensures the live johannesbayer how-to entries (already
-                // present as unprotected conventions) flip to protected on
+                // present as unprotected conventions) flip to the system lock on
                 // the first seed run without producing duplicates.
                 if (source == SourceChannel.SYSTEM) {
                     m.source = SourceChannel.SYSTEM;
-                    m.protected_ = true;
+                    m.lock = MemoryLock.SYSTEM;
                 }
-                // For non-system upserts: source is intentionally not updated —
-                // it records who originally wrote the row. The D-CORE-7
+                // `source`/`owner_subject` are the FIRST-write authorship and are
+                // intentionally not updated (Amendment 4). The in-place edit
+                // stamps the LAST-editor provenance instead. The D-CORE-7
                 // `reference` is set by the caller on a NEW row only.
+                m.updatedBy = callerSubject;
+                m.updatedSource = source;
+                // §A1.6 optimistic locking: force the @Version check now so a
+                // concurrent stale edit surfaces as a typed conflict here, not a
+                // bare exception at commit (and not -32603 on the MCP surface).
+                flushDetectingStaleVersion();
                 return m;
             }
         }
 
         return insertNew(callerSubject, scope, type, key, content, source);
+    }
+
+    /**
+     * §A1.6: flush the persistence context and translate Hibernate's optimistic-
+     * lock failure into a typed {@link StaleVersionException} (mapped to a 409 on
+     * the console path and a typed tool error on the MCP path). A no-op when the
+     * loaded {@code version} still matches the row.
+     */
+    private void flushDetectingStaleVersion() {
+        try {
+            getEntityManager().flush();
+        } catch (jakarta.persistence.OptimisticLockException ole) {
+            throw new StaleVersionException(
+                "the entry was modified concurrently (stale version) — reload and retry.", ole);
+        }
     }
 
     /**
@@ -122,10 +157,10 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      */
     @Transactional
     public Memory remap(Memory entry, String targetSlug, String newKey) {
-        if (entry.protected_) {
+        if (entry.lock != MemoryLock.NONE) {
             throw new ProtectedEntryException(
                 ProtectedEntryException.Reason.UPSERT_BLOCKED, entry.key,
-                "protected system-seed entries (D-CORE-11) cannot be re-homed.");
+                "locked entries (ADR-0024 §13 / D-CORE-11) cannot be re-homed.");
         }
         Scope target = scopes.requireBySlug(targetSlug);
         if (target.kind == ScopeKind.PRIVATE) {
@@ -134,7 +169,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         }
         String effectiveKey = (newKey != null && !newKey.isBlank()) ? newKey : entry.key;
         assertNoProtectedConflict(target, effectiveKey, entry.source);
-        assertKeyFree(target, effectiveKey, entry.id);
+        assertKeyFree(target, effectiveKey, entry.logicalId);
         entry.scope = target;
         if (newKey != null && !newKey.isBlank()) entry.key = newKey;
         return entry;
@@ -148,8 +183,8 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     private void assertNoProtectedConflict(Scope scope, String key, SourceChannel source) {
         if (key != null && source != SourceChannel.SYSTEM) {
             boolean protectedConflict = find(
-                "scope = ?1 and key = ?2 and protected_ = true",
-                scope, key).firstResultOptional().isPresent();
+                "scope = ?1 and key = ?2 and lock = ?3",
+                scope, key, MemoryLock.SYSTEM).firstResultOptional().isPresent();
             if (protectedConflict) {
                 throw new ProtectedEntryException(
                     ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
@@ -166,11 +201,11 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      * moved/edited so a same-key remap of the row itself doesn't self-collide.
      * Null/blank key never collides (keyless entries are allowed to repeat).
      */
-    private void assertKeyFree(Scope scope, String key, java.util.UUID excludeId) {
+    private void assertKeyFree(Scope scope, String key, java.util.UUID excludeLogicalId) {
         if (key == null || key.isBlank()) return;
-        boolean exists = excludeId == null
-            ? find("scope = ?1 and key = ?2", scope, key).firstResultOptional().isPresent()
-            : find("scope = ?1 and key = ?2 and id != ?3", scope, key, excludeId).firstResultOptional().isPresent();
+        boolean exists = excludeLogicalId == null
+            ? find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional().isPresent()
+            : find("scope = ?1 and key = ?2 and logicalId != ?3", scope, key, excludeLogicalId).firstResultOptional().isPresent();
         if (exists) {
             throw new KeyExistsException(key,
                 "an entry with key '" + key + "' already exists in scope '" + scope.slug + "'.");
@@ -187,7 +222,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         m.key = key;
         m.content = content;
         m.source = source;
-        m.protected_ = (source == SourceChannel.SYSTEM);
+        m.lock = (source == SourceChannel.SYSTEM) ? MemoryLock.SYSTEM : MemoryLock.NONE;
         persist(m);
         return m;
     }
@@ -204,6 +239,13 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      *  forbidden (P1). Mapped to HTTP 422 REMAP_PRIVATE_FORBIDDEN. */
     public static class RemapPrivateForbiddenException extends RuntimeException {
         public RemapPrivateForbiddenException(String message) { super(message); }
+    }
+
+    /** §A1.6 optimistic locking: a concurrent edit advanced the {@code version}
+     *  under a stale writer. Mapped to HTTP 409 STALE_VERSION on the console path
+     *  and a typed tool error on the MCP path. */
+    public static class StaleVersionException extends RuntimeException {
+        public StaleVersionException(String message, Throwable cause) { super(message, cause); }
     }
 
     /**
@@ -238,7 +280,10 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             m.type = type;
             m.source = SourceChannel.SYSTEM;
             m.ownerSubject = SystemSubject.SENTINEL;
-            m.protected_ = true;
+            m.lock = MemoryLock.SYSTEM;
+            // In-place SYSTEM edit (Amendment 4): stamp the last-editor provenance.
+            m.updatedBy = SystemSubject.SENTINEL;
+            m.updatedSource = SourceChannel.SYSTEM;
             return m;
         }
         return remember(SystemSubject.SENTINEL, scopeSlug, type, key, content, SourceChannel.SYSTEM);
@@ -318,27 +363,31 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      * or 1. Never deletes another user's private row.
      */
     @Transactional
-    public int forget(String callerSubject, String scopeSlug, UUID id, String key) {
+    public int forget(String callerSubject, String scopeSlug, UUID logicalId, String key) {
         Scope scope = scopes.requireBySlug(scopeSlug);
 
         // For private scope, restrict to caller's own rows.
         boolean isPrivate = scope.kind == ScopeKind.PRIVATE;
 
         try {
-            if (id != null) {
-                String jpql = "id = ?1 and scope = ?2" +
+            if (logicalId != null) {
+                // Address by logical_id (Amendment 3). Shared deletes are
+                // author-independent (the canonical head); private restricts to
+                // the caller's own row.
+                String jpql = "logicalId = ?1 and scope = ?2" +
                               (isPrivate ? " and ownerSubject = ?3" : "");
                 return isPrivate
-                    ? (int) delete(jpql, id, scope, callerSubject)
-                    : (int) delete(jpql, id, scope);
+                    ? (int) delete(jpql, logicalId, scope, callerSubject)
+                    : (int) delete(jpql, logicalId, scope);
             }
             if (key != null) {
-                // Key is per-owner (see uq_memory_key in V1__init.sql). For shared
-                // scopes we only delete the caller's own keyed entry; we do not
-                // touch other authors' rows.
-                return (int) delete(
-                    "scope = ?1 and ownerSubject = ?2 and key = ?3",
-                    scope, callerSubject, key);
+                // Code Finding 2 (ratified, Delta 4): forget-by-key is
+                // author-independent for SHARED scopes (matching the shared
+                // uniqueness + forget-by-id), and per-author for PRIVATE.
+                return isPrivate
+                    ? (int) delete("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                                   scope, callerSubject, key)
+                    : (int) delete(SHARED_KEY_LOOKUP, scope, key);
             }
             throw new IllegalArgumentException("forget requires either id or key");
         } catch (PersistenceException pe) {

@@ -44,6 +44,9 @@ import java.util.UUID;
 @ApplicationScoped
 public class MemoryTools {
 
+    /** Reserved slug of the one private scope per tenant (V1 unique index). */
+    private static final String PRIVATE_SCOPE_SLUG = "private";
+
     @Inject SecurityIdentity identity;
     @Inject MemoryRepository memories;
     @Inject ScopeRepository scopes;
@@ -82,7 +85,9 @@ public class MemoryTools {
 
     @Tool(description =
         "Store a memory. Appends a new entry, or upserts an existing one if `key` is "
-      + "provided and matches a prior entry by this author in the same scope. "
+      + "provided and matches a prior entry with that key in the same scope (shared "
+      + "scopes hold one canonical entry per key across authors; the private scope "
+      + "keeps a per-author keyspace). "
       + "When `scope` is omitted, the team's writePolicy decides: 'ask' returns a "
       + "structured prompt asking which scope to use (no silent fallback to private); "
       + "'project' writes to the configured default project scope; 'global' writes to "
@@ -139,21 +144,29 @@ public class MemoryTools {
         // D-CORE-2: a muted member keeps their private scope but loses shared
         // writes. There is exactly one private scope per tenant, reserved slug
         // "private" (V1, unique index) — any other slug is shared.
-        if (!"private".equals(scopeSlug)) {
+        if (!PRIVATE_SCOPE_SLUG.equals(scopeSlug)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
 
         // Tenant isolation is enforced by Hibernate's @TenantId discriminator on
-        // every query — never bind tenant_id by hand here. The old explicit
-        // `tenantId = ?1` predicate bound config.tenantId() (a UUID) to the
-        // String-typed discriminator field → QueryArgumentException on every
-        // keyed write; and in SaaS config.tenantId() is the zero sentinel, not
-        // the request tenant, so it would never match even with the right type.
-        // (Same predicate shape MemoryRepository.remember uses for its upsert.)
-        boolean existed = key != null && memories.find(
-            "scope.slug = ?1 and ownerSubject = ?2 and key = ?3",
-            scopeSlug, callerSubject(), key
-        ).firstResultOptional().isPresent();
+        // every query — never bind tenant_id by hand here. This `existed` probe
+        // MUST mirror MemoryRepository.remember's scope-kind-differentiated
+        // upsert lookup (A1.3 (1)) or the DTO would report existed=false for a
+        // shared-key write the repo then upserts: SHARED is author-independent
+        // (scope, key); PRIVATE is per-author (scope, owner, key). Private is the
+        // reserved slug "private" (V1, unique index) — any other slug is shared.
+        final boolean existed;
+        if (key == null) {
+            existed = false;
+        } else if (PRIVATE_SCOPE_SLUG.equals(scopeSlug)) {
+            existed = memories.find(
+                "scope.slug = ?1 and ownerSubject = ?2 and key = ?3",
+                scopeSlug, callerSubject(), key).firstResultOptional().isPresent();
+        } else {
+            existed = memories.find(
+                "scope.slug = ?1 and key = ?2",
+                scopeSlug, key).firstResultOptional().isPresent();
+        }
 
         final Memory m;
         try {
@@ -170,6 +183,11 @@ public class MemoryTools {
             // before any insert, so no ghost scope/entry is created. Scopes are
             // never auto-created here (D-CORE-14: provisioning/KC-Org only).
             throw new ToolCallException("scope '" + scopeSlug + "' does not exist or is not visible");
+        } catch (ai.kumbuka.repo.MemoryRepository.StaleVersionException sve) {
+            // §A1.6 optimistic lock: a concurrent edit advanced the version under
+            // this stale write — surface a typed tool error (isError + reason),
+            // not a bare -32603. The client should reload and retry.
+            throw new ToolCallException(sve.getMessage());
         }
         // D-CORE-7: attach the provenance URL on a freshly-written row only — an
         // upsert preserves the row's original reference. Validated above; blank = none.
@@ -230,7 +248,7 @@ public class MemoryTools {
         UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
         // D-CORE-2: shared forget is a write — suspended for muted members; a
         // muted member can still forget in their own private scope (slug "private").
-        if (!"private".equals(scope)) {
+        if (!PRIVATE_SCOPE_SLUG.equals(scope)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
         final int n;

@@ -44,20 +44,23 @@ public final class AdminDtos {
     }
 
     public record EntryView(
-        UUID id,
+        UUID logicalId,       // ADR-0024 §2/§8 (Amendment 3): the entry's reference identity
         String type,
         String key,
         String content,
         String reference,     // D-CORE-7: optional external provenance URL
-        String authorSubject,
-        String source,
+        String authorSubject, // first-author (v1 creator) — immutable
+        String source,        // create channel
+        String updatedBy,     // Amendment 4: last-editor subject (null if never edited)
+        String updatedSource, // Amendment 4: last-edit channel (null if never edited)
         Instant createdAt,
         Instant updatedAt
     ) {
         public static EntryView from(Memory m) {
             return new EntryView(
-                m.id, m.type.dbValue(), m.key, m.content, m.reference,
+                m.logicalId, m.type.dbValue(), m.key, m.content, m.reference,
                 m.ownerSubject, m.source.dbValue(),
+                m.updatedBy, m.updatedSource == null ? null : m.updatedSource.dbValue(),
                 m.createdAt, m.updatedAt
             );
         }
@@ -101,7 +104,7 @@ public final class AdminDtos {
     ) {
         public static RecentActivity from(Memory m) {
             return new RecentActivity(
-                m.id, m.scope.slug, m.type.dbValue(), m.key,
+                m.logicalId, m.scope.slug, m.type.dbValue(), m.key,
                 m.ownerSubject, m.source.dbValue(), m.updatedAt
             );
         }
