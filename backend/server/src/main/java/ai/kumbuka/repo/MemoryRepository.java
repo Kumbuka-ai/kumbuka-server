@@ -43,6 +43,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     @Inject MemoryConfig config;
     @Inject ScopeRepository scopes;
 
+    /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
+    private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
+
     /**
      * Append or upsert. If {@code key} is non-null and a row already exists
      * for this (scope, owner, key), update content + type. Otherwise insert.
@@ -77,7 +80,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             Optional<Memory> existing = privateScope
                 ? find("scope = ?1 and ownerSubject = ?2 and key = ?3",
                        scope, callerSubject, key).firstResultOptional()
-                : find("scope = ?1 and key = ?2",
+                : find(SHARED_KEY_LOOKUP,
                        scope, key).firstResultOptional();
             if (existing.isPresent()) {
                 Memory m = existing.get();
@@ -201,7 +204,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     private void assertKeyFree(Scope scope, String key, java.util.UUID excludeLogicalId) {
         if (key == null || key.isBlank()) return;
         boolean exists = excludeLogicalId == null
-            ? find("scope = ?1 and key = ?2", scope, key).firstResultOptional().isPresent()
+            ? find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional().isPresent()
             : find("scope = ?1 and key = ?2 and logicalId != ?3", scope, key, excludeLogicalId).firstResultOptional().isPresent();
         if (exists) {
             throw new KeyExistsException(key,
@@ -384,7 +387,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 return isPrivate
                     ? (int) delete("scope = ?1 and ownerSubject = ?2 and key = ?3",
                                    scope, callerSubject, key)
-                    : (int) delete("scope = ?1 and key = ?2", scope, key);
+                    : (int) delete(SHARED_KEY_LOOKUP, scope, key);
             }
             throw new IllegalArgumentException("forget requires either id or key");
         } catch (PersistenceException pe) {
