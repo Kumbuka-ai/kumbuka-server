@@ -44,6 +44,9 @@ import java.util.UUID;
 @ApplicationScoped
 public class MemoryTools {
 
+    /** Reserved slug of the one private scope per tenant (V1 unique index). */
+    private static final String PRIVATE_SCOPE_SLUG = "private";
+
     @Inject SecurityIdentity identity;
     @Inject MemoryRepository memories;
     @Inject ScopeRepository scopes;
@@ -141,7 +144,7 @@ public class MemoryTools {
         // D-CORE-2: a muted member keeps their private scope but loses shared
         // writes. There is exactly one private scope per tenant, reserved slug
         // "private" (V1, unique index) — any other slug is shared.
-        if (!"private".equals(scopeSlug)) {
+        if (!PRIVATE_SCOPE_SLUG.equals(scopeSlug)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
 
@@ -155,7 +158,7 @@ public class MemoryTools {
         final boolean existed;
         if (key == null) {
             existed = false;
-        } else if ("private".equals(scopeSlug)) {
+        } else if (PRIVATE_SCOPE_SLUG.equals(scopeSlug)) {
             existed = memories.find(
                 "scope.slug = ?1 and ownerSubject = ?2 and key = ?3",
                 scopeSlug, callerSubject(), key).firstResultOptional().isPresent();
@@ -240,7 +243,7 @@ public class MemoryTools {
         UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
         // D-CORE-2: shared forget is a write — suspended for muted members; a
         // muted member can still forget in their own private scope (slug "private").
-        if (!"private".equals(scope)) {
+        if (!PRIVATE_SCOPE_SLUG.equals(scope)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
         final int n;

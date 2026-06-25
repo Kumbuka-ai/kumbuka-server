@@ -211,6 +211,31 @@ class MemoryToolsTest {
             .contains("scope.slug", "key");
     }
 
+    @Test
+    void remember_withKey_privateScope_existenceProbeStaysPerAuthor() {
+        // V16 (A1.3 (1)): the PRIVATE scope keeps a per-author keyspace, so the
+        // existed-probe for the reserved "private" slug stays (scope, owner, key).
+        Scope priv = scope("private", ScopeKind.PRIVATE);
+        Memory persisted = memory(MemoryType.DECISION, priv, "note.k", "secret");
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> existing = mock(PanacheQuery.class);
+        when(existing.firstResultOptional()).thenReturn(Optional.of(persisted));
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(existing);
+        when(memories.remember(
+            eq("caller-sub"), eq("private"), eq(MemoryType.DECISION),
+            eq("note.k"), eq("secret"), eq(SourceChannel.MCP)))
+            .thenReturn(persisted);
+
+        Dtos.RememberResult out = tools.memory_remember("secret", "decision", "private", "note.k", null);
+
+        assertThat(out.upserted()).isTrue();
+        ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
+        verify(memories).find(query.capture(), any(Object[].class));
+        assertThat(query.getValue())
+            .doesNotContain("tenantId")
+            .contains("scope.slug", "ownerSubject", "key");
+    }
+
     // ---------- memory_remember: implicit scope via policy ------------------
 
     @Test
