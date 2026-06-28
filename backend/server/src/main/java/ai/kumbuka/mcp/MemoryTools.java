@@ -170,7 +170,18 @@ public class MemoryTools {
 
         final Memory m;
         try {
+            // FEAT-19 / D-CORE-18: a content-locked scope rejects EVERY MCP write,
+            // including from admins — the MCP wire is never an override surface.
+            // Pre-check before the upsert; mirrors the ProtectedEntry typed-error
+            // surfacing below. requireBySlug fires first, so an unknown scope still
+            // routes to the ScopeNotFound branch (no ghost row).
+            Scope sc = scopes.requireBySlug(scopeSlug);
+            writePolicy.assertScopeWritable(sc, SourceChannel.MCP, false);
             m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
+        } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
+            // FEAT-19: typed structured tool error, parallel to ProtectedError.
+            return new Dtos.RememberResult(null, false, null, null,
+                new Dtos.ProtectedError("SCOPE_READ_ONLY", key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
             // D-CORE-11: a protected system-seed entry already owns this key.
             // Return a typed structured error instead of a -32603 "Internal error".
@@ -253,7 +264,15 @@ public class MemoryTools {
         }
         final int n;
         try {
+            // FEAT-19 / D-CORE-18: delete (move-out) is a mutation — a content-locked
+            // scope rejects it on the MCP wire for everyone, admins included.
+            Scope sc = scopes.requireBySlug(scope);
+            writePolicy.assertScopeWritable(sc, SourceChannel.MCP, false);
             n = memories.forget(callerSubject(), scope, uuid, key);
+        } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
+            // FEAT-19: typed structured tool error, parallel to ProtectedError.
+            return new Dtos.ForgetResult(0,
+                new Dtos.ProtectedError("SCOPE_READ_ONLY", key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
             // D-CORE-11: caller tried to delete a protected system-seed entry.
             // The structural trigger (memory_protected_delete_block) raised the

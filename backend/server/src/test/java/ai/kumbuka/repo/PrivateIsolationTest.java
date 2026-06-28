@@ -305,26 +305,26 @@ class PrivateIsolationTest {
     }
 
     // dogfood-16/19: the fixed (global) scope cannot be archived / un-archived /
-    // renamed — the repo guards throw the typed ScopeLockedException (→ 409).
+    // renamed — the repo guards throw the typed ScopeFixedException (→ 409).
     @Test
     @Transactional
-    void archive_fixedGlobalScope_throwsScopeLocked() {
+    void archive_fixedGlobalScope_throwsScopeFixed() {
         assertThatThrownBy(() -> scopes.archive("global"))
-            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+            .isInstanceOf(ScopeRepository.ScopeFixedException.class);
     }
 
     @Test
     @Transactional
-    void unarchive_fixedGlobalScope_throwsScopeLocked() {
+    void unarchive_fixedGlobalScope_throwsScopeFixed() {
         assertThatThrownBy(() -> scopes.unarchive("global"))
-            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+            .isInstanceOf(ScopeRepository.ScopeFixedException.class);
     }
 
     @Test
     @Transactional
-    void rename_fixedGlobalScope_throwsScopeLocked() {
+    void rename_fixedGlobalScope_throwsScopeFixed() {
         assertThatThrownBy(() -> scopes.rename("global", "Renamed", null))
-            .isInstanceOf(ScopeRepository.ScopeLockedException.class);
+            .isInstanceOf(ScopeRepository.ScopeFixedException.class);
     }
 
     @Test

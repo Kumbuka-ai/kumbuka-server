@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -66,6 +67,12 @@ class MemoryToolsTest {
         JsonWebToken jwt = mock(JsonWebToken.class);
         when(jwt.getName()).thenReturn("caller-sub");
         when(identity.getPrincipal()).thenReturn(jwt);
+        // FEAT-19: the remember/forget tool paths now resolve the target scope
+        // (ScopeRepository.requireBySlug) for the scope-lock pre-check before
+        // delegating to the repository. Default every slug to an open (unlocked)
+        // scope; the unknown-scope tests override requireBySlug to throw.
+        lenient().when(scopes.requireBySlug(anyString()))
+            .thenAnswer(i -> scope(i.getArgument(0), ScopeKind.PROJECT));
     }
 
     // ---------- helpers ------------------------------------------------------
@@ -148,13 +155,15 @@ class MemoryToolsTest {
     }
 
     // dogfood-14: an unknown/RLS-invisible scope slug resolves via
-    // ScopeRepository.requireBySlug INSIDE memories.remember/forget and throws
-    // ScopeNotFoundException — previously uncaught → bare -32603. It must now
-    // surface as a typed ToolCallException naming the slug.
+    // ScopeRepository.requireBySlug and throws ScopeNotFoundException —
+    // previously uncaught → bare -32603. It must surface as a typed
+    // ToolCallException naming the slug. (FEAT-19: the resolve now happens in the
+    // tool for the scope-lock pre-check, ahead of memories.remember/forget; the
+    // ScopeNotFound path is identical.)
 
     @Test
     void remember_unknownScope_throwsToolCallException_notInternalError() {
-        when(memories.remember(anyString(), eq("nope"), any(), any(), anyString(), any()))
+        when(scopes.requireBySlug("nope"))
             .thenThrow(new ScopeRepository.ScopeNotFoundException("scope not found: nope"));
 
         assertThatThrownBy(() -> tools.memory_remember("x", "decision", "nope", null, null))
@@ -165,7 +174,7 @@ class MemoryToolsTest {
 
     @Test
     void forget_unknownScope_throwsToolCallException_notInternalError() {
-        when(memories.forget(anyString(), eq("nope"), any(), any()))
+        when(scopes.requireBySlug("nope"))
             .thenThrow(new ScopeRepository.ScopeNotFoundException("scope not found: nope"));
 
         assertThatThrownBy(() -> tools.memory_forget("nope", null, "k"))

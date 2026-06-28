@@ -1,16 +1,28 @@
 package ai.kumbuka.service;
 
+import ai.kumbuka.domain.Scope;
+import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.UserAccount;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.ForbiddenException;
 
 /**
- * D-CORE-2 — per-member mute enforcement. A muted member keeps full read access
- * and full read/write of their PRIVATE scope, but SHARED-scope writes
- * (create/update/delete + shared forget) are suspended, on BOTH the console
- * admin API and the assistant's MCP channel.
+ * The shared write-gate both surfaces (console admin API + assistant MCP
+ * channel) call before a shared-scope mutation. It carries two orthogonal
+ * checks:
  *
- * <p>This is the single place the rule lives; the two write surfaces call it.
+ * <ul>
+ *   <li><b>D-CORE-2 per-member mute</b> ({@link #assertCanWriteShared}) — a
+ *       muted member keeps full read access and full read/write of their
+ *       PRIVATE scope, but SHARED-scope writes (create/update/delete + shared
+ *       forget) are suspended.</li>
+ *   <li><b>FEAT-19 / D-CORE-18 scope content-lock</b>
+ *       ({@link #assertScopeWritable}) — a {@code scope.locked} scope rejects
+ *       every member mutation over EVERY surface; the one legitimate write path
+ *       is a team-admin override on the console (audited by the caller).</li>
+ * </ul>
+ *
+ * <p>This is the single place the rules live; the two write surfaces call it.
  * It must run inside the tenant-bound transaction (the GUC is already set by the
  * {@code @TenantBound} interceptor), so the {@link UserAccount} lookup is
  * tenant-scoped. A member with no {@code user_account} row is treated as not
@@ -29,6 +41,41 @@ public class MemberWritePolicy {
         if (u != null && Boolean.TRUE.equals(u.muted)) {
             throw new MutedException();
         }
+    }
+
+    /**
+     * FEAT-19 / D-CORE-18 scope content-lock guard. Pre-check, called before any
+     * create / update / delete / move-in / move-out on a shared scope:
+     *
+     * <ul>
+     *   <li>{@code !scope.locked} → returns (the scope is open).</li>
+     *   <li>{@code channel == MCP} → ALWAYS rejected on a locked scope, including
+     *       for admins — the MCP wire is never an override surface (same rule as
+     *       the D-CORE-13 admin-lock on MCP).</li>
+     *   <li>{@code channel == CONSOLE && !callerIsAdmin} → rejected (a member
+     *       cannot mutate a locked scope on any surface).</li>
+     *   <li>{@code channel == CONSOLE && callerIsAdmin} → returns — this is the
+     *       one legitimate override path. The CALLER is responsible for emitting
+     *       the {@code entry.override} governance-audit event.</li>
+     * </ul>
+     *
+     * Read and copy-out (read + create into a non-locked scope) need no special
+     * handling: a read never calls this, and a copy-out's create keys on its
+     * (open) TARGET scope, which passes.
+     *
+     * @throws ScopeReadOnlyException when the locked scope rejects the write.
+     */
+    public void assertScopeWritable(Scope scope, SourceChannel channel, boolean callerIsAdmin) {
+        if (!Boolean.TRUE.equals(scope.locked)) {
+            return;
+        }
+        if (channel == SourceChannel.CONSOLE && callerIsAdmin) {
+            return;   // admin console override — the caller audits it (Stage 2)
+        }
+        throw new ScopeReadOnlyException(scope.slug,
+            "scope '" + scope.slug + "' is read-only (locked) — members cannot add, edit, "
+            + "or delete entries; only a team admin may override, and only from the console "
+            + "(FEAT-19 / D-CORE-18).");
     }
 
     public static class MutedException extends ForbiddenException {
