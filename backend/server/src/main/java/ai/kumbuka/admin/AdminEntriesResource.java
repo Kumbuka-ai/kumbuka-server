@@ -83,7 +83,7 @@ public class AdminEntriesResource {
         // FEAT-19 / D-CORE-18: a locked scope rejects member writes; a team-admin
         // overrides (audited after the write). isAdmin is the runtime role, the
         // same source the createScopes policy reads.
-        boolean isAdmin = identity.getRoles().contains("admin");
+        boolean isAdmin = callerIsAdmin();
         writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ai.kumbuka.util.MemoryKeyValidator.validate(req.key());   // E2E-06: key format
@@ -119,7 +119,7 @@ public class AdminEntriesResource {
         Scope scope = requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
         // FEAT-19 / D-CORE-18: locked scope rejects member edits; admin overrides.
-        boolean isAdmin = identity.getRoles().contains("admin");
+        boolean isAdmin = callerIsAdmin();
         writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
@@ -148,7 +148,7 @@ public class AdminEntriesResource {
         Scope scope = requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
         // FEAT-19 / D-CORE-18: locked scope rejects member deletes; admin overrides.
-        boolean isAdmin = identity.getRoles().contains("admin");
+        boolean isAdmin = callerIsAdmin();
         writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         // Lookup first so we 404 cleanly when the id is wrong; deleteShared
         // returns 0 silently otherwise.
@@ -189,7 +189,7 @@ public class AdminEntriesResource {
         // Resolve the target up-front (memories.remap re-resolves it; a missing
         // target routes to SCOPE_NOT_FOUND). Since only admins reach remap, a
         // locked side is inherently an override → marked in the audit below.
-        boolean isAdmin = identity.getRoles().contains("admin");
+        boolean isAdmin = callerIsAdmin();
         Scope target = scopes.requireBySlug(req.targetScope().trim());
         writePolicy.assertScopeWritable(source, SourceChannel.CONSOLE, isAdmin);
         writePolicy.assertScopeWritable(target, SourceChannel.CONSOLE, isAdmin);
@@ -206,6 +206,12 @@ public class AdminEntriesResource {
                 "toScope", moved.scope.slug,
                 "override", override));
         return EntryView.from(moved);
+    }
+
+    /** Runtime role of the caller — the same source the createScopes policy and
+     *  the FEAT-19 scope-lock override read. */
+    private boolean callerIsAdmin() {
+        return identity.getRoles().contains("admin");
     }
 
     private Scope requireSharedSlug(String slug) {
