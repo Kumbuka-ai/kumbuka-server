@@ -476,6 +476,7 @@ class AdminEntriesResourceTest {
         Scope alpha = sharedScope("alpha");
         Scope beta = sharedScope("beta");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(scopes.requireBySlug("beta")).thenReturn(beta);   // FEAT-19: remap now gates the target scope too
         Memory m = mem(alpha, MemoryType.DECISION, "k.move", "content");
         when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         Memory moved = mem(beta, MemoryType.DECISION, "k.move", "content");
@@ -512,6 +513,7 @@ class AdminEntriesResourceTest {
     void remap_privateTarget_returns400_remapPrivateForbidden() {
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
+        when(scopes.requireBySlug("private")).thenReturn(sharedScope("private"));   // FEAT-19: target gated before remap
         Memory m = mem(alpha, MemoryType.DECISION, "k", "c");
         when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         when(memories.remap(any(), eq("private"), any()))

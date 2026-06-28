@@ -27,6 +27,7 @@ public final class AdminDtos {
         String kind,
         boolean fixed,
         boolean archived,
+        boolean locked,   // FEAT-19 / D-CORE-18: content read-only flag (lock icon)
         String description,
         long entryCount,
         Instant createdAt
@@ -36,6 +37,7 @@ public final class AdminDtos {
                 s.slug, s.name, s.kind.dbValue(),
                 Boolean.TRUE.equals(s.fixed),
                 Boolean.TRUE.equals(s.archived),
+                Boolean.TRUE.equals(s.locked),
                 s.description,
                 entryCount,
                 s.createdAt

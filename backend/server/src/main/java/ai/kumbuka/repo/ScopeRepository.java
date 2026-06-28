@@ -80,7 +80,7 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     public void rename(String slug, String newName, String newDescription) {
         Scope s = requireBySlug(slug);
         if (s.fixed) {
-            throw new ScopeLockedException("fixed scope cannot be renamed: " + slug);
+            throw new ScopeFixedException("fixed scope cannot be renamed: " + slug);
         }
         if (newName != null) s.name = newName;
         if (newDescription != null) s.description = newDescription;
@@ -90,10 +90,10 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     public void archive(String slug) {
         Scope s = requireBySlug(slug);
         if (s.fixed) {
-            throw new ScopeLockedException("fixed scope cannot be archived: " + slug);
+            throw new ScopeFixedException("fixed scope cannot be archived: " + slug);
         }
         if (s.kind != ScopeKind.PROJECT) {
-            throw new ScopeLockedException("only project scopes can be archived: " + slug);
+            throw new ScopeFixedException("only project scopes can be archived: " + slug);
         }
         s.archived = true;
     }
@@ -107,12 +107,26 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     public void unarchive(String slug) {
         Scope s = requireBySlug(slug);
         if (s.fixed) {
-            throw new ScopeLockedException("fixed scope cannot be un-archived: " + slug);
+            throw new ScopeFixedException("fixed scope cannot be un-archived: " + slug);
         }
         if (s.kind != ScopeKind.PROJECT) {
-            throw new ScopeLockedException("only project scopes can be un-archived: " + slug);
+            throw new ScopeFixedException("only project scopes can be un-archived: " + slug);
         }
         s.archived = false;
+    }
+
+    /**
+     * FEAT-19 / D-CORE-18: flip the {@code scope.locked} content-lock flag.
+     * Plain mutation, idempotent (setting the current value is a no-op write).
+     * Deliberately carries NO fixed/project restriction — the lock axis is
+     * orthogonal to {@code fixed}/{@code archived}, so a fixed scope (e.g. the
+     * singleton {@code global}) is lockable. Role + private-slug gating live at
+     * the resource ({@link ai.kumbuka.admin.AdminScopesResource}).
+     */
+    @Transactional
+    public void setLocked(String slug, boolean locked) {
+        Scope s = requireBySlug(slug);
+        s.locked = locked;
     }
 
     public static class ScopeNotFoundException extends RuntimeException {
@@ -122,8 +136,8 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
         public ScopeAlreadyExistsException(String m) { super(m); }
     }
     /** A scope-lifecycle op was rejected because the scope is fixed (global) or
-     *  not a project. Mapped to HTTP 409 SCOPE_LOCKED for REST callers. */
-    public static class ScopeLockedException extends RuntimeException {
-        public ScopeLockedException(String m) { super(m); }
+     *  not a project. Mapped to HTTP 409 SCOPE_FIXED for REST callers. */
+    public static class ScopeFixedException extends RuntimeException {
+        public ScopeFixedException(String m) { super(m); }
     }
 }

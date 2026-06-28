@@ -45,6 +45,7 @@ public class AdminScopesResource {
     @Inject SharedMemoryRepository sharedMemories;
     @Inject TeamSettingsRepository settings;
     @Inject SecurityIdentity identity;
+    @Inject ai.kumbuka.audit.TeamAuditService audit;   // FEAT-19 lock/unlock governance event
 
     @GET
     @RolesAllowed({"admin", "member"})
@@ -102,7 +103,7 @@ public class AdminScopesResource {
 
     // dogfood-16: reverse of :archive (reversible soft-hide, no delete). Admin-only,
     // same guards (requireSharedSlug + the repo's fixed/non-project checks → 409
-    // SCOPE_LOCKED). 204 on success — mirrors :archive and the console's void call.
+    // SCOPE_FIXED). 204 on success — mirrors :archive and the console's void call.
     @POST
     @Path("/{slug}:unarchive")
     @RolesAllowed("admin")
@@ -110,6 +111,35 @@ public class AdminScopesResource {
     public Response unarchive(@PathParam("slug") String slug) {
         requireSharedSlug(slug);
         scopes.unarchive(slug);
+        return Response.noContent().build();
+    }
+
+    // FEAT-19 / D-CORE-18: content-lock toggle. Admin-only, mirrors :archive
+    // (requireSharedSlug → private 404; 204 on success). NO fixed/project
+    // restriction — the lock axis is orthogonal, so a fixed scope (global) is
+    // lockable (setLocked enforces nothing extra). Each toggle emits a
+    // content-free governance-audit row (actor, scope). Idempotent.
+    @POST
+    @Path("/{slug}:lock")
+    @RolesAllowed("admin")
+    @Transactional
+    public Response lock(@PathParam("slug") String slug) {
+        requireSharedSlug(slug);
+        scopes.setLocked(slug, true);
+        audit.append(identity.getPrincipal().getName(), "scope.lock", null,
+            java.util.Map.of("scope", slug));
+        return Response.noContent().build();
+    }
+
+    @POST
+    @Path("/{slug}:unlock")
+    @RolesAllowed("admin")
+    @Transactional
+    public Response unlock(@PathParam("slug") String slug) {
+        requireSharedSlug(slug);
+        scopes.setLocked(slug, false);
+        audit.append(identity.getPrincipal().getName(), "scope.unlock", null,
+            java.util.Map.of("scope", slug));
         return Response.noContent().build();
     }
 

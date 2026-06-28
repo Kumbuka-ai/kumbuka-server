@@ -1,8 +1,9 @@
 package ai.kumbuka.admin;
 
 import ai.kumbuka.repo.ScopeRepository.ScopeAlreadyExistsException;
-import ai.kumbuka.repo.ScopeRepository.ScopeLockedException;
+import ai.kumbuka.repo.ScopeRepository.ScopeFixedException;
 import ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException;
+import ai.kumbuka.service.ScopeReadOnlyException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
@@ -52,9 +53,24 @@ class ScopeNotFoundExceptionMapper implements ExceptionMapper<ScopeNotFoundExcep
 }
 
 @Provider
-class ScopeLockedExceptionMapper implements ExceptionMapper<ScopeLockedException> {
+class ScopeFixedExceptionMapper implements ExceptionMapper<ScopeFixedException> {
     @Override
-    public Response toResponse(ScopeLockedException ex) {
-        return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "SCOPE_LOCKED", ex.getMessage());
+    public Response toResponse(ScopeFixedException ex) {
+        return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "SCOPE_FIXED", ex.getMessage());
+    }
+}
+
+/**
+ * FEAT-19 / D-CORE-18: a member's mutation on a content-locked
+ * ({@code scope.locked}) scope. 409 with the {@code SCOPE_READ_ONLY} code the
+ * console's {@code mapApiError} consumes. Distinct from {@code SCOPE_FIXED}
+ * (the existence/identity axis) — the retired fixed-scope code is never recycled
+ * for the content-lock rejection (D-CORE-18).
+ */
+@Provider
+class ScopeReadOnlyExceptionMapper implements ExceptionMapper<ScopeReadOnlyException> {
+    @Override
+    public Response toResponse(ScopeReadOnlyException ex) {
+        return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "SCOPE_READ_ONLY", ex.getMessage());
     }
 }

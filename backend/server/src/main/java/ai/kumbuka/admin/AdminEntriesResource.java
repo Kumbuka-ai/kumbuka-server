@@ -76,10 +76,15 @@ public class AdminEntriesResource {
     @RolesAllowed({"admin", "member"})
     @Transactional
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
-        requireSharedSlug(slug);
+        Scope scope = requireSharedSlug(slug);
         // Runtime write-gate (D-CORE-2): muted members are rejected here, normal
-        // members pass. This is also the seam for the future D-CORE-13 lock check.
+        // members pass. This is also the seam for the D-CORE-13 lock check.
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());
+        // FEAT-19 / D-CORE-18: a locked scope rejects member writes; a team-admin
+        // overrides (audited after the write). isAdmin is the runtime role, the
+        // same source the createScopes policy reads.
+        boolean isAdmin = identity.getRoles().contains("admin");
+        writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ai.kumbuka.util.MemoryKeyValidator.validate(req.key());   // E2E-06: key format
         ReferenceUrlValidator.validate(req.reference());
@@ -98,6 +103,7 @@ public class AdminEntriesResource {
         if (req.reference() != null && !req.reference().isBlank()) {
             m.reference = req.reference();   // D-CORE-7: explicit admin write
         }
+        auditOverrideIfLocked(scope, m.logicalId, "create");
         return Response.status(Response.Status.CREATED)
             .entity(EntryView.from(m))
             .build();
@@ -110,12 +116,18 @@ public class AdminEntriesResource {
     public EntryView update(@PathParam("slug") String slug,
                             @PathParam("id") UUID id,
                             UpdateEntryRequest req) {
-        requireSharedSlug(slug);
+        Scope scope = requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
+        // FEAT-19 / D-CORE-18: locked scope rejects member edits; admin overrides.
+        boolean isAdmin = identity.getRoles().contains("admin");
+        writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         MemoryContentValidator.validate(req.content());   // F-1: ≤1500, server-side
         ReferenceUrlValidator.validate(req.reference());
         MemoryType t = req.type() == null ? null : MemoryType.fromDb(req.type());
         // Amendment 4: the acting admin is stamped as updated_by on the edit.
+        // A still-SYSTEM-locked row (D-CORE-11) throws inside update() here — a
+        // separate, still-binding axis — so the override audit below never fires
+        // for a row the entry-level lock rejected (axis composition, D-CORE-18).
         Memory m = sharedMemories.update(id, req.content(), t, identity.getPrincipal().getName());
         if (req.reference() != null) {   // D-CORE-7: null preserves, blank clears
             m.reference = req.reference().isBlank() ? null : req.reference();
@@ -124,6 +136,7 @@ public class AdminEntriesResource {
         if (!m.scope.slug.equals(slug)) {
             throw new NotFoundException("entry not in scope " + slug);
         }
+        auditOverrideIfLocked(scope, m.logicalId, "update");
         return EntryView.from(m);
     }
 
@@ -132,15 +145,21 @@ public class AdminEntriesResource {
     @RolesAllowed({"admin", "member"})
     @Transactional
     public Response delete(@PathParam("slug") String slug, @PathParam("id") UUID id) {
-        requireSharedSlug(slug);
+        Scope scope = requireSharedSlug(slug);
         writePolicy.assertCanWriteShared(identity.getPrincipal().getName());   // D-CORE-2 (see create)
+        // FEAT-19 / D-CORE-18: locked scope rejects member deletes; admin overrides.
+        boolean isAdmin = identity.getRoles().contains("admin");
+        writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
         // Lookup first so we 404 cleanly when the id is wrong; deleteShared
         // returns 0 silently otherwise.
         Memory m = sharedMemories.findSharedById(id);
         if (m == null || !m.scope.slug.equals(slug)) {
             throw new NotFoundException("entry not found in scope " + slug);
         }
+        // A SYSTEM-locked row (D-CORE-11) is rejected by the delete trigger inside
+        // deleteShared — the still-binding entry axis — before the override audit.
         sharedMemories.deleteShared(id);
+        auditOverrideIfLocked(scope, m.logicalId, "delete");
         return Response.noContent().build();
     }
 
@@ -156,7 +175,7 @@ public class AdminEntriesResource {
     public EntryView remap(@PathParam("slug") String slug,
                            @PathParam("id") UUID id,
                            RemapEntryRequest req) {
-        requireSharedSlug(slug);   // source must be shared (private → 404)
+        Scope source = requireSharedSlug(slug);   // source must be shared (private → 404)
         if (req == null || req.targetScope() == null || req.targetScope().isBlank()) {
             throw new jakarta.ws.rs.BadRequestException("targetScope is required");
         }
@@ -165,6 +184,16 @@ public class AdminEntriesResource {
             throw new NotFoundException("entry not found in scope " + slug);
         }
         String fromScope = m.scope.slug;
+        // FEAT-19 / D-CORE-18: remap is admin-only (@RolesAllowed("admin")).
+        // Move-out mutates the SOURCE, move-in mutates the TARGET — gate BOTH.
+        // Resolve the target up-front (memories.remap re-resolves it; a missing
+        // target routes to SCOPE_NOT_FOUND). Since only admins reach remap, a
+        // locked side is inherently an override → marked in the audit below.
+        boolean isAdmin = identity.getRoles().contains("admin");
+        Scope target = scopes.requireBySlug(req.targetScope().trim());
+        writePolicy.assertScopeWritable(source, SourceChannel.CONSOLE, isAdmin);
+        writePolicy.assertScopeWritable(target, SourceChannel.CONSOLE, isAdmin);
+        boolean override = Boolean.TRUE.equals(source.locked) || Boolean.TRUE.equals(target.locked);
         Memory moved = memories.remap(m, req.targetScope().trim(), req.key());
         audit.append(
             identity.getPrincipal().getName(),
@@ -174,14 +203,38 @@ public class AdminEntriesResource {
                 "entryId", id.toString(),
                 "key", moved.key == null ? "" : moved.key,
                 "fromScope", fromScope,
-                "toScope", moved.scope.slug));
+                "toScope", moved.scope.slug,
+                "override", override));
         return EntryView.from(moved);
     }
 
-    private void requireSharedSlug(String slug) {
+    private Scope requireSharedSlug(String slug) {
         Scope s = scopes.requireBySlug(slug);
         if (s.kind == ScopeKind.PRIVATE) {
             throw new NotFoundException("scope not found: " + slug);
+        }
+        return s;
+    }
+
+    /**
+     * FEAT-19 / D-CORE-18: when an admin override write lands on a content-locked
+     * scope, emit a content-free {@code entry.override} governance-audit event
+     * (actor, scope, entryId, operation — never memory content). A no-op on an
+     * open scope. Only admins reach this on a locked scope — the
+     * {@link MemberWritePolicy#assertScopeWritable} guard rejects members first,
+     * and the SYSTEM entry-lock (D-CORE-11) throws before the call site on a
+     * still-protected row, so a blocked write emits nothing.
+     */
+    private void auditOverrideIfLocked(Scope scope, UUID entryId, String operation) {
+        if (Boolean.TRUE.equals(scope.locked)) {
+            audit.append(
+                identity.getPrincipal().getName(),
+                "entry.override",
+                null,
+                java.util.Map.of(
+                    "scope", scope.slug,
+                    "entryId", entryId.toString(),
+                    "operation", operation));
         }
     }
 }

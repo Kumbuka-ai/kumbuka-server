@@ -299,10 +299,10 @@ class AdminScopesResourceTest {
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
-    void archive_fixedGlobalScope_returns409_scopeLocked() {
+    void archive_fixedGlobalScope_returns409_scopeFixed() {
         Scope global = scope("global", ScopeKind.GLOBAL, false);
         when(scopes.requireBySlug("global")).thenReturn(global);
-        doThrow(new ScopeRepository.ScopeLockedException("fixed scope cannot be archived: global"))
+        doThrow(new ScopeRepository.ScopeFixedException("fixed scope cannot be archived: global"))
             .when(scopes).archive("global");
 
         given()
@@ -311,7 +311,7 @@ class AdminScopesResourceTest {
             .when().post("/api/scopes/global:archive")
             .then()
                 .statusCode(409)
-                .body("code", equalTo("SCOPE_LOCKED"));
+                .body("code", equalTo("SCOPE_FIXED"));
     }
 
     // ---------- dogfood-16: un-archive (admin-only, reversible) -------------
@@ -356,10 +356,10 @@ class AdminScopesResourceTest {
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
-    void unarchive_fixedGlobalScope_returns409_scopeLocked() {
+    void unarchive_fixedGlobalScope_returns409_scopeFixed() {
         Scope global = scope("global", ScopeKind.GLOBAL, false);
         when(scopes.requireBySlug("global")).thenReturn(global);
-        doThrow(new ScopeRepository.ScopeLockedException("fixed scope cannot be un-archived: global"))
+        doThrow(new ScopeRepository.ScopeFixedException("fixed scope cannot be un-archived: global"))
             .when(scopes).unarchive("global");
 
         given()
@@ -368,6 +368,6 @@ class AdminScopesResourceTest {
             .when().post("/api/scopes/global:unarchive")
             .then()
                 .statusCode(409)
-                .body("code", equalTo("SCOPE_LOCKED"));
+                .body("code", equalTo("SCOPE_FIXED"));
     }
 }
