@@ -55,6 +55,9 @@ import java.util.UUID;
 @Consumes(MediaType.APPLICATION_JSON)
 public class AdminEntriesResource {
 
+    private static final String ROLE_ADMIN = "admin";
+    private static final String ROLE_MEMBER = "member";
+
     @Inject ScopeRepository scopes;
     @Inject MemoryRepository memories;           // write path (sets source=CONSOLE)
     @Inject SharedMemoryRepository sharedMemories;
@@ -64,7 +67,7 @@ public class AdminEntriesResource {
     @Inject ai.kumbuka.audit.TeamAuditService audit;   // D-CORE-17 remap governance event
 
     @GET
-    @RolesAllowed({"admin", "member"})
+    @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     public List<EntryView> list(@PathParam("slug") String slug) {
         requireSharedSlug(slug);
         return sharedMemories.listShared(slug, null).stream()
@@ -73,7 +76,7 @@ public class AdminEntriesResource {
     }
 
     @POST
-    @RolesAllowed({"admin", "member"})
+    @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     @Transactional
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         Scope scope = requireSharedSlug(slug);
@@ -111,7 +114,7 @@ public class AdminEntriesResource {
 
     @PATCH
     @Path("/{id}")
-    @RolesAllowed({"admin", "member"})
+    @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     @Transactional
     public EntryView update(@PathParam("slug") String slug,
                             @PathParam("id") UUID id,
@@ -142,7 +145,7 @@ public class AdminEntriesResource {
 
     @DELETE
     @Path("/{id}")
-    @RolesAllowed({"admin", "member"})
+    @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     @Transactional
     public Response delete(@PathParam("slug") String slug, @PathParam("id") UUID id) {
         Scope scope = requireSharedSlug(slug);
@@ -170,7 +173,7 @@ public class AdminEntriesResource {
     // (scopes/ids only, never content). MCP never reaches this — UI-only (D-CORE-13).
     @POST
     @Path("/{id}:remap")
-    @RolesAllowed("admin")
+    @RolesAllowed(ROLE_ADMIN)
     @Transactional
     public EntryView remap(@PathParam("slug") String slug,
                            @PathParam("id") UUID id,
@@ -184,7 +187,7 @@ public class AdminEntriesResource {
             throw new NotFoundException("entry not found in scope " + slug);
         }
         String fromScope = m.scope.slug;
-        // FEAT-19 / D-CORE-18: remap is admin-only (@RolesAllowed("admin")).
+        // FEAT-19 / D-CORE-18: remap is admin-only (@RolesAllowed(ROLE_ADMIN)).
         // Move-out mutates the SOURCE, move-in mutates the TARGET — gate BOTH.
         // Resolve the target up-front (memories.remap re-resolves it; a missing
         // target routes to SCOPE_NOT_FOUND). Since only admins reach remap, a
@@ -211,7 +214,7 @@ public class AdminEntriesResource {
     /** Runtime role of the caller — the same source the createScopes policy and
      *  the FEAT-19 scope-lock override read. */
     private boolean callerIsAdmin() {
-        return identity.getRoles().contains("admin");
+        return identity.getRoles().contains(ROLE_ADMIN);
     }
 
     private Scope requireSharedSlug(String slug) {
