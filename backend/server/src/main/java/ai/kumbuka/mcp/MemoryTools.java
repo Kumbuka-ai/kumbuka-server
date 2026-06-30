@@ -8,6 +8,7 @@ import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.TeamSettings.WritePolicy;
+import ai.kumbuka.domain.UserAccount;
 import ai.kumbuka.mcp.dto.Dtos;
 import ai.kumbuka.repo.MemoryRepository;
 import ai.kumbuka.repo.ScopeRepository;
@@ -63,6 +64,29 @@ public class MemoryTools {
     }
 
     /**
+     * FEAT-13 set-point. constraint.protocol-neutrality: the funnel field is
+     * stamped HERE — in the {@code mcp} adapter, where the authenticated request
+     * actually lands — never in the domain/service/repo. Called once at the head
+     * of every MCP tool, so any authenticated tool call counts as the member's
+     * "first connection".
+     *
+     * <p>Write-once and idempotent by construction: a single guarded UPDATE sets
+     * {@code first_mcp_connected_at} only while it {@code IS NULL}, and matches
+     * zero rows on every subsequent request. There is NO counter, NO "last seen",
+     * NO frequency, NO per-request log (constraint.audit-no-activity-monitoring) —
+     * the {@code IS NULL} guard is the structural write-once. Tenant-scoped by the
+     * {@code @TenantBound} {@code app.tenant_id} RLS GUC (and the unique
+     * {@code (tenant_id, subject)}), so it can only ever touch the caller's own
+     * row. A member with no provisioned {@code user_account} row simply matches
+     * nothing — no insert, no error.
+     */
+    private void recordFirstMcpConnection() {
+        UserAccount.update(
+            "firstMcpConnectedAt = ?1 where subject = ?2 and firstMcpConnectedAt is null",
+            java.time.Instant.now(), callerSubject());
+    }
+
+    /**
      * Run client-input validation/parsing and, on a rejection, re-raise it as a
      * {@link ToolCallException}. The validators are shared with the admin REST
      * API where they throw {@link BadRequestException} (→ HTTP 400) or
@@ -106,6 +130,7 @@ public class MemoryTools {
         @ToolArg(description = "Optional external provenance URL (http/https). Stored as metadata; never auto-fetched. Credential-bearing URLs are rejected.", required = false)
             String reference
     ) {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
         // All client-input validation runs through checkInput so a rejection
         // surfaces as a clean MCP tool error (isError + reason), never a bare
         // -32603. Covers: type enum, content ≤1500 (F-1), key format (E2E-06),
@@ -239,6 +264,7 @@ public class MemoryTools {
         @ToolArg(description = "Substring match (case-insensitive) on content.", required = false) String query,
         @ToolArg(description = "When a scope is given, also include the global scope. Default false.", required = false) Boolean include_global
     ) {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
         MemoryType t = checkInput(() -> type == null ? null : MemoryType.fromDb(type));
         boolean inclGlobal = include_global != null && include_global;
         List<Memory> rows = memories.recall(callerSubject(), scope, t, query, inclGlobal);
@@ -256,6 +282,7 @@ public class MemoryTools {
         @ToolArg(description = "Memory id (UUID).", required = false) String id,
         @ToolArg(description = "Upsert key, if the entry was written with one.", required = false) String key
     ) {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
         UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
         // D-CORE-2: shared forget is a write — suspended for muted members; a
         // muted member can still forget in their own private scope (slug "private").
@@ -292,6 +319,7 @@ public class MemoryTools {
         "List scopes visible to the caller: their own private scope plus every shared "
       + "(project + global) scope on this team.")
     public Dtos.ScopesResult memory_scopes() {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
         List<Scope> all = scopes.listAll();
         return new Dtos.ScopesResult(all.stream().map(Dtos.ScopeDto::from).toList());
     }
@@ -311,6 +339,7 @@ public class MemoryTools {
         @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope,
         @ToolArg(description = "Optional comma-separated memory types to include (decision, constraint, convention, glossary, open_question, status). Omit for the steering-types default (which excludes open_question).", required = false) String types
     ) {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
         java.util.Set<MemoryType> wanted = checkInput(() -> parseTypes(types));
         Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope, wanted);
         Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();

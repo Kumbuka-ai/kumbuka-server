@@ -104,6 +104,20 @@ public class UserAccount extends PanacheEntityBase {
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
 
+    /**
+     * FEAT-13: the instant of this member's FIRST authenticated MCP request —
+     * the beta-activation funnel's "first connection" step. Write-once: set once
+     * by the {@code mcp} adapter while still {@code null}, never touched
+     * thereafter; {@code null} = never connected over MCP. Write-once is the
+     * structural guard — it can never become a "last seen" / activity log
+     * (constraint.audit-no-activity-monitoring). The {@code mcp} in the name is a
+     * known protocol-neutrality tension (the product aims protocol-agnostic),
+     * flagged for a later rename; the SET logic lives in the mcp adapter, never
+     * in the domain (constraint.protocol-neutrality).
+     */
+    @Column(name = "first_mcp_connected_at")
+    public Instant firstMcpConnectedAt;
+
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     public Instant createdAt;
 
