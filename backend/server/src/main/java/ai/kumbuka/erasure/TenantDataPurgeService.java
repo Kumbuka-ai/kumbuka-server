@@ -22,7 +22,9 @@ import jakarta.transaction.Transactional;
  * <h3>Delete order</h3>
  *
  * <ol>
- *   <li>{@code memory} — must precede {@code scope} because
+ *   <li>{@code memory} — first release the D-CORE-11 delete-lock on this
+ *       tenant's protected system-seed rows (see the lock note below), then
+ *       delete. Must precede {@code scope} because
  *       {@code memory.scope_id REFERENCES scope(id) ON DELETE RESTRICT}.</li>
  *   <li>{@code user_account} — no FK; defensive cleanup in case the
  *       caller's per-member erase missed one.</li>
@@ -47,6 +49,24 @@ import jakarta.transaction.Transactional;
  * JPA entities in this module — only memory + scope are. The native
  * statements carry an explicit {@code WHERE tenant_id = ?} so they
  * still scope correctly.
+ *
+ * <h3>The D-CORE-11 delete-lock, and why teardown clears it</h3>
+ *
+ * <p>The system-seed {@code how-to-kumbuka.*} mnemonics carry
+ * {@code memory.lock IN ('system','admin')}; the
+ * {@code memory_protected_delete_block} trigger (V12/V16, ADR-0024 §13)
+ * refuses to DELETE any such row so the seed stays unfalsifiable
+ * <em>inside a live tenant</em>. A full-tenant teardown is the ratified
+ * exception: the tenant ceases to exist, so its seeds go with it (they are
+ * not billing data). We therefore release the lock (to the only
+ * non-protected value, {@code 'none'}) on this tenant's rows FIRST, then
+ * delete — within the SAME transaction, so the unlock never outlives the
+ * delete. There is no UPDATE trigger on {@code memory}, so the lock release
+ * is permitted at the DB layer; the app-layer lock guards
+ * (MemoryRepository / MemoryTools) are intentionally bypassed on this
+ * teardown-only path. Without this, {@code purgeTenant} raised P0001 and the
+ * whole cascade aborted, leaving the tenant un-purgeable (both the 30-day
+ * cron and the emergency hard-delete).
  */
 @ApplicationScoped
 @TenantBound
@@ -73,6 +93,21 @@ public class TenantDataPurgeService {
      */
     @Transactional
     public PurgeResult purgeTenant(String tenantIdLiteral) {
+        // Step 0: release the D-CORE-11 delete-lock on this tenant's protected
+        // system-seed rows (lock IN ('system','admin')) so the teardown DELETE
+        // can proceed. The lock keeps the how-to seeds unfalsifiable inside a
+        // LIVE tenant; a full-tenant teardown is the ratified exception. We
+        // clear the lock to 'none' (the only non-protected value) here; Step 1
+        // drops the rows in this same transaction, so the unlock never outlives
+        // the delete. Native + explicit tenant scope, mirroring the other steps;
+        // there is no UPDATE trigger, so this is allowed at the DB layer. See the
+        // class javadoc for the doctrine.
+        em.createNativeQuery(
+            "UPDATE memory SET lock = 'none' "
+          + "WHERE tenant_id = CAST(?1 AS uuid) AND lock IN ('system', 'admin')")
+            .setParameter(1, tenantIdLiteral)
+            .executeUpdate();
+
         // Step 1: memory (must precede scope).
         final int memoryDeleted = (int) Memory.deleteAll();
 

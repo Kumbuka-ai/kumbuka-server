@@ -155,6 +155,35 @@ class TenantDataPurgeServiceTest {
 
     @Test
     @Transactional
+    void purgeDeletesSystemLockedSeedRows() {
+        // Promote one seeded row to a SYSTEM-locked seed (D-CORE-11 / ADR-0024
+        // §13) — exactly the shape the provisioning seeder writes for the
+        // how-to-kumbuka conventions. The memory_protected_delete_block trigger
+        // refuses to DELETE such a row, so a bare Memory.deleteAll() raises P0001;
+        // the teardown must still remove it (both the 30-day cron and the
+        // emergency hard-delete depend on this). Regression guard for the 500 the
+        // ops-console purge hit on a real tenant.
+        int promoted = em.createNativeQuery(
+            "UPDATE memory SET lock = 'system' WHERE tenant_id = CAST(?1 AS uuid) AND key = 'p-1'")
+            .setParameter(1, TENANT_LITERAL)
+            .executeUpdate();
+        assertThat(promoted).as("one seeded row promoted to a system-locked seed").isEqualTo(1);
+
+        TenantDataPurgeService.PurgeResult out = service.purgeTenant(TENANT_LITERAL);
+
+        assertThat(out.memoryDeleted())
+            .as("all 4 rows including the locked seed are removed")
+            .isEqualTo(4);
+        assertThat(Memory.count()).as("no memory left, locked seed included").isZero();
+        Number lockedLeft = (Number) em.createNativeQuery(
+            "SELECT COUNT(*) FROM memory WHERE tenant_id = CAST(?1 AS uuid) AND lock = 'system'")
+            .setParameter(1, TENANT_LITERAL)
+            .getSingleResult();
+        assertThat(lockedLeft.intValue()).as("the locked seed is gone").isZero();
+    }
+
+    @Test
+    @Transactional
     void isIdempotent_secondCallReturnsAllZeros() {
         service.purgeTenant(TENANT_LITERAL);
         TenantDataPurgeService.PurgeResult second = service.purgeTenant(TENANT_LITERAL);
