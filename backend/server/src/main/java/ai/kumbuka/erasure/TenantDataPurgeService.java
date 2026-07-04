@@ -94,14 +94,14 @@ public class TenantDataPurgeService {
     @Transactional
     public PurgeResult purgeTenant(String tenantIdLiteral) {
         // Step 0: release the D-CORE-11 delete-lock on this tenant's protected
-        // system-seed rows (lock IN ('system','admin')) so the teardown DELETE
-        // can proceed. The lock keeps the how-to seeds unfalsifiable inside a
-        // LIVE tenant; a full-tenant teardown is the ratified exception. We
-        // clear the lock to 'none' (the only non-protected value) here; Step 1
-        // drops the rows in this same transaction, so the unlock never outlives
-        // the delete. Native + explicit tenant scope, mirroring the other steps;
-        // there is no UPDATE trigger, so this is allowed at the DB layer. See the
-        // class javadoc for the doctrine.
+        // system-seed rows (those locked as system or admin) so the teardown
+        // delete can proceed. The lock keeps the how-to seeds unfalsifiable
+        // inside a LIVE tenant, whereas a full-tenant teardown is the ratified
+        // exception. We clear the lock to none, the only non-protected value, and
+        // Step 1 then drops the rows in the same transaction, so the unlock never
+        // outlives the delete. This runs as native SQL scoped to the tenant, like
+        // the other steps, and there is no update trigger so the DB layer allows
+        // it. See the class javadoc for the doctrine.
         em.createNativeQuery(
             "UPDATE memory SET lock = 'none' "
           + "WHERE tenant_id = CAST(?1 AS uuid) AND lock IN ('system', 'admin')")
