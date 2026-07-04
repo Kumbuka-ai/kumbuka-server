@@ -1,6 +1,7 @@
 package ai.kumbuka.admin;
 
 import io.quarkus.security.identity.SecurityIdentity;
+import io.quarkus.test.junit.QuarkusTest;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.junit.jupiter.api.Test;
 
@@ -11,12 +12,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit test for {@link CurrentSessionId} (F-0082) — the bean is normally
+ * Test for {@link CurrentSessionId} (F-0082) — the bean is normally
  * {@code @InjectMock}ed in {@link SessionsResourceTest}, so its own branch logic
  * is exercised here directly: the {@code sid} claim is read from a JWT principal,
  * and every non-JWT / missing-claim path returns null (marking no session as
  * current rather than guessing).
+ *
+ * <p>{@code @QuarkusTest} so the quarkus-jacoco extension records the coverage —
+ * the module's Sonar report reads {@code jacoco-quarkus.exec} only (see the pom
+ * jacoco comment), so a plain-JUnit test would not count.
  */
+@QuarkusTest
 class CurrentSessionIdTest {
 
     private static CurrentSessionId withPrincipal(Principal p) {
