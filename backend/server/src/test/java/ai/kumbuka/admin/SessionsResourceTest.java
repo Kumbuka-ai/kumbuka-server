@@ -18,6 +18,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import io.quarkus.test.InjectMock;
 
 /**
  * D-CORE-8 — the member-facing /api/sessions surface: routing, auth gate,
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.when;
 class SessionsResourceTest {
 
     @InjectMock KeycloakAdminService keycloak;
+    @InjectMock CurrentSessionId currentSession;
 
     private static KeycloakSession session(String id, String... clients) {
         return new KeycloakSession(
@@ -98,5 +100,66 @@ class SessionsResourceTest {
     @Test
     void terminate_unauthenticated_is401() {
         given().when().delete("/api/sessions/s1").then().statusCode(401);
+    }
+
+    // ---- current-session detection + logout-others (F-0082) ----------------
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void list_marksCurrentSession_fromSidClaim() {
+        when(currentSession.get()).thenReturn("s1");
+        when(keycloak.listUserSessions("member-sub")).thenReturn(List.of(
+            session("s1", "kumbuka-admin"),
+            session("s2", "kumbuka-connector-acme")
+        ));
+
+        given()
+            .when().get("/api/sessions")
+            .then()
+                .statusCode(200)
+                .body("[0].id", equalTo("s1"))
+                .body("[0].current", equalTo(true))
+                .body("[1].id", equalTo("s2"))
+                .body("[1].current", equalTo(false));
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void logoutOthers_terminatesEveryoneButCurrent_returns204() {
+        when(currentSession.get()).thenReturn("s1");
+        when(keycloak.listUserSessions("member-sub")).thenReturn(List.of(
+            session("s1"), session("s2"), session("s3")
+        ));
+
+        given()
+            .when().post("/api/sessions/logout-others")
+            .then().statusCode(204);
+
+        // s2 + s3 are terminated; the current session s1 is spared.
+        verify(keycloak).logoutSession("s2");
+        verify(keycloak).logoutSession("s3");
+        verify(keycloak, never()).logoutSession("s1");
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void logoutOthers_currentUnidentifiable_is409_andTerminatesNothing() {
+        // No sid -> we must NOT fall back to "log out all including me".
+        when(currentSession.get()).thenReturn(null);
+        when(keycloak.listUserSessions("member-sub")).thenReturn(List.of(
+            session("s1"), session("s2")
+        ));
+
+        given()
+            .when().post("/api/sessions/logout-others")
+            .then().statusCode(409);
+
+        verify(keycloak, never()).logoutSession("s1");
+        verify(keycloak, never()).logoutSession("s2");
+    }
+
+    @Test
+    void logoutOthers_unauthenticated_is401() {
+        given().when().post("/api/sessions/logout-others").then().statusCode(401);
     }
 }

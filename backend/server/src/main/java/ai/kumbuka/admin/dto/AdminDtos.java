@@ -165,6 +165,21 @@ public final class AdminDtos {
         boolean current
     ) {}
 
+    /**
+     * FEAT-32: one of the caller's own self-service credentials (an
+     * authenticator app or a passkey / security key). Scoped to
+     * {@code subject == caller} at the resource layer. Keycloak stores no
+     * "last used", so only {@code userLabel} + {@code createdDate} are shown;
+     * recovery-codes are never listed here (presence-only, see
+     * {@link CredentialsView}).
+     */
+    public record CredentialView(
+        String id,
+        String type,          // otp | webauthn | webauthn-passwordless
+        String userLabel,     // user-chosen label, may be null/blank
+        Instant createdDate
+    ) {}
+
     // ---------- Requests ---------------------------------------------------
 
     public record CreateScopeRequest(String slug, String name, String description) {}
