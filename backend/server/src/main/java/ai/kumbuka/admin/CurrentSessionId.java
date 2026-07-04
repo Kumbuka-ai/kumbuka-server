@@ -40,14 +40,11 @@ public class CurrentSessionId {
         Principal p = identity.getPrincipal();
         if (p instanceof JsonWebToken jwt) {
             Object sid = jwt.getClaim("sid");
-            // FEAT-32 STAGE-0 MEASUREMENT (temporary INFO — reverted to debug after):
-            LOG.infof("FEAT-32 sid measure: attr(sid)=%s principal=%s claim(sid)=%s claims=%s",
-                identity.getAttribute("sid"), p.getClass().getSimpleName(),
-                sid, jwt.getClaimNames());
+            LOG.debugf("current-session sid from token claim: %s", sid);
             return sid == null ? null : sid.toString();
         }
-        LOG.infof("FEAT-32 sid measure: principal is not a JWT (%s), attr(sid)=%s",
-            p == null ? "null" : p.getClass().getSimpleName(), identity.getAttribute("sid"));
+        LOG.debugf("current-session sid unavailable: principal is not a JWT (%s)",
+            p == null ? "null" : p.getClass().getSimpleName());
         return null;
     }
 }

@@ -45,7 +45,7 @@ class CredentialsResourceTest {
 
     @Test
     @TestSecurity(user = "member-sub", roles = {"member"})
-    void list_filtersToSelfServiceTypes() {
+    void list_filtersToSelfServiceTypes_andFlagsRecoveryPresence() {
         when(keycloak.listUserCredentials("member-sub")).thenReturn(List.of(
             cred("c-otp", "otp", "Authenticator"),
             cred("c-pk", "webauthn-passwordless", "MacBook"),
@@ -58,12 +58,29 @@ class CredentialsResourceTest {
             .then()
                 .statusCode(200)
                 // password + recovery-authn-codes are filtered out of the list
-                .body("$", hasSize(2))
-                .body("[0].id", equalTo("c-otp"))
-                .body("[0].type", equalTo("otp"))
-                .body("[1].type", equalTo("webauthn-passwordless"));
+                .body("credentials", hasSize(2))
+                .body("credentials[0].id", equalTo("c-otp"))
+                .body("credentials[0].type", equalTo("otp"))
+                .body("credentials[1].type", equalTo("webauthn-passwordless"))
+                // recovery codes are never listed, but their presence IS flagged
+                .body("recoveryCodesConfigured", equalTo(true));
 
         verify(keycloak).listUserCredentials("member-sub");
+    }
+
+    @Test
+    @TestSecurity(user = "member-sub", roles = {"member"})
+    void list_recoveryFlagFalse_whenNoRecoveryCredential() {
+        when(keycloak.listUserCredentials("member-sub")).thenReturn(List.of(
+            cred("c-otp", "otp", "Authenticator")
+        ));
+
+        given()
+            .when().get("/api/credentials")
+            .then()
+                .statusCode(200)
+                .body("credentials", hasSize(1))
+                .body("recoveryCodesConfigured", equalTo(false));
     }
 
     @Test

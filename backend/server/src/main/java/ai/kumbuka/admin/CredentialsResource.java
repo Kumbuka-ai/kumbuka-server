@@ -1,6 +1,7 @@
 package ai.kumbuka.admin;
 
 import ai.kumbuka.admin.dto.AdminDtos.CredentialView;
+import ai.kumbuka.admin.dto.AdminDtos.CredentialsView;
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import io.quarkus.security.Authenticated;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -47,19 +48,28 @@ public class CredentialsResource {
     static final Set<String> SELF_SERVICE_TYPES =
         Set.of("otp", "webauthn", "webauthn-passwordless");
 
+    /** Keycloak credential type for recovery codes — presence-only, never listed. */
+    static final String RECOVERY_CODES_TYPE = "recovery-authn-codes";
+
     @Inject SecurityIdentity identity;
     @Inject KeycloakAdminService keycloak;
 
     @GET
     @Authenticated
-    public List<CredentialView> list() {
+    public CredentialsView list() {
         String subject = identity.getPrincipal().getName();
-        return keycloak.listUserCredentials(subject).stream()
+        List<KeycloakAdminService.KeycloakCredential> all = keycloak.listUserCredentials(subject);
+        List<CredentialView> credentials = all.stream()
             .filter(c -> SELF_SERVICE_TYPES.contains(c.type()))
             .map(c -> new CredentialView(
                 c.id(), c.type(), c.userLabel(),
                 c.createdDate() == null ? null : Instant.ofEpochMilli(c.createdDate())))
             .toList();
+        // Presence-only: never read or return the codes themselves (they render
+        // on Keycloak's own themed AIA page — ratified reconciliation).
+        boolean recoveryCodesConfigured = all.stream()
+            .anyMatch(c -> RECOVERY_CODES_TYPE.equals(c.type()));
+        return new CredentialsView(credentials, recoveryCodesConfigured);
     }
 
     @DELETE
