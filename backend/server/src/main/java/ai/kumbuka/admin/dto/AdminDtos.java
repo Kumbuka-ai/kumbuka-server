@@ -165,6 +165,35 @@ public final class AdminDtos {
         boolean current
     ) {}
 
+    /**
+     * FEAT-32: one of the caller's own self-service credentials (an
+     * authenticator app or a passkey / security key). Scoped to
+     * {@code subject == caller} at the resource layer. Keycloak stores no
+     * "last used", so only {@code userLabel} + {@code createdDate} are shown;
+     * recovery-codes are never listed here (presence-only, see
+     * {@link CredentialsView}).
+     */
+    public record CredentialView(
+        String id,
+        String type,          // otp | webauthn | webauthn-passwordless
+        String userLabel,     // user-chosen label, may be null/blank
+        Instant createdDate
+    ) {}
+
+    /**
+     * FEAT-32: the {@code GET /api/credentials} response — the caller's
+     * self-service credentials plus a presence-only recovery-codes flag.
+     * {@code recoveryCodesConfigured} is true when the caller holds a
+     * {@code recovery-authn-codes} credential; the codes themselves are NEVER
+     * read or returned (Keycloak renders them on its own themed AIA page, the
+     * ratified reconciliation). The console uses the flag only to flip its
+     * recovery card between GENERATE and RE-GENERATE.
+     */
+    public record CredentialsView(
+        List<CredentialView> credentials,
+        boolean recoveryCodesConfigured
+    ) {}
+
     // ---------- Requests ---------------------------------------------------
 
     public record CreateScopeRequest(String slug, String name, String description) {}

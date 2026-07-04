@@ -238,6 +238,44 @@ public class KeycloakAdminService {
         realm().deleteSession(sessionId, false);
     }
 
+    // ---- Member credential self-management (FEAT-32) ----------------------
+
+    /**
+     * One of a user's Keycloak credentials, reduced to the display-safe fields.
+     * {@code createdDate} is epoch-millis (KC's own representation) or null.
+     * Keycloak stores NO "last used" per credential — hence none here.
+     */
+    public record KeycloakCredential(
+        String id,
+        String type,
+        String userLabel,
+        Long createdDate
+    ) {}
+
+    /**
+     * Lists a user's credentials (all types). The caller MUST pass its own
+     * subject — the resource layer enforces {@code subject == caller} so no
+     * member can enumerate another's credentials. Reading credentials needs the
+     * {@code view-users} realm-management role (already granted to
+     * {@code kumbuka-backend}).
+     */
+    public List<KeycloakCredential> listUserCredentials(String userId) {
+        return realm().users().get(userId).credentials().stream()
+            .map(c -> new KeycloakCredential(
+                c.getId(), c.getType(), c.getUserLabel(), c.getCreatedDate()))
+            .toList();
+    }
+
+    /**
+     * Removes a single credential by id. Ownership + type-eligibility are
+     * verified at the resource layer BEFORE this call (mirrors
+     * {@link #logoutSession}). Needs the {@code manage-users} role (already
+     * granted to {@code kumbuka-backend}).
+     */
+    public void removeUserCredential(String userId, String credentialId) {
+        realm().users().get(userId).removeCredential(credentialId);
+    }
+
     private KeycloakSession toSessionView(UserSessionRepresentation s) {
         List<String> clients = s.getClients() == null
             ? List.of()
