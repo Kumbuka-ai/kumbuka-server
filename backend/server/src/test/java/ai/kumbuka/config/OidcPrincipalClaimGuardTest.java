@@ -43,6 +43,16 @@ class OidcPrincipalClaimGuardTest {
         return c;
     }
 
+    /** Mock for the mcp-audience assertion: mcp tenant enablement + audience value. */
+    private Config audienceConfig(Boolean mcpEnabled, String audience) {
+        Config c = mock(Config.class);
+        when(c.getOptionalValue("quarkus.oidc.mcp.tenant-enabled", Boolean.class))
+            .thenReturn(Optional.ofNullable(mcpEnabled));
+        when(c.getOptionalValue("quarkus.oidc.mcp.token.audience", String.class))
+            .thenReturn(Optional.ofNullable(audience));
+        return c;
+    }
+
     @Test
     void passesWhenCorrectKeyIsSub() {
         assertThatCode(() -> OidcPrincipalClaimGuard.verifyTenant(configFor("admin", null, "sub"), "admin"))
@@ -82,6 +92,46 @@ class OidcPrincipalClaimGuardTest {
         when(c.getOptionalValue("quarkus.oidc.admin.principal-claim", String.class))
             .thenReturn(Optional.of("sub"));
         assertThatCode(() -> OidcPrincipalClaimGuard.verifyTenant(c, "admin")).doesNotThrowAnyException();
+    }
+
+    @Test
+    void mcpAudiencePassesWhenKumbukaConnector() {
+        assertThatCode(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
+                audienceConfig(true, "kumbuka-connector")))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void mcpAudienceAbortsWhenAny() {
+        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
+                audienceConfig(true, "any")))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("ADR-0032")
+            .hasMessageContaining("quarkus.oidc.mcp.token.audience");
+    }
+
+    @Test
+    void mcpAudienceAbortsWhenMissing() {
+        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
+                audienceConfig(true, null)))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("ADR-0032");
+    }
+
+    @Test
+    void mcpAudienceAbortsOnMultiValueList() {
+        // A comma-joined audience does not string-equal the single expected value.
+        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
+                audienceConfig(true, "kumbuka-connector,other-client")))
+            .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void mcpAudienceNoOpWhenMcpTenantDisabled() {
+        // Disabled mcp tenant → audience is moot, even at a forbidden value.
+        assertThatCode(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
+                audienceConfig(false, "any")))
+            .doesNotThrowAnyException();
     }
 
     @Test

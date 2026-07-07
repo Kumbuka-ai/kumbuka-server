@@ -61,31 +61,19 @@ class AdminConnectorResourceTest {
 
     @Test
     void isSaas_trueOnlyWhenTemplateSet() {
-        assertThat(AdminConnectorResource.isSaas("https://<alias>.kumbuka.ai/mcp")).isTrue();
+        // The generic post-ADR-0032 template (no <alias> placeholder) still
+        // marks a SaaS deployment.
+        assertThat(AdminConnectorResource.isSaas("https://mcp.kumbuka.ai/mcp")).isTrue();
         assertThat(AdminConnectorResource.isSaas("")).isFalse();
         assertThat(AdminConnectorResource.isSaas("   ")).isFalse();
         assertThat(AdminConnectorResource.isSaas(null)).isFalse();
     }
 
     @Test
-    void resolveClientId_saas_appendsTenantAlias() {
-        assertThat(AdminConnectorResource.resolveClientId(
-                "kumbuka-connector", "https://<alias>.kumbuka.ai/mcp", "acme"))
-            .isEqualTo("kumbuka-connector-acme");
-    }
-
-    @Test
-    void resolveClientId_ce_usesBaseClientId() {
-        assertThat(AdminConnectorResource.resolveClientId("kumbuka-connector", "", "acme"))
-            .isEqualTo("kumbuka-connector");
-        assertThat(AdminConnectorResource.resolveClientId("kumbuka-connector", null, null))
-            .isEqualTo("kumbuka-connector");
-    }
-
-    @Test
-    void resolveClientId_saasWithoutAlias_fallsBackToBase() {
-        assertThat(AdminConnectorResource.resolveClientId(
-                "kumbuka-connector", "https://<alias>.kumbuka.ai/mcp", null))
+    void resolveClientId_alwaysUsesBaseClientId() {
+        // ADR-0032 § 4: one generic connector client for CE and SaaS alike —
+        // there is no per-tenant <alias> suffix any more.
+        assertThat(AdminConnectorResource.resolveClientId("kumbuka-connector"))
             .isEqualTo("kumbuka-connector");
     }
 
