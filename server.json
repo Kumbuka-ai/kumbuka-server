@@ -1,39 +1,18 @@
 {
-  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/docs/server-json/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ai.kumbuka/kumbuka-server",
+  "title": "Kumbuka",
   "description": "The governed, auditable knowledge layer for AI assistants over MCP. Curated by your team, structurally private by architecture, self-hostable via Docker Compose. Java 21 / Quarkus / PostgreSQL / Keycloak.",
+  "websiteUrl": "https://kumbuka.ai",
   "repository": {
     "url": "https://github.com/kumbuka-ai/kumbuka-server",
     "source": "github"
   },
-  "version": "0.5.0",
-  "packages": [
-    {
-      "registry_type": "remote",
-      "transport": {
-        "type": "streamable-http",
-        "url": "https://memory.kumbuka.ai/mcp"
-      }
-    }
-  ],
+  "version": "0.7.3",
   "remotes": [
     {
-      "transport": {
-        "type": "streamable-http",
-        "url": "https://memory.kumbuka.ai/mcp"
-      }
+      "type": "streamable-http",
+      "url": "https://mcp.kumbuka.ai/mcp"
     }
-  ],
-  "meta": {
-    "publisher": "kumbuka-ai",
-    "categories": ["knowledge-management"],
-    "keywords": [
-      "team-knowledge",
-      "governance",
-      "self-hosted",
-      "team-memory",
-      "mcp-server",
-      "agpl"
-    ]
-  }
+  ]
 }
