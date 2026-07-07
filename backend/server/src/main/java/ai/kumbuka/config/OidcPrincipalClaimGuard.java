@@ -34,9 +34,19 @@ import java.util.List;
  * kumbuka-server and therefore protects both the OSS standalone and the SaaS
  * runtime (which augments these beans).
  *
- * <p>Scope note: this catches the known mis-path and "claim not effective"; it
- * does not enumerate every conceivable unrecognized {@code oidc.<tenant>.*}
- * key — there is no registry of valid OIDC keys to diff against.
+ * <p>It also carries a second, mcp-specific boot invariant (ADR-0032 § 3):
+ * when the {@code mcp} tenant is enabled, the {@code /mcp} bearer path must
+ * validate the token audience against exactly {@code kumbuka-connector} — the
+ * single generic connector client that the endpoint collapse left. A wider or
+ * absent audience ({@code any}, empty, a multi-value list) would let a token
+ * minted for a different client be replayed against {@code /mcp}. Asserting it
+ * at boot turns the ee-server overlay's audience value into a fail-loud contract
+ * rather than a config knob that can silently drift back to {@code any}.
+ *
+ * <p>Scope note: this catches the known mis-path, "claim not effective", and a
+ * non-narrowed {@code /mcp} audience; it does not enumerate every conceivable
+ * unrecognized {@code oidc.<tenant>.*} key — there is no registry of valid OIDC
+ * keys to diff against.
  */
 @ApplicationScoped
 public class OidcPrincipalClaimGuard {
@@ -46,6 +56,11 @@ public class OidcPrincipalClaimGuard {
 
     private static final String PREFIX = "quarkus.oidc.";
     static final String EXPECTED = "sub";
+
+    /** The single generic connector client the {@code /mcp} audience must equal (ADR-0032 § 3). */
+    static final String MCP_TENANT = "mcp";
+    static final String MCP_AUDIENCE_KEY = PREFIX + MCP_TENANT + ".token.audience";
+    static final String EXPECTED_AUDIENCE = "kumbuka-connector";
 
     @Inject
     Config config;
@@ -58,6 +73,7 @@ public class OidcPrincipalClaimGuard {
         for (String tenant : GUARDED_TENANTS) {
             verifyTenant(config, tenant);
         }
+        verifyMcpAudience(config);
     }
 
     static void verifyTenant(Config config, String tenant) {
@@ -87,6 +103,35 @@ public class OidcPrincipalClaimGuard {
                 "D-CORE-12 invariant violated: '" + correctKey + "' must be '" + EXPECTED + "' "
                 + "(authorship = Keycloak sub per ADR-0008), but was '" + actual + "'. Without it the '"
                 + tenant + "' tenant stamps preferred_username (email) into owner_subject.");
+        }
+    }
+
+    /**
+     * ADR-0032 § 3 (audience collapse): when the {@code mcp} tenant is enabled,
+     * the {@code /mcp} bearer path must validate the token audience against
+     * exactly {@code kumbuka-connector} — the single generic connector client.
+     * A wider value ({@code any}), an empty/absent audience, or a multi-value
+     * list (which does not string-equal the expected single value) would let a
+     * token minted for a different client be replayed against {@code /mcp}
+     * (token-confusion). Kept out of {@link #GUARDED_TENANTS} because the
+     * {@code admin} tenant carries no such requirement.
+     */
+    static void verifyMcpAudience(Config config) {
+        boolean enabled = config
+            .getOptionalValue(PREFIX + MCP_TENANT + ".tenant-enabled", Boolean.class)
+            .orElse(true);
+        if (!enabled) {
+            // mcp tenant off (e.g. data-layer tests) — the audience is moot.
+            return;
+        }
+
+        String actual = config.getOptionalValue(MCP_AUDIENCE_KEY, String.class).orElse(null);
+        if (!EXPECTED_AUDIENCE.equals(actual)) {
+            throw new IllegalStateException(
+                "ADR-0032 § 3 invariant violated: '" + MCP_AUDIENCE_KEY + "' must be '"
+                + EXPECTED_AUDIENCE + "' (the single generic connector client), but was '" + actual
+                + "'. A wider or absent audience (e.g. 'any') lets a token minted for another client "
+                + "be replayed against /mcp — token-confusion.");
         }
     }
 }

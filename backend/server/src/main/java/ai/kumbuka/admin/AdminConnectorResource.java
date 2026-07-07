@@ -2,7 +2,6 @@ package ai.kumbuka.admin;
 import ai.kumbuka.tenancy.TenantBound;
 
 import ai.kumbuka.config.MemoryConfig;
-import ai.kumbuka.domain.Team;
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
@@ -21,12 +20,13 @@ import jakarta.ws.rs.core.MediaType;
  * ({@code kumbuka-connector}) with a rotatable secret — the resource surfaces
  * the endpoint URL + client_id + masked secret and lets admins rotate it.
  *
- * <p><strong>SaaS</strong>: the connector is the per-tenant
- * {@code kumbuka-connector-<alias>} client, which is PUBLIC + PKCE (ADR-0006
- * Fallback A) and therefore has <em>no</em> secret. The card then shows the
- * per-tenant client_id and no secret, and rotation is not available. SaaS is
- * detected by the presence of the tenant-aware MCP URL template (same signal
- * {@link #resolveMcpUrl} uses).
+ * <p><strong>SaaS</strong>: the connector is the same single generic
+ * {@code kumbuka-connector} client (confidential + PKCE), shared across every
+ * tenant — ADR-0032 § 4 retired the per-tenant {@code kumbuka-connector-<alias>}
+ * client. Its secret is <em>provider-managed</em>: rendered into the realm
+ * config by the platform and never held by a team, so the card neither exposes
+ * nor rotates it. SaaS is detected by the presence of the MCP URL template
+ * (same signal {@link #resolveMcpUrl} uses).
  */
 @TenantBound
 @Transactional
@@ -52,56 +52,44 @@ public class AdminConnectorResource {
     @RolesAllowed({"admin", "member"})
     public ConnectorView get() {
         String template = config.mcpPublicUrlTemplate().orElse("");
-        String alias = currentAlias();
-        String mcpUrl = resolveMcpUrl(template, config.publicBaseUrl(), alias);
-        String clientId = resolveClientId(config.connectorClientId(), template, alias);
-        // SaaS connectors are public + PKCE — no secret to show or rotate.
+        String mcpUrl = resolveMcpUrl(template, config.publicBaseUrl());
+        String clientId = resolveClientId(config.connectorClientId());
+        // SaaS: the connector secret is provider-managed (rendered into the
+        // realm config), so it is never exposed from the team console. CE keeps
+        // a rotatable, admin-visible masked secret.
         String secretMasked = isSaas(template)
             ? null
             : keycloak.getConnectorSecretMasked(config.connectorClientId());
         return new ConnectorView(mcpUrl, clientId, secretMasked, "Keycloak", mcpUrl);
     }
 
-    /** True when the deployment is SaaS (the tenant-aware MCP URL template is set). */
+    /** True when the deployment is SaaS (the MCP URL template is set). */
     static boolean isSaas(String template) {
         return template != null && !template.isBlank();
     }
 
     /**
-     * The connector's Keycloak client_id. SaaS: the per-tenant public client
-     * {@code <base>-<alias>} (e.g. {@code kumbuka-connector-acme}). CE: the
-     * single {@code <base>} client. Falls back to the base id when SaaS is
-     * indicated but no alias is resolvable (defensive — should not happen).
+     * The connector's Keycloak client_id: always the configured base client
+     * ({@code kumbuka-connector}). ADR-0032 § 4 retired the per-tenant
+     * {@code kumbuka-connector-<alias>} client, so CE and SaaS now address the
+     * one generic client. Package-private + static so it unit-tests without
+     * CDI/DB.
      */
-    static String resolveClientId(String baseClientId, String template, String alias) {
-        if (isSaas(template) && alias != null && !alias.isBlank()) {
-            return baseClientId + "-" + alias;
-        }
+    static String resolveClientId(String baseClientId) {
         return baseClientId;
     }
 
-    /** The request-bound tenant's alias (Hibernate @TenantId narrows the query), or null. */
-    private String currentAlias() {
-        Team team = Team.findAll().firstResult();
-        return team != null ? team.alias : null;
-    }
-
     /**
-     * The tenant-correct public MCP URL the console displays (D-CORE-4). CE:
-     * {@code publicBaseUrl + /mcp}. SaaS: the configured template with the
-     * {@code <alias>} placeholder replaced by the request-bound tenant's
-     * {@code team.alias}. Pure substitution — package-private + static so it
-     * unit-tests without CDI/DB.
+     * The public MCP URL the console displays (D-CORE-4). CE (empty template):
+     * {@code publicBaseUrl + /mcp}. SaaS (template set): the configured template
+     * verbatim — post-ADR-0032 that is the single generic
+     * {@code https://mcp.kumbuka.ai/mcp} endpoint, with no per-tenant
+     * {@code <alias>} placeholder (tenant resolution is token-derived). Pure —
+     * package-private + static so it unit-tests without CDI/DB.
      */
-    static String resolveMcpUrl(String template, String publicBaseUrl, String alias) {
+    static String resolveMcpUrl(String template, String publicBaseUrl) {
         if (template == null || template.isBlank()) {
             return publicBaseUrl + "/mcp";
-        }
-        if (template.contains("<alias>")) {
-            if (alias == null || alias.isBlank()) {
-                return publicBaseUrl + "/mcp";
-            }
-            return template.replace("<alias>", alias);
         }
         return template;
     }
@@ -114,10 +102,12 @@ public class AdminConnectorResource {
     @Path("/secret/rotate")
     @RolesAllowed("admin")
     public RotateResult rotate() {
-        // SaaS connectors are public + PKCE — there is no secret to rotate.
+        // SaaS: the connector secret is provider-managed, so there is nothing
+        // for a team to rotate from the console.
         if (isSaas(config.mcpPublicUrlTemplate().orElse(""))) {
             throw new jakarta.ws.rs.WebApplicationException(
-                "connector secret rotation is not available — the SaaS connector is public + PKCE",
+                "connector secret rotation is not available on the hosted platform — "
+                + "the connector secret is provider-managed",
                 jakarta.ws.rs.core.Response.Status.CONFLICT);
         }
         String actor = identity.getPrincipal().getName();
