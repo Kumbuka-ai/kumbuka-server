@@ -57,6 +57,15 @@ public class WaitlistIntakeResource {
     /** SQLState raised by the partial-unique index on a duplicate active email. */
     private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";
 
+    // UTM attribution field caps (D-OPS-32 (a)). Sanitizing lengths only — the DB
+    // columns are plain TEXT (ops-console V7); the public intake truncates
+    // defensively because it must not trust upstream (the n8n router also caps).
+    private static final int MAX_UTM_SOURCE = 64;
+    private static final int MAX_UTM_MEDIUM = 64;
+    private static final int MAX_UTM_CAMPAIGN = 128;
+    private static final int MAX_UTM_CONTENT = 128;
+    private static final int MAX_REFERRER = 256;
+
     /**
      * Conservative email shape: a single {@code @}, a dot in the domain, and no
      * whitespace anywhere. Deliberately permissive on the local part — this is
@@ -72,17 +81,33 @@ public class WaitlistIntakeResource {
         Pattern.compile("^[^@\\s]+@[^@\\s.]+\\.[^@\\s]+$");
 
     private static final String INSERT_SQL =
-        "INSERT INTO ops.waitlist_entry (email, team_name, contact, message) "
-      + "VALUES (?, ?, ?, ?) RETURNING id";
+        "INSERT INTO ops.waitlist_entry "
+      + "(email, team_name, contact, message, "
+      + "utm_source, utm_medium, utm_campaign, utm_content, referrer) "
+      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id";
 
     @Inject AgroalDataSource dataSource;
 
-    /** Request body. {@code contact}/{@code message} are optional (nullable). */
+    /**
+     * Request body. Everything past {@code teamName} is optional (nullable).
+     *
+     * <p>The five {@code utm*}/{@code referrer} fields are campaign attribution
+     * (D-OPS-32 (a)): camelCase on the wire, stored snake_case. Absent -> null;
+     * no client- or server-side "required" validation, so organic no-UTM traffic
+     * stays valid. {@code referrer} is already trimmed to origin (scheme+host) by
+     * the web client — the intake stores and caps it, it does NOT re-derive it.
+     * Unknown extra JSON fields are ignored (never a hard reject).
+     */
     public record IntakeRequest(
         String email,
         String teamName,
         String contact,
-        String message
+        String message,
+        String utmSource,
+        String utmMedium,
+        String utmCampaign,
+        String utmContent,
+        String referrer
     ) {}
 
     @POST
@@ -98,6 +123,15 @@ public class WaitlistIntakeResource {
         final String contact = trimToNull(req.contact());
         final String message = trimToNull(req.message());
 
+        // Attribution (D-OPS-32 (c),(e)): sanitize defensively — blank -> null,
+        // truncate to cap. No enum/format validation, no hard reject on unknown
+        // values (forensic visibility of mis-values beats enforced hygiene).
+        final String utmSource = sanitize(req.utmSource(), MAX_UTM_SOURCE);
+        final String utmMedium = sanitize(req.utmMedium(), MAX_UTM_MEDIUM);
+        final String utmCampaign = sanitize(req.utmCampaign(), MAX_UTM_CAMPAIGN);
+        final String utmContent = sanitize(req.utmContent(), MAX_UTM_CONTENT);
+        final String referrer = sanitize(req.referrer(), MAX_REFERRER);
+
         if (email == null || !EMAIL.matcher(email).matches()) {
             return badRequest("a valid email address is required");
         }
@@ -111,6 +145,11 @@ public class WaitlistIntakeResource {
             ps.setString(2, teamName);
             ps.setString(3, contact); // nullable — null maps to SQL NULL
             ps.setString(4, message); // nullable — null maps to SQL NULL
+            ps.setString(5, utmSource);   // attribution — nullable
+            ps.setString(6, utmMedium);   // attribution — nullable
+            ps.setString(7, utmCampaign); // attribution — nullable
+            ps.setString(8, utmContent);  // attribution — nullable
+            ps.setString(9, referrer);    // attribution — nullable
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 String id = rs.getString(1);
@@ -149,5 +188,18 @@ public class WaitlistIntakeResource {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    /**
+     * Defensive attribution sanitizing (D-OPS-32 (c)): blank/empty -> null, then
+     * truncate to {@code maxLen}. No enum or format validation — this endpoint is
+     * public and must tolerate any value without rejecting the whole request.
+     */
+    private static String sanitize(String raw, int maxLen) {
+        String t = trimToNull(raw);
+        if (t == null) {
+            return null;
+        }
+        return t.length() > maxLen ? t.substring(0, maxLen) : t;
     }
 }
