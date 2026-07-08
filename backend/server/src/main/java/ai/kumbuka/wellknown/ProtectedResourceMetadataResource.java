@@ -48,6 +48,14 @@ public class ProtectedResourceMetadataResource {
 
     @Inject MemoryConfig config;
 
+    /**
+     * Externalised metadata values — advertised scopes and token signing
+     * algorithms. See {@link ConnectorMetadataConfig} for the curation
+     * constraints (scopes_supported MUST include {@code offline_access}
+     * — F-0119; the signing-alg list MUST match the AS signing algorithm).
+     */
+    @Inject ConnectorMetadataConfig connectorMetadata;
+
     @GET
     @PermitAll
     public Map<String, Object> metadata(@Context UriInfo uriInfo) {
@@ -68,8 +76,18 @@ public class ProtectedResourceMetadataResource {
             Map.entry("resource", resource),
             Map.entry("authorization_servers", List.of(issuer)),
             Map.entry("bearer_methods_supported", List.of("header")),
-            Map.entry("resource_signing_alg_values_supported", List.of("RS256")),
-            Map.entry("scopes_supported", List.of("openid", "profile", "email")),
+            // resource_signing_alg_values_supported MUST match the algorithm
+            // the authorization server (Keycloak realm) actually signs tokens
+            // with — currently RS256. It is config-driven but NOT a free tuning
+            // knob: a value that diverges from the AS lies about this resource
+            // server's contract and breaks strict clients (F-0119 failure
+            // class, inverted). See ConnectorMetadataConfig#resourceSigningAlgValues().
+            Map.entry("resource_signing_alg_values_supported", connectorMetadata.resourceSigningAlgValues()),
+            // scopes_supported is a deliberately narrow curation and MUST
+            // include offline_access — a strict MCP client aborts before the
+            // authorization request when a requested scope is absent here
+            // (F-0119). See ConnectorMetadataConfig#scopesSupported().
+            Map.entry("scopes_supported", connectorMetadata.scopesSupported()),
             // Helpful breadcrumb for the connector card / inspector.
             Map.entry("resource_documentation", docsBase + "/docs/connector"),
             // Echoed for diagnostics (matches the host the client reached).
