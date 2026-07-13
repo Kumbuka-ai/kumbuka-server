@@ -175,6 +175,31 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!--
+                META-INF/kumbuka-server.version is Maven-filtered so the jar
+                carries its OWN artifact version as a readable resource.
+                VersionResource reads it at runtime: in a composition build
+                (the SaaS deployable consumes this module as a dependency and
+                quarkus.application.version names THAT deployable) the file is
+                the only value that can never drift from what is actually on
+                the classpath. Everything else stays unfiltered — filtering is
+                scoped to this one file on purpose.
+            -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>META-INF/kumbuka-server.version</exclude>
+                </excludes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>META-INF/kumbuka-server.version</include>
+                </includes>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>${quarkus.platform.group-id}</groupId>
