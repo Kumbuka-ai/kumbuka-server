@@ -45,6 +45,10 @@ public class UiSettings {
     @JsonDeserialize(using = StrictBoolean.class)
     public Boolean navCollapsed;
 
+    /** The scope list on the scope browser is collapsed. */
+    @JsonDeserialize(using = StrictBoolean.class)
+    public Boolean scopesCollapsed;
+
     /**
      * Field-wise merge: every field the patch carries (non-null) wins; every
      * field it omits keeps the current value. A call that sets only one
@@ -59,6 +63,8 @@ public class UiSettings {
             patch.connectCollapsed != null ? patch.connectCollapsed : base.connectCollapsed;
         merged.navCollapsed =
             patch.navCollapsed != null ? patch.navCollapsed : base.navCollapsed;
+        merged.scopesCollapsed =
+            patch.scopesCollapsed != null ? patch.scopesCollapsed : base.scopesCollapsed;
         return merged;
     }
 
@@ -77,12 +83,13 @@ public class UiSettings {
             return false;
         }
         return Objects.equals(connectCollapsed, other.connectCollapsed)
-            && Objects.equals(navCollapsed, other.navCollapsed);
+            && Objects.equals(navCollapsed, other.navCollapsed)
+            && Objects.equals(scopesCollapsed, other.scopesCollapsed);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(connectCollapsed, navCollapsed);
+        return Objects.hash(connectCollapsed, navCollapsed, scopesCollapsed);
     }
 
     /**

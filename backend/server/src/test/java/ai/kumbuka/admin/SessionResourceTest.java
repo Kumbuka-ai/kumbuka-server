@@ -346,13 +346,28 @@ class SessionResourceTest {
                 // The field the second call did NOT carry kept its value.
                 .body("settings.navCollapsed", equalTo(true));
 
-        // Persisted — a fresh read returns both.
+        // Third surface, same guarantee — the field the construction was
+        // built to absorb without a migration.
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"scopesCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.scopesCollapsed", equalTo(true))
+                .body("settings.connectCollapsed", equalTo(true))
+                .body("settings.navCollapsed", equalTo(true));
+
+        // Persisted — a fresh read returns all three.
         given()
             .when().get("/api/auth/me")
             .then()
                 .statusCode(200)
                 .body("settings.connectCollapsed", equalTo(true))
-                .body("settings.navCollapsed", equalTo(true));
+                .body("settings.navCollapsed", equalTo(true))
+                .body("settings.scopesCollapsed", equalTo(true));
     }
 
     @Test

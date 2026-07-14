@@ -21,6 +21,24 @@ class UiSettingsTest {
     }
 
     @Test
+    void merge_coversEveryField() {
+        // The proof the construction carries: a new switch is one field plus
+        // one merge line. This pins the third field's merge both ways.
+        UiSettings current = settings(true, false);
+        current.scopesCollapsed = true;
+
+        UiSettings kept = UiSettings.merge(current, new UiSettings());
+        assertThat(kept.scopesCollapsed).isTrue();      // omitted -> kept
+
+        UiSettings patch = new UiSettings();
+        patch.scopesCollapsed = false;
+        UiSettings patched = UiSettings.merge(current, patch);
+        assertThat(patched.scopesCollapsed).isFalse();  // sent -> wins
+        assertThat(patched.connectCollapsed).isTrue();  // others untouched
+        assertThat(patched.navCollapsed).isFalse();
+    }
+
+    @Test
     void merge_patchFieldWins_omittedFieldKeepsCurrent() {
         UiSettings current = settings(true, false);
         UiSettings patch = settings(null, true);   // only navCollapsed sent
