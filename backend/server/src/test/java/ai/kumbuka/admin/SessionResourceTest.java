@@ -298,4 +298,201 @@ class SessionResourceTest {
                 .statusCode(200)
                 .body("onboarding.dismissed", equalTo(false));
     }
+
+    // --- UI presentation settings (V18): typed field, field-wise merge ---------
+
+    @Test
+    @TestSecurity(user = "sub-set-default", roles = {"member"})
+    void me_freshAccount_settingsPresentAndUnset() {
+        // A fresh account carries the settings object with every field unset
+        // (null) — the console applies its defaults (surfaces expanded). The
+        // object itself is always present, never null, so clients need no
+        // existence check.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", nullValue())
+                .body("settings.navCollapsed", nullValue());
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-merge", roles = {"member"})
+    void updateMe_settingsPartialUpdates_bothValuesSurvive() {
+        // THE merge guarantee: two consecutive partial updates (two open tabs,
+        // each saving a different surface) must both survive. A whole-object
+        // write would let the second PATCH silently erase the first.
+        seed.setMuted("sub-set-merge", false);   // ensure the account row exists
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"navCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.navCollapsed", equalTo(true));
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"connectCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", equalTo(true))
+                // The field the second call did NOT carry kept its value.
+                .body("settings.navCollapsed", equalTo(true));
+
+        // Third surface, same guarantee — the field the construction was
+        // built to absorb without a migration.
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"scopesCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.scopesCollapsed", equalTo(true))
+                .body("settings.connectCollapsed", equalTo(true))
+                .body("settings.navCollapsed", equalTo(true));
+
+        // Persisted — a fresh read returns all three.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", equalTo(true))
+                .body("settings.navCollapsed", equalTo(true))
+                .body("settings.scopesCollapsed", equalTo(true));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-false", roles = {"member"})
+    void updateMe_settingsExplicitFalse_isAWrite_notANoop() {
+        // Boolean, not boolean: "set to false" must be distinguishable from
+        // "not sent". Collapse then expand — the expand (false) must stick.
+        seed.setMuted("sub-set-false", false);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"connectCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(200);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"connectCollapsed": false}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", equalTo(false));
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-unknown", roles = {"member"})
+    void updateMe_settingsUnknownField_returns400() {
+        // The boundary is typed: an unknown field is a typed reject — never
+        // ignored, never stored. This is what keeps the field from rotting
+        // into a heap of dead keys.
+        seed.setMuted("sub-set-unknown", false);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"lastSearchTerm": "secret"}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(400);
+
+        // Nothing was stored by the rejected call.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", nullValue())
+                .body("settings.navCollapsed", nullValue());
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-type", roles = {"member"})
+    void updateMe_settingsWrongType_returns400() {
+        seed.setMuted("sub-set-type", false);
+
+        // A string is not a boolean — and neither is a coercible one: the
+        // strict deserializer rejects "true" as well as "banana".
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"connectCollapsed": "true"}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(400);
+
+        // A number is not a boolean either (no 0/1 coercion).
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"navCollapsed": 1}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(400);
+
+        // An object is not a boolean.
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"navCollapsed": {"nested": true}}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(400);
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-isolation", roles = {"member"})
+    void settings_arePerUser_otherAccountUnaffected() {
+        // Per-user (keyed by KC sub): this account never collapsed anything,
+        // independent of the accounts above that did.
+        given()
+            .when().get("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("settings.connectCollapsed", nullValue())
+                .body("settings.navCollapsed", nullValue());
+    }
+
+    @Test
+    @TestSecurity(user = "sub-set-onb", roles = {"member"})
+    void updateMe_settingsWrite_leavesOnboardingUntouched() {
+        // The settings field rides beside the onboarding columns; writing one
+        // must never disturb the other.
+        seed.setMuted("sub-set-onb", false);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"onboarding": {"dismissed": true, "lastStep": 3}}
+                """)
+            .when().patch("/api/auth/me")
+            .then().statusCode(200);
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("""
+                {"settings": {"navCollapsed": true}}
+                """)
+            .when().patch("/api/auth/me")
+            .then()
+                .statusCode(200)
+                .body("onboarding.dismissed", equalTo(true))
+                .body("onboarding.lastStep", equalTo(3))
+                .body("settings.navCollapsed", equalTo(true));
+    }
 }

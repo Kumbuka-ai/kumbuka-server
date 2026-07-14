@@ -3,6 +3,7 @@ package ai.kumbuka.admin.dto;
 import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.TeamSettings;
+import ai.kumbuka.domain.UiSettings;
 import ai.kumbuka.service.WritePolicyResolver;
 
 import java.time.Instant;
@@ -135,7 +136,11 @@ public final class AdminDtos {
         String securityActionUrl,
         boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
         String locale,  // the caller's UI language preference (en | de); null = unset
-        OnboardingState onboarding  // D-CORE-10.1: per-user wizard dismiss/resume state
+        OnboardingState onboarding,  // D-CORE-10.1: per-user wizard dismiss/resume state
+        // Per-user UI presentation settings — typed, presentation state ONLY
+        // (boundary note on UiSettings). Always present in the view; for an
+        // unset field the console falls back to its own default.
+        UiSettings settings
     ) {}
 
     /**
@@ -211,5 +216,12 @@ public final class AdminDtos {
         String createScopes      // admins | members
     ) {}
 
-    public record UpdateMeRequest(String displayName, String locale, OnboardingState onboarding) {}
+    /**
+     * {@code settings} is a field-wise patch: only the fields it carries are
+     * applied, everything else keeps its stored value (merge, not replace —
+     * see {@code UiSettings.merge}). Unknown or wrong-typed settings fields
+     * are rejected with 400 at deserialization, never ignored or stored.
+     */
+    public record UpdateMeRequest(
+        String displayName, String locale, OnboardingState onboarding, UiSettings settings) {}
 }

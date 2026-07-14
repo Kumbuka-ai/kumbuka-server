@@ -5,6 +5,7 @@ import ai.kumbuka.admin.dto.AdminDtos.OnboardingState;
 import ai.kumbuka.admin.dto.AdminDtos.SessionView;
 import ai.kumbuka.admin.dto.AdminDtos.UpdateMeRequest;
 import ai.kumbuka.config.MemoryConfig;
+import ai.kumbuka.domain.UiSettings;
 import ai.kumbuka.domain.UserAccount;
 import ai.kumbuka.domain.UserStatus;
 import ai.kumbuka.keycloak.KeycloakAdminService;
@@ -98,7 +99,8 @@ public class SessionResource {
             accountConsoleUrl, securityActionUrl(), muted, account.locale,
             new OnboardingState(
                 Boolean.TRUE.equals(account.onboardingDismissed),
-                account.onboardingLastStep == null ? 0 : account.onboardingLastStep));
+                account.onboardingLastStep == null ? 0 : account.onboardingLastStep),
+            account.settings == null ? new UiSettings() : account.settings);
     }
 
     /**
@@ -164,6 +166,14 @@ public class SessionResource {
         if (req.onboarding() != null) {
             u.onboardingDismissed = req.onboarding().dismissed();
             u.onboardingLastStep = (short) Math.max(0, req.onboarding().lastStep());
+        }
+        // UI presentation settings: field-wise merge, never replace — a call
+        // that sets only one field leaves the others untouched (two open tabs
+        // saving different surfaces must not erase each other). Unknown or
+        // wrong-typed fields never reach this line: UiSettings rejects them
+        // at deserialization, which surfaces as 400.
+        if (req.settings() != null) {
+            u.settings = UiSettings.merge(u.settings, req.settings());
         }
         // Phase 8 will sync the display-name change back to Keycloak via the Admin REST client.
         return me();

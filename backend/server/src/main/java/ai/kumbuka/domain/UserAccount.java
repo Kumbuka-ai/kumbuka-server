@@ -1,7 +1,9 @@
 package ai.kumbuka.domain;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.TenantId;
+import org.hibernate.type.SqlTypes;
 import ai.kumbuka.tenancy.StringUuidConverter;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Column;
@@ -100,6 +102,18 @@ public class UserAccount extends PanacheEntityBase {
 
     @Column(name = "onboarding_last_step", nullable = false)
     public Short onboardingLastStep = 0;
+
+    /**
+     * Per-user UI presentation settings — one typed jsonb field, see the
+     * boundary note on {@link UiSettings} (presentation state ONLY, never
+     * anything that would reveal how a user works). NOT NULL in the schema
+     * (empty object default). PATCHed field-wise via {@code UiSettings.merge},
+     * never replaced whole, so two surfaces saving concurrently cannot erase
+     * each other. Adding a UI switch is a field on the type, not a migration.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "settings", nullable = false)
+    public UiSettings settings = new UiSettings();
 
     @Column(name = "last_seen_at")
     public Instant lastSeenAt;
