@@ -40,7 +40,9 @@ public class VersionResource {
 
     static final String CORE_VERSION_RESOURCE = "/META-INF/kumbuka-server.version";
 
-    private static final String CORE_VERSION = readCoreVersion();
+    private static final String UNKNOWN = "unknown";
+
+    private static final String CORE_VERSION = readCoreVersion(CORE_VERSION_RESOURCE);
 
     @ConfigProperty(name = "quarkus.application.version", defaultValue = "unknown")
     String version;
@@ -60,17 +62,19 @@ public class VersionResource {
      * Read the embedded core version. The file ships in the same jar as
      * this class, so a miss is a packaging defect — surfaced as a literal
      * {@code "unknown"} rather than an exception: version metadata must
-     * never take the endpoint down.
+     * never take the endpoint down. Takes the resource path as a parameter
+     * so tests can exercise the fallback branches; production always passes
+     * {@link #CORE_VERSION_RESOURCE}.
      */
-    static String readCoreVersion() {
-        try (InputStream in = VersionResource.class.getResourceAsStream(CORE_VERSION_RESOURCE)) {
+    static String readCoreVersion(String resource) {
+        try (InputStream in = VersionResource.class.getResourceAsStream(resource)) {
             if (in == null) {
-                return "unknown";
+                return UNKNOWN;
             }
             String value = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
-            return value.isEmpty() ? "unknown" : value;
+            return value.isEmpty() ? UNKNOWN : value;
         } catch (IOException e) {
-            return "unknown";
+            return UNKNOWN;
         }
     }
 }

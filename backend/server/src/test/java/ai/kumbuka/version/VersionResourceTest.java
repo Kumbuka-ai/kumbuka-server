@@ -41,10 +41,22 @@ class VersionResourceTest {
 
     @Test
     void embeddedCoreVersion_isFilteredAndPresent() {
-        String core = VersionResource.readCoreVersion();
+        String core = VersionResource.readCoreVersion(VersionResource.CORE_VERSION_RESOURCE);
         assertFalse(core.contains("${"), "resource must be Maven-filtered, got: " + core);
         assertFalse(core.isBlank(), "embedded core version must not be blank");
         assertFalse("unknown".equals(core), "embedded resource missing from the build");
+    }
+
+    @Test
+    void readCoreVersion_missingResource_fallsBackToUnknown() {
+        // A miss is a packaging defect surfaced as "unknown", never an
+        // exception — version metadata must not take the endpoint down.
+        assertEquals("unknown", VersionResource.readCoreVersion("/META-INF/no-such.version"));
+    }
+
+    @Test
+    void readCoreVersion_blankResource_fallsBackToUnknown() {
+        assertEquals("unknown", VersionResource.readCoreVersion("/ai/kumbuka/version/blank.version"));
     }
 
     @Test
