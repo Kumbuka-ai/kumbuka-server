@@ -137,9 +137,9 @@ public final class AdminDtos {
         boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
         String locale,  // the caller's UI language preference (en | de); null = unset
         OnboardingState onboarding,  // D-CORE-10.1: per-user wizard dismiss/resume state
-        // Per-user UI presentation settings (typed, presentation state only —
-        // see the boundary note on UiSettings). Always present in the view;
-        // unset fields are null and the console applies its defaults.
+        // Per-user UI presentation settings — typed, presentation state ONLY
+        // (boundary note on UiSettings). Always present in the view; for an
+        // unset field the console falls back to its own default.
         UiSettings settings
     ) {}
 
