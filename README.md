@@ -1,4 +1,4 @@
-# kumbuka-server — Universal Memory MCP (Team Edition, OSS)
+# kumbuka-server — shared team memory for AI assistants, served over MCP
 
 ![License](https://img.shields.io/badge/license-AGPL_v3-FF5B1F?style=flat-square)
 ![Java](https://img.shields.io/badge/Java-21-2D4059?style=flat-square&logo=openjdk&logoColor=F4F1EA)
@@ -10,25 +10,28 @@
 ![CI](https://img.shields.io/github/actions/workflow/status/kumbuka-ai/kumbuka-server/ci.yml?style=flat-square&label=CI&color=FF5B1F)
 
 Self-hostable team memory system exposed as a remote **Model Context Protocol**
-(MCP) server over Streamable HTTP. Reachable from claude.ai, Claude Desktop,
-Claude Mobile, and Claude Code. Everything runs in Docker, orchestrated by a
+(MCP) server over Streamable HTTP. Reachable from claude.ai and other
+MCP-capable AI clients. Everything runs in Docker, orchestrated by a
 single `docker-compose.yml`.
 
 > **Repo layout.** This is the OSS server repository (`kumbuka-server`): the
-> Quarkus backend, the Keycloak realm + theme, Caddy/Postgres ops, and the
-> ADR record. The Next.js admin console lives in its own repo
+> Quarkus backend (a multi-module Maven build: `server` + the `spi` module),
+> Caddy/Postgres ops, and the ADR record. The Next.js admin console lives in
+> its own repo
 > [`kumbuka-console`](https://github.com/kumbuka-ai/kumbuka-console); wire it
 > in via a `compose.override.yml` (see the `kumbuka-console` block comment
-> in `docker-compose.yml`). The commercial multi-tenant edition is built on
-> the `ai.kumbuka.tenancy.TenantResolver` SPI frozen here (ADR-0011).
+> in `docker-compose.yml`). The Keycloak image, realm templates, and theme
+> live in [`kumbuka-keycloak`](https://github.com/kumbuka-ai/kumbuka-keycloak).
+> A downstream composition build can provide multi-tenant resolution on the
+> `ai.kumbuka.tenancy.TenantResolver` SPI frozen here (ADR-0011).
 
 License: **AGPL-3.0**.
 
-> **Status.** Backend complete (Phases 0–11); frontend admin console is the
-> next milestone. The MCP surface, admin REST API, OAuth integration with
-> Keycloak, and the private-isolation invariant are all in place and verified
-> by 28 in-process tests. See `docs/adr/` for the architectural record and the
-> phase-by-phase commit history in `git log` for the build narrative.
+> **Status.** The MCP surface, the admin REST API, the OAuth integration with
+> Keycloak, and the private-isolation invariant are in place, covered by the
+> unit and integration test suites. The admin console is built and maintained
+> in [`kumbuka-console`](https://github.com/kumbuka-ai/kumbuka-console). See
+> `docs/adr/` for the architectural record.
 
 ---
 
@@ -79,10 +82,12 @@ License: **AGPL-3.0**.
 
 The backend plays **two** OIDC roles against the Keycloak realm `kumbuka`:
 
-1. **Resource server (bearer)** at `/mcp`. Claude clients discover the
+1. **Resource server (bearer)** at `/mcp`. AI clients discover the
    authorization server via `/.well-known/oauth-protected-resource`
-   (RFC 9728), run the OAuth flow against the confidential PKCE client
-   `kumbuka-connector` (ADR-0006), then call `/mcp` with a bearer token.
+   (RFC 9728) and run the OAuth authorization-code flow with PKCE. A client
+   identifies itself through its published client metadata or dynamic client
+   registration at first authorization — there is no hand-entered client id
+   and no client secret. It then calls `/mcp` with a bearer token.
    The token's `sub` claim is the acting user; the realm role
    (`member` / `admin`) is the authorisation context.
 2. **Confidential web-app client** `kumbuka-admin` for the admin console
@@ -146,12 +151,12 @@ no method that can return private rows. The release-gate smoke test
 
 ## Settings
 
-A singleton `team_settings` row drives runtime policy (handoff §D):
+A singleton `team_settings` row drives runtime policy:
 
 | Setting          | Values                                  | Meaning                                            |
 | ---------------- | --------------------------------------- | -------------------------------------------------- |
 | `writePolicy`    | `ask` (default) / `project` / `global`  | What `memory_remember` does when `scope` is omitted. `ask` returns a structured prompt asking the user; private is **never** the default. |
-| `defaultScopeSlug` | a project slug                        | Only used when `writePolicy = project`. If it goes archived/missing, the resolver falls back to `ask` at runtime without mutating the row (D3). |
+| `defaultScopeSlug` | a project slug                        | Only used when `writePolicy = project`. If it goes archived/missing, the resolver falls back to `ask` at runtime without mutating the row. |
 | `createScopes`   | `admins` (default) / `members`          | Who may create new project scopes.                 |
 
 Admins edit these in the console; the changes take effect immediately.
@@ -166,7 +171,7 @@ cp .env.example .env
 just up                       # postgres + keycloak + backend + caddy
 ```
 
-Then visit `https://dev.kumbuka.ai` (or whatever you set `KUMBUKA_DOMAIN` to).
+Then visit `https://<your-domain>` (whatever you set `KUMBUKA_DOMAIN` to).
 
 Common targets:
 
@@ -183,8 +188,8 @@ just clean              # tear down + DROP volumes (destroys data)
 The login screen, the account console, and the invitation / verification /
 password-reset emails are all themed by the **kumbuka** Keycloak theme, which
 — along with both realm definitions and the production image — now lives in its
-own repository: **[kumbuka-keycloak](https://github.com/kumbuka-ai/kumbuka-keycloak)**
-(extracted under D-OPS-29). Both dev and prod consume the same published image
+own repository: **[kumbuka-keycloak](https://github.com/kumbuka-ai/kumbuka-keycloak)**.
+Both dev and prod consume the same published image
 `ghcr.io/kumbuka-ai/kumbuka-keycloak`, pinned via `KEYCLOAK_VERSION`. Theme and
 realm edits, and the build/verify loop, happen in that repo.
 
@@ -219,13 +224,6 @@ Three pieces in this repo together describe a production deploy:
 | `deploy/caddy/kumbuka.caddy` | Caddyfile snippet for the host Caddy. `import` it from the host Caddyfile. |
 | `.env.prod.example` | Production env template — set `KUMBUKA_VERSION`, `CADDY_NETWORK`, hostnames, secrets. |
 
-The pull-deploy script (`scripts/deploy.sh`), the n8n workflow that
-triggers it on GitHub Release events, and the Postgres backup script
-live in `~/kumbuka/deploy/` on the host, not in this repo. They are
-host-specific and are bootstrapped on the server itself (a separate
-Claude Code session handles that — see the bootstrap prompt the
-operator carries across).
-
 Minimal hand-deploy on a host that's already set up:
 
 ```bash
@@ -234,27 +232,31 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-For the GitOps flow (tag → release workflow → GHCR → n8n → deploy.sh →
-healthcheck → rollback-on-fail), see the deploy README on the host
-under `~/kumbuka/deploy/README.md`.
+How deploys are automated beyond that — pull scripts, health gates,
+rollback — is a property of your hosting environment, not of this
+repository. Treat the files above as the reference shape for a
+compose-based deploy behind an existing reverse proxy, and wire them
+into your own operations.
 
 ---
 
 ## Connecting Claude clients
 
-All clients use the same OAuth-discovered flow against the
-`kumbuka-connector` confidential PKCE client. The model first hits
+All clients use the same OAuth-discovered flow: the URL is all you
+enter — there is no client id and no client secret. The client first hits
 `/mcp`, gets a `401` with a `WWW-Authenticate` header pointing at
-`/.well-known/oauth-protected-resource`, then runs the auth code flow
-against Keycloak. The token's `aud` claim is bound to `kumbuka-connector`
-and the backend validates it before letting any tool call through.
+`/.well-known/oauth-protected-resource`, then runs the authorization-code
+flow with PKCE against Keycloak, identifying itself through its published
+client metadata or dynamic client registration at first authorization.
+The backend validates the token's `aud` claim before letting any tool
+call through.
 
 ### claude.ai (web) — custom connector
 
 1. **Settings → Connectors → Add custom connector.**
 2. Fill in:
    - **Name:** `kumbuka`
-   - **URL:** `https://dev.kumbuka.ai/mcp` (or your prod URL)
+   - **URL:** `https://mcp.kumbuka.ai/mcp` (an example — your deployment's MCP host)
 3. Click **Connect**. claude.ai discovers the auth server via PRM, opens
    a Keycloak login window, and on consent stores the resulting token
    server-side.
@@ -266,7 +268,7 @@ and the backend validates it before letting any tool call through.
 Claude Desktop's in-app **Connectors** UI takes the same URL:
 
 1. **Settings → Connectors → Add custom connector.**
-2. **URL:** `https://dev.kumbuka.ai/mcp`.
+2. **URL:** `https://mcp.kumbuka.ai/mcp` (your deployment's MCP host).
 3. Sign in to Keycloak when prompted.
 
 If your Desktop build is older and doesn't expose the in-app connector
@@ -281,7 +283,7 @@ shim in `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "args": [
         "-y",
         "mcp-remote",
-        "https://dev.kumbuka.ai/mcp"
+        "https://mcp.kumbuka.ai/mcp"
       ]
     }
   }
@@ -296,7 +298,7 @@ and caches the refresh token locally.
 Add the server once globally and Claude Code picks it up across projects:
 
 ```bash
-claude mcp add --transport http kumbuka https://dev.kumbuka.ai/mcp
+claude mcp add --transport http kumbuka https://mcp.kumbuka.ai/mcp
 ```
 
 Or per project, add to `.claude/settings.json`:
@@ -306,7 +308,7 @@ Or per project, add to `.claude/settings.json`:
   "mcpServers": {
     "kumbuka": {
       "type": "http",
-      "url": "https://dev.kumbuka.ai/mcp"
+      "url": "https://mcp.kumbuka.ai/mcp"
     }
   }
 }
@@ -531,7 +533,7 @@ Workflow:
 cd backend && mvn test
 ```
 
-Runs the 28 in-process tests including the **private-isolation smoke test**
+Runs the in-process test suite, including the **private-isolation smoke test**
 (`PrivateIsolationTest` — the release-gate invariant from ADR-0003) and the
 admin REST surface checks. No Docker needed beyond DevServices Postgres.
 
@@ -541,17 +543,11 @@ admin REST surface checks. No Docker needed beyond DevServices Postgres.
 cd backend && mvn verify -Pintegration
 ```
 
-`E2EOAuthIntegrationIT` is currently **disabled** — Quarkus OIDC
-`tenant-enabled` is a build-time property, and the test profile's
-disable default fights with the Testcontainers Keycloak port-binding.
-The scaffolding (`KeycloakTestResource` + a DAG-enabled test realm
-import) is in place; re-enabling needs either a dedicated `@TestProfile`
-that builds with OIDC ON + a fixed-port Keycloak, or to drop the
-test-profile OIDC disable across the suite.
+Runs the Testcontainers-based integration tests, including the OAuth
+end-to-end flow (`E2EOAuthIntegrationIT`) against a real Keycloak under
+a dedicated OIDC-enabled test profile.
 
 ### Manual — MCP Inspector
-
-The release-gate path until the IT is re-enabled:
 
 1. `cp .env.example .env`, set secrets, `just up`.
 2. Run the inspector locally:
@@ -559,7 +555,7 @@ The release-gate path until the IT is re-enabled:
    npx @modelcontextprotocol/inspector
    ```
 3. In Inspector → **Add Server** → Transport: **Streamable HTTP** →
-   URL: `https://dev.kumbuka.ai/mcp`.
+   URL: `https://<your-domain>/mcp`.
 4. Inspector triggers the OAuth flow: Keycloak prompts for a user in the
    `kumbuka` realm (create one via the admin console / `kcadm.sh` first —
    dev test users are no longer auto-seeded); on consent it returns a token.
@@ -588,43 +584,45 @@ security incident.
 - Private memories are an inviolable invariant. `PrivateIsolationTest`
   must stay green; treat its failure as a security incident, not a
   flake.
-- The connector secret is rotatable from the console
-  (`POST /api/connector/secret/rotate`). Treat a suspected leak the
-  same way you'd treat any API-key leak: rotate immediately and audit
-  the Keycloak event log for token issuance after the suspected window.
+- A connected AI client can be cut off at any time by **disabling its
+  registered client** in Keycloak — the connector-level kill-switch
+  (there is no connector secret; clients register themselves at first
+  authorization). On a suspected token leak, disable the client and
+  audit the Keycloak event log for token issuance during the suspected
+  window.
 
 ---
 
 ## Repo layout
 
 ```
-backend/                Quarkus + Java 21 (MCP server, BFF, admin API)
-  src/main/java/ai/kumbuka/
-    admin/              admin REST resources (scopes, entries, users,
-                        settings, overview, connector, /auth/me)
-    auth/               OIDC path-based tenant resolver
-    config/             typed config mapping (kumbuka.*)
-    domain/             JPA entities + enums + the singleton TeamSettings
-    keycloak/           Keycloak Admin REST client wrapper
-    mcp/                @Tool methods + structured DTOs
-    repo/               MemoryRepository (MCP path),
+backend/                multi-module Maven build
+  server/               Quarkus + Java 21 — the MCP server, BFF, and admin API
+    src/main/java/ai/kumbuka/
+      admin/            admin REST resources (scopes, entries, users,
+                        settings, overview, /auth/me)
+      auth/             OIDC tenant resolution
+      config/           typed config mapping (kumbuka.*)
+      domain/           JPA entities + enums + the singleton TeamSettings
+      keycloak/         Keycloak Admin REST client wrapper
+      mcp/              @Tool methods + structured DTOs
+      repo/             MemoryRepository (MCP path),
                         SharedMemoryRepository (admin path — no private),
                         ScopeRepository, TeamSettingsRepository
-    service/            WritePolicyResolver (D3)
-    wellknown/          /.well-known/oauth-protected-resource (RFC 9728)
-  src/main/resources/
-    application.properties
-    db/migration/       V1__init.sql + V2__scope_settings_source.sql
-frontend/               Next.js + Tailwind (planned)
+      service/          write-policy resolution and domain services
+      wellknown/        /.well-known/oauth-protected-resource (RFC 9728)
+    src/main/resources/
+      application.properties
+      db/migration/     Flyway migrations
+  spi/                  the tenancy SPI published for composition builds
 postgres/               init-db.sh (creates keycloak + kumbuka DBs)
-docs/
-  DESIGN_HANDOFF.md     the binding spec from the design return
-  adr/                  ADR-0001 … ADR-0008
-design/prototype/       JSX prototype + CSS + screenshots (visual source
-                        of truth for the console build)
+ops/                    operator-side compose + scripts consuming released images
+deploy/caddy/           Caddyfile snippet for a host Caddy
+docs/                   the ADR record (docs/adr/) and historical design documents
 assets/brand/           kumbuka logos in light + dark + lockup variants
-docker-compose.yml      orchestration
-Caddyfile               TLS termination + path routing
+docker-compose.yml      dev orchestration
+docker-compose.prod.yml production stack reference
+Caddyfile               TLS termination + path routing (dev)
 justfile                common dev targets
 .env.example            template — copy to .env
 ```
