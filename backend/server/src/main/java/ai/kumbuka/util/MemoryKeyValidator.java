@@ -28,17 +28,11 @@ public final class MemoryKeyValidator {
     /**
      * Lowercase a-z + digits, with optional {@code .} or {@code -}
      * separators. Anchored — no leading/trailing separators, no doubles.
-     * Same shape the DB CHECK in V2 enforces.
-     *
-     * <p>The quantifiers are <b>possessive</b> ({@code ++}, {@code *+}) to
-     * eliminate any backtracking on malformed inputs — Sonar's regex
-     * analyzer flags the equivalent greedy form
-     * ({@code ^[a-z0-9]+([.\\-][a-z0-9]+)*$}) as a catastrophic-backtracking
-     * risk, even though the accepted set is identical. Java's {@link Pattern}
-     * supports both quantifier flavours natively.
+     * Same shape the DB CHECK in V2 enforces. The pattern itself lives in
+     * {@link SlugPatterns#KEY} — the single holder of the canonical
+     * identifier grammars.
      */
-    public static final Pattern PATTERN =
-        Pattern.compile("^[a-z0-9]++(?:[.\\-][a-z0-9]++)*+$");
+    public static final Pattern PATTERN = SlugPatterns.KEY;
 
     /** Plain-language description, repeated in error messages + the @ToolArg doc. */
     public static final String DESCRIPTION =

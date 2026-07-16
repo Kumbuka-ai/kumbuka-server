@@ -10,6 +10,7 @@ import ai.kumbuka.domain.TeamSettings.CreateScopes;
 import ai.kumbuka.repo.ScopeRepository;
 import ai.kumbuka.repo.SharedMemoryRepository;
 import ai.kumbuka.repo.TeamSettingsRepository;
+import ai.kumbuka.util.ScopeSlugValidator;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
@@ -69,8 +70,12 @@ public class AdminScopesResource {
         if (req.slug() == null || req.slug().isBlank() || req.name() == null || req.name().isBlank()) {
             throw new BadRequestException("slug and name are required");
         }
+        final String slug = req.slug().trim();
+        // Off-shape slugs get a clean 400 here instead of falling through
+        // to the DB CHECK constraint as an unmapped 500.
+        ScopeSlugValidator.validate(slug);
         Scope s = scopes.createProject(
-            req.slug().trim(),
+            slug,
             req.name().trim(),
             req.description() == null ? null : req.description().trim(),
             identity.getPrincipal().getName()

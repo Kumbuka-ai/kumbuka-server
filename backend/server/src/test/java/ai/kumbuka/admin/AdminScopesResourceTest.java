@@ -155,6 +155,26 @@ class AdminScopesResourceTest {
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
+    void create_offShapeSlug_rejectsAs400_neverReachesTheRepository() {
+        when(settings.current()).thenReturn(withCreateScopes(CreateScopes.ADMINS));
+
+        for (String bad : new String[] {"Billing", "a--b", "a.b", "a_b", "-a", "a-"}) {
+            given()
+                .contentType(ContentType.JSON)
+                .body("""
+                    {"slug": "%s", "name": "Bad Slug"}
+                    """.formatted(bad))
+                .when().post("/api/scopes")
+                .then().statusCode(400);
+        }
+        // The validator gate sits before the repository — an off-shape slug
+        // must never fall through to the DB CHECK as an unmapped 500.
+        verify(scopes, org.mockito.Mockito.never())
+            .createProject(anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    @TestSecurity(user = "admin", roles = {"admin"})
     void create_missingName_rejectsAs400() {
         when(settings.current()).thenReturn(withCreateScopes(CreateScopes.ADMINS));
 
