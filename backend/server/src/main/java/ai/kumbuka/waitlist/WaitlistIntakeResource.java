@@ -82,9 +82,9 @@ public class WaitlistIntakeResource {
 
     private static final String INSERT_SQL =
         "INSERT INTO ops.waitlist_entry "
-      + "(email, team_name, contact, message, "
+      + "(email, team_name, contact, message, language, "
       + "utm_source, utm_medium, utm_campaign, utm_content, referrer) "
-      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id";
+      + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id";
 
     @Inject AgroalDataSource dataSource;
 
@@ -97,12 +97,18 @@ public class WaitlistIntakeResource {
      * stays valid. {@code referrer} is already trimmed to origin (scheme+host) by
      * the web client — the intake stores and caps it, it does NOT re-derive it.
      * Unknown extra JSON fields are ignored (never a hard reject).
+     *
+     * <p>{@code language} is the visitor's site language at submit; it lets a
+     * downstream consumer localize the invitation email. Unlike the tolerant
+     * UTM pass-through it is normalized to {@code de}/{@code en} — anything
+     * else is stored as SQL NULL so the default locale applies downstream.
      */
     public record IntakeRequest(
         String email,
         String teamName,
         String contact,
         String message,
+        String language,
         String utmSource,
         String utmMedium,
         String utmCampaign,
@@ -122,6 +128,7 @@ public class WaitlistIntakeResource {
         final String teamName = trimToNull(req.teamName());
         final String contact = trimToNull(req.contact());
         final String message = trimToNull(req.message());
+        final String language = normalizeLanguage(req.language());
 
         // Attribution (D-OPS-32 (c),(e)): sanitize defensively — blank -> null,
         // truncate to cap. No enum/format validation, no hard reject on unknown
@@ -145,11 +152,12 @@ public class WaitlistIntakeResource {
             ps.setString(2, teamName);
             ps.setString(3, contact); // nullable — null maps to SQL NULL
             ps.setString(4, message); // nullable — null maps to SQL NULL
-            ps.setString(5, utmSource);   // attribution — nullable
-            ps.setString(6, utmMedium);   // attribution — nullable
-            ps.setString(7, utmCampaign); // attribution — nullable
-            ps.setString(8, utmContent);  // attribution — nullable
-            ps.setString(9, referrer);    // attribution — nullable
+            ps.setString(5, language);    // site language — nullable, normalized
+            ps.setString(6, utmSource);   // attribution — nullable
+            ps.setString(7, utmMedium);   // attribution — nullable
+            ps.setString(8, utmCampaign); // attribution — nullable
+            ps.setString(9, utmContent);  // attribution — nullable
+            ps.setString(10, referrer);   // attribution — nullable
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 String id = rs.getString(1);
@@ -201,5 +209,21 @@ public class WaitlistIntakeResource {
             return null;
         }
         return t.length() > maxLen ? t.substring(0, maxLen) : t;
+    }
+
+    /**
+     * Normalize the visitor's site language to the closed set {@code de}/{@code en}.
+     * Deliberately stricter than the UTM pass-through: this value drives the
+     * invitation email locale downstream, so a garbage value would break locale
+     * selection — anything outside the set is stored as SQL NULL (the downstream
+     * falls back to its default locale). The request itself is never rejected.
+     */
+    private static String normalizeLanguage(String raw) {
+        String t = trimToNull(raw);
+        if (t == null) {
+            return null;
+        }
+        String lc = t.toLowerCase(java.util.Locale.ROOT);
+        return ("de".equals(lc) || "en".equals(lc)) ? lc : null;
     }
 }
