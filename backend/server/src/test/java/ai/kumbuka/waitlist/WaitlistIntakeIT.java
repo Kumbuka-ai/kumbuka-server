@@ -66,7 +66,8 @@ class WaitlistIntakeIT {
             s.execute("CREATE SCHEMA IF NOT EXISTS ops");
             // --- BEGIN test mirror of ops-console V4__waitlist_intake.sql
             //     + V7__waitlist_utm_attribution.sql (the five nullable UTM
-            //     columns the intake now persists). Keep in sync with those. ---
+            //     columns the intake now persists) + the nullable language
+            //     column added later. Keep in sync with those. ---
             s.execute(
                 "CREATE TABLE IF NOT EXISTS ops.waitlist_entry ("
               + "  id                       UUID        PRIMARY KEY DEFAULT gen_random_uuid(),"
@@ -85,7 +86,8 @@ class WaitlistIntakeIT {
               + "  utm_medium               TEXT,"
               + "  utm_campaign             TEXT,"
               + "  utm_content              TEXT,"
-              + "  referrer                 TEXT"
+              + "  referrer                 TEXT,"
+              + "  language                 TEXT"
               + ")");
             s.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS waitlist_entry_email_active_uq "
@@ -171,6 +173,90 @@ class WaitlistIntakeIT {
             assertThat(selectString("organic@acme.io", col))
                 .as("%s is NULL for organic traffic", col).isNull();
         }
+    }
+
+    @Test
+    void coreTextFields_overCap_areTruncated() throws SQLException {
+        // The endpoint is public — without a server-side cap a single request
+        // could park megabytes in a TEXT column. Same truncation stance as the
+        // attribution fields: never reject over length, just cap.
+        final String longTeam = "t".repeat(300);
+        final String longContact = "c".repeat(300);
+        final String longMessage = "m".repeat(2100);
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"caps@acme.io\",\"teamName\":\"" + longTeam + "\","
+                + "\"contact\":\"" + longContact + "\",\"message\":\"" + longMessage + "\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+
+        assertThat(selectString("caps@acme.io", "team_name")).isEqualTo(longTeam.substring(0, 256));
+        assertThat(selectString("caps@acme.io", "contact")).isEqualTo(longContact.substring(0, 256));
+        assertThat(selectString("caps@acme.io", "message")).isEqualTo(longMessage.substring(0, 2000));
+    }
+
+    @Test
+    void email_overSmtpLengthLimit_returns400() {
+        // An email is never truncated — a shortened address is a wrong
+        // address — so over-long values fail the validity gate instead.
+        // 255 chars total: one past the practical SMTP limit of 254.
+        final String longEmail = "a".repeat(247) + "@acme.io";
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"" + longEmail + "\",\"teamName\":\"Acme\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(400)
+                .body("error", equalTo("invalid_request"));
+    }
+
+    @Test
+    void language_knownValue_isPersistedNormalized() throws SQLException {
+        // The visitor's site language rides along so the invitation email can
+        // be localized downstream. Known values are stored lowercased.
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"lang-de@acme.io\",\"teamName\":\"Acme\",\"language\":\"de\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+        assertThat(selectString("lang-de@acme.io", "language")).isEqualTo("de");
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"lang-en@acme.io\",\"teamName\":\"Acme\",\"language\":\" EN \"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+        assertThat(selectString("lang-en@acme.io", "language")).isEqualTo("en");
+    }
+
+    @Test
+    void language_unknownOrAbsent_persistsNull() throws SQLException {
+        // Unlike the tolerant UTM pass-through, the language drives locale
+        // selection downstream — anything outside {de, en} is stored as NULL so
+        // the default locale applies instead of a garbage value.
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"lang-fr@acme.io\",\"teamName\":\"Acme\",\"language\":\"fr\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+        assertThat(selectString("lang-fr@acme.io", "language")).isNull();
+
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"lang-none@acme.io\",\"teamName\":\"Acme\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+        assertThat(selectString("lang-none@acme.io", "language")).isNull();
     }
 
     @Test
