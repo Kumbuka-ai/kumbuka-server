@@ -66,6 +66,16 @@ public class WaitlistIntakeResource {
     private static final int MAX_UTM_CONTENT = 128;
     private static final int MAX_REFERRER = 256;
 
+    // Core-field caps: the endpoint is public, so without a server-side cap a
+    // single request could park megabytes in a TEXT column. Same truncation
+    // stance as the attribution fields — never reject over length, just cap.
+    // Email is the exception: a truncated address is a wrong address, so
+    // over-long emails fail the validity gate (400) instead of being cut.
+    private static final int MAX_EMAIL = 254; // practical SMTP address limit
+    private static final int MAX_TEAM_NAME = 256;
+    private static final int MAX_CONTACT = 256;
+    private static final int MAX_MESSAGE = 2000;
+
     /**
      * Conservative email shape: a single {@code @}, a dot in the domain, and no
      * whitespace anywhere. Deliberately permissive on the local part — this is
@@ -125,9 +135,9 @@ public class WaitlistIntakeResource {
         }
 
         final String email = trimToNull(req.email());
-        final String teamName = trimToNull(req.teamName());
-        final String contact = trimToNull(req.contact());
-        final String message = trimToNull(req.message());
+        final String teamName = sanitize(req.teamName(), MAX_TEAM_NAME);
+        final String contact = sanitize(req.contact(), MAX_CONTACT);
+        final String message = sanitize(req.message(), MAX_MESSAGE);
         final String language = normalizeLanguage(req.language());
 
         // Attribution (D-OPS-32 (c),(e)): sanitize defensively — blank -> null,
@@ -139,7 +149,7 @@ public class WaitlistIntakeResource {
         final String utmContent = sanitize(req.utmContent(), MAX_UTM_CONTENT);
         final String referrer = sanitize(req.referrer(), MAX_REFERRER);
 
-        if (email == null || !EMAIL.matcher(email).matches()) {
+        if (email == null || email.length() > MAX_EMAIL || !EMAIL.matcher(email).matches()) {
             return badRequest("a valid email address is required");
         }
         if (teamName == null) {

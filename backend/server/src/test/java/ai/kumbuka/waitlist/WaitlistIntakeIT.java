@@ -176,6 +176,43 @@ class WaitlistIntakeIT {
     }
 
     @Test
+    void coreTextFields_overCap_areTruncated() throws SQLException {
+        // The endpoint is public — without a server-side cap a single request
+        // could park megabytes in a TEXT column. Same truncation stance as the
+        // attribution fields: never reject over length, just cap.
+        final String longTeam = "t".repeat(300);
+        final String longContact = "c".repeat(300);
+        final String longMessage = "m".repeat(2100);
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"caps@acme.io\",\"teamName\":\"" + longTeam + "\","
+                + "\"contact\":\"" + longContact + "\",\"message\":\"" + longMessage + "\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(200)
+                .body("success", is(true));
+
+        assertThat(selectString("caps@acme.io", "team_name")).isEqualTo(longTeam.substring(0, 256));
+        assertThat(selectString("caps@acme.io", "contact")).isEqualTo(longContact.substring(0, 256));
+        assertThat(selectString("caps@acme.io", "message")).isEqualTo(longMessage.substring(0, 2000));
+    }
+
+    @Test
+    void email_overSmtpLengthLimit_returns400() {
+        // An email is never truncated — a shortened address is a wrong
+        // address — so over-long values fail the validity gate instead.
+        // 255 chars total: one past the practical SMTP limit of 254.
+        final String longEmail = "a".repeat(247) + "@acme.io";
+        given()
+            .contentType(ContentType.JSON)
+            .body("{\"email\":\"" + longEmail + "\",\"teamName\":\"Acme\"}")
+            .when().post("/api/public/waitlist-intake")
+            .then()
+                .statusCode(400)
+                .body("error", equalTo("invalid_request"));
+    }
+
+    @Test
     void language_knownValue_isPersistedNormalized() throws SQLException {
         // The visitor's site language rides along so the invitation email can
         // be localized downstream. Known values are stored lowercased.
