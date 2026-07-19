@@ -126,9 +126,7 @@ public class TenantLimitsResource {
         if (refusal != null) {
             return refusal;
         }
-        if (patch == null
-                || (patch.write() != null && !patch.write().valid())
-                || (patch.tenantWrite() != null && !patch.tenantWrite().valid())) {
+        if (invalidPatch(patch)) {
             return Response.status(Response.Status.BAD_REQUEST)
                 .entity(Map.of(
                     KEY_ERROR, "invalid_band",
@@ -139,32 +137,43 @@ public class TenantLimitsResource {
 
         TenantLimits row = TenantLimits.findById(tenantId);
         if (patch.write() == null && patch.tenantWrite() == null) {
+            // Clearing the last override deletes the row — absence of a row
+            // means the deployment defaults apply.
             if (row != null) {
                 row.delete();
             }
+            row = null;
         } else {
-            if (row == null) {
-                row = new TenantLimits();
-                row.tenantId = tenantId;
-            }
-            row.writeBurstCapacity = patch.write() == null ? null : patch.write().burstCapacity();
-            row.writeRefillTokens = patch.write() == null ? null : patch.write().refillTokens();
-            row.writeRefillPeriodSeconds =
-                patch.write() == null ? null : patch.write().refillPeriodSeconds();
-            row.tenantWriteBurstCapacity =
-                patch.tenantWrite() == null ? null : patch.tenantWrite().burstCapacity();
-            row.tenantWriteRefillTokens =
-                patch.tenantWrite() == null ? null : patch.tenantWrite().refillTokens();
-            row.tenantWriteRefillPeriodSeconds =
-                patch.tenantWrite() == null ? null : patch.tenantWrite().refillPeriodSeconds();
-            row.updatedAt = Instant.now();
-            row.persist();
+            row = upsert(row, tenantId, patch);
         }
 
         // Runtime reconfigurability: the next write re-reads the config.
         limitsProvider.invalidate(tenantId);
-        return Response.ok(view(tenantId,
-            patch.write() == null && patch.tenantWrite() == null ? null : row)).build();
+        return Response.ok(view(tenantId, row)).build();
+    }
+
+    private static boolean invalidPatch(LimitsPatch patch) {
+        return patch == null
+            || (patch.write() != null && !patch.write().valid())
+            || (patch.tenantWrite() != null && !patch.tenantWrite().valid());
+    }
+
+    private static TenantLimits upsert(TenantLimits row, UUID tenantId, LimitsPatch patch) {
+        if (row == null) {
+            row = new TenantLimits();
+            row.tenantId = tenantId;
+        }
+        BandDto write = patch.write();
+        row.writeBurstCapacity = write == null ? null : write.burstCapacity();
+        row.writeRefillTokens = write == null ? null : write.refillTokens();
+        row.writeRefillPeriodSeconds = write == null ? null : write.refillPeriodSeconds();
+        BandDto aggregate = patch.tenantWrite();
+        row.tenantWriteBurstCapacity = aggregate == null ? null : aggregate.burstCapacity();
+        row.tenantWriteRefillTokens = aggregate == null ? null : aggregate.refillTokens();
+        row.tenantWriteRefillPeriodSeconds = aggregate == null ? null : aggregate.refillPeriodSeconds();
+        row.updatedAt = Instant.now();
+        row.persist();
+        return row;
     }
 
     /** Shared 503 / 401 / 400 refusal ladder (mirrors the seed/erase endpoints). */
