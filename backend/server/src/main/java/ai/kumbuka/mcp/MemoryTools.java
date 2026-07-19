@@ -118,6 +118,7 @@ public class MemoryTools {
       + "the team-wide global scope. Use the explicit slug 'private' to write to the "
       + "caller's private space. Optionally attach a `reference` URL (where this came "
       + "from) — it is stored as metadata, never fetched, and kept out of the digest.")
+    @RateLimitedWrite
     public Dtos.RememberResult memory_remember(
         @ToolArg(description = "The memory content (free text).")
             String content,

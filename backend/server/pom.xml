@@ -108,6 +108,17 @@
             <artifactId>quarkus-reactive-routes</artifactId>
         </dependency>
 
+        <!-- Token-bucket mechanics for the write-rate limiter (Apache-2.0).
+             Plain library + manual wiring: there is no official Quarkus
+             extension. The bucket store sits behind a persistence port
+             (RateLimitBucketStore) so a later shared-store backend is an
+             adapter swap, not a policy rewrite. -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+            <version>8.19.0</version>
+        </dependency>
+
         <!-- Observability -->
         <dependency>
             <groupId>io.quarkus</groupId>

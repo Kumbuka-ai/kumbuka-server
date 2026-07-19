@@ -44,7 +44,14 @@ class TenantRawSqlArchitectureTest {
         "TenantDatabaseBinding",
         // Flyway beforeEachMigrate: binds the singleton tenant GUC at boot,
         // before any traffic is served; is_local=true, migration tx only.
-        "TenantyMigrationCallback");
+        "TenantyMigrationCallback",
+        // Read-only SELECT on tenant_limits keyed by an explicit tenant id.
+        // The write-rate limiter evaluates BEFORE the per-request tenant
+        // binding exists (that is its point), so this read cannot run under
+        // @TenantBound; the V19 open-read RLS policy serves it by design.
+        // The rows are operator-set limit numbers, never member content,
+        // and the provider never writes.
+        "TenantLimitsProvider");
 
     private static final List<String> RAW_SQL_MARKERS = List.of(
         "createNativeQuery", ".getConnection(", ".createStatement(", ".prepareStatement(");

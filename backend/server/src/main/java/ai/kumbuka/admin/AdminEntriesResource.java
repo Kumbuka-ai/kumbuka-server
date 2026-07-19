@@ -78,6 +78,7 @@ public class AdminEntriesResource {
     @POST
     @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     @Transactional
+    @WriteRateLimited
     public Response create(@PathParam("slug") String slug, CreateEntryRequest req) {
         Scope scope = requireSharedSlug(slug);
         // Runtime write-gate (D-CORE-2): muted members are rejected here, normal
@@ -116,6 +117,7 @@ public class AdminEntriesResource {
     @Path("/{id}")
     @RolesAllowed({ROLE_ADMIN, ROLE_MEMBER})
     @Transactional
+    @WriteRateLimited
     public EntryView update(@PathParam("slug") String slug,
                             @PathParam("id") UUID id,
                             UpdateEntryRequest req) {
