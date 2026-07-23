@@ -89,9 +89,11 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
                 // ensures the live johannesbayer how-to entries (already
                 // present as unprotected conventions) flip to the system lock on
-                // the first seed run without producing duplicates.
+                // the first seed run without producing duplicates. Only the lock
+                // flips: `source` is the first-write channel and immutable
+                // (updatable = false on the mapping), so the row keeps its
+                // original channel.
                 if (source == SourceChannel.SYSTEM) {
-                    m.source = SourceChannel.SYSTEM;
                     m.lock = MemoryLock.SYSTEM;
                 }
                 // `source`/`owner_subject` are the FIRST-write authorship and are
@@ -249,42 +251,26 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * D-CORE-11: seed a protected system-seed mnemonic.
+     * Seed a protected system-seed mnemonic.
      *
      * <p>Convenience wrapper around {@link #remember} with the system
      * sentinel as owner_subject and {@code SourceChannel.SYSTEM} as the
      * channel — keeps the seeder code from having to know the sentinel.
-     * Idempotent by (scope, key): an existing system-seeded row is
-     * updated in place; an existing unprotected row with the same
-     * (owner_subject = __system__) is not possible (the sentinel is
-     * unique to seeding), but if a previous run wrote the row as a
-     * regular convention (the live johannesbayer case before D-CORE-11
-     * shipped), the upsert path above promotes it to protected.
+     * Idempotent by (scope, key): seeding only ever creates <em>missing</em>
+     * rows. A row that already exists under the key — an earlier seed run's
+     * or a hand-written one — is left exactly as it is: the first-write
+     * channel is immutable after creation, so an existing row cannot be
+     * converted into a system-seeded row after the fact.
      */
     @Transactional
     public Memory seed(String scopeSlug, MemoryType type, String key, String content) {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("seed requires a non-blank key");
         }
-        // First, check whether an unprotected row exists under a *different*
-        // owner (e.g. the live johannesbayer how-to-kumbuka entries which were
-        // hand-written by a human). If so, promote it: update content + flip
-        // protected/source/owner to the system identity.
         Scope scope = scopes.requireBySlug(scopeSlug);
-        Optional<Memory> legacy = find(
-            "scope = ?1 and key = ?2 and ownerSubject <> ?3",
-            scope, key, SystemSubject.SENTINEL).firstResultOptional();
-        if (legacy.isPresent()) {
-            Memory m = legacy.get();
-            m.content = content;
-            m.type = type;
-            m.source = SourceChannel.SYSTEM;
-            m.ownerSubject = SystemSubject.SENTINEL;
-            m.lock = MemoryLock.SYSTEM;
-            // In-place SYSTEM edit (Amendment 4): stamp the last-editor provenance.
-            m.updatedBy = SystemSubject.SENTINEL;
-            m.updatedSource = SourceChannel.SYSTEM;
-            return m;
+        Optional<Memory> existing = find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional();
+        if (existing.isPresent()) {
+            return existing.get();
         }
         return remember(SystemSubject.SENTINEL, scopeSlug, type, key, content, SourceChannel.SYSTEM);
     }
