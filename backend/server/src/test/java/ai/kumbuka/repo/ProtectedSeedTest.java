@@ -106,7 +106,10 @@ class ProtectedSeedTest {
         assertThat(after).isNotNull();
         assertThat(after.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThat(after.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
-        assertThat(after.source).isEqualTo(SourceChannel.SYSTEM);
+        // The first-write channel is immutable (updatable = false): the
+        // promotion transfers ownership and the lock but keeps the original
+        // creation provenance — this row was born through the console.
+        assertThat(after.source).isEqualTo(SourceChannel.CONSOLE);
         // Content has been rewritten to the canonical fixture.
         assertThat(after.content).contains("Kumbuka mnemonics are typed");
     }

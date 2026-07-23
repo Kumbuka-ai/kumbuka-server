@@ -89,9 +89,11 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
                 // ensures the live johannesbayer how-to entries (already
                 // present as unprotected conventions) flip to the system lock on
-                // the first seed run without producing duplicates.
+                // the first seed run without producing duplicates. Only the lock
+                // flips: `source` is the first-write channel and immutable
+                // (updatable = false on the mapping), so the row keeps its
+                // original channel.
                 if (source == SourceChannel.SYSTEM) {
-                    m.source = SourceChannel.SYSTEM;
                     m.lock = MemoryLock.SYSTEM;
                 }
                 // `source`/`owner_subject` are the FIRST-write authorship and are
@@ -278,7 +280,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             Memory m = legacy.get();
             m.content = content;
             m.type = type;
-            m.source = SourceChannel.SYSTEM;
+            // `source` stays the original first-write channel (immutable,
+            // updatable = false) — the promotion transfers ownership and the
+            // lock, not the creation provenance.
             m.ownerSubject = SystemSubject.SENTINEL;
             m.lock = MemoryLock.SYSTEM;
             // In-place SYSTEM edit (Amendment 4): stamp the last-editor provenance.

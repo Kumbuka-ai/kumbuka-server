@@ -33,16 +33,20 @@ class TenantIdCompletenessTest {
     @Test
     void every_tenant_scoped_entity_has_a_tenant_id_field() {
         for (Class<?> entity : TENANT_ENTITIES) {
+            // Walk the class hierarchy: JPA reads mapped-superclass fields as
+            // part of the entity, so an inherited @TenantId counts.
             boolean hasTenantId = false;
-            for (Field field : entity.getDeclaredFields()) {
-                if (field.isAnnotationPresent(TenantId.class)) {
-                    hasTenantId = true;
-                    break;
+            for (Class<?> c = entity; c != null && !hasTenantId; c = c.getSuperclass()) {
+                for (Field field : c.getDeclaredFields()) {
+                    if (field.isAnnotationPresent(TenantId.class)) {
+                        hasTenantId = true;
+                        break;
+                    }
                 }
             }
             assertThat(hasTenantId)
-                .as("%s must declare a @TenantId field so the Hibernate filter scopes every ORM "
-                    + "query to the current tenant (layer 1 of tenant isolation)",
+                .as("%s must declare or inherit a @TenantId field so the Hibernate filter scopes "
+                    + "every ORM query to the current tenant (layer 1 of tenant isolation)",
                     entity.getSimpleName())
                 .isTrue();
         }
