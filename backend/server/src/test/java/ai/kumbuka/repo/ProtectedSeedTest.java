@@ -29,10 +29,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       content unchanged.</li>
  *   <li>Unprotected entries delete exactly as before (no regression on
  *       the ordinary path).</li>
- *   <li>A pre-existing unprotected row with the same key as a seed entry
- *       is promoted to {@code protected=true} on the first seed run —
- *       this is the migration path for the live johannesbayer how-to
- *       entries that exist as ordinary conventions today.</li>
+ *   <li>A pre-existing row with the same key as a seed entry is left
+ *       untouched — the seeder only ever creates missing rows (the
+ *       first-write channel is immutable, so an existing row cannot be
+ *       converted into a system-seeded row after the fact).</li>
  * </ol>
  *
  * <p>The kumbuka-scope {@code open_question.write-confirmation-setting} part
@@ -60,7 +60,7 @@ class ProtectedSeedTest {
     @Test
     @TestTransaction
     void seeder_isIdempotent_runTwiceProducesTheSameRowCount() {
-        // First run plants 3 rows (or promotes existing ones — same end state).
+        // First run plants 3 rows (none exist yet in this transaction).
         seedService.seedCurrentTenant();
         List<Memory> firstRun = listSeeds();
         assertThat(firstRun).hasSize(3);
@@ -81,15 +81,14 @@ class ProtectedSeedTest {
     }
 
     // ---------------------------------------------------------------------
-    // Gate 5 — promote pre-existing unprotected row by key (the live
-    // johannesbayer migration path)
+    // Gate 5 — a pre-existing row under a seed key is left untouched
     // ---------------------------------------------------------------------
 
     @Test
     @TestTransaction
-    void seeder_promotesPreExistingUnprotectedRowByKey() {
-        // Mimic the live johannesbayer state: the same key exists as a
-        // regular convention authored by a human admin.
+    void seeder_leavesAPreExistingRowUntouched() {
+        // The same key already exists as a regular convention authored by a
+        // human admin before the seeder ever ran.
         String key = "convention.how-to-kumbuka.types";
         Memory pre = memories.remember(
             ADMIN, "global", MemoryType.CONVENTION, key,
@@ -100,18 +99,18 @@ class ProtectedSeedTest {
 
         seedService.seedCurrentTenant();
 
-        // After the seed run: same row id (no duplicate), now protected +
-        // owned by the system identity, content rewritten to the fixture.
-        Memory after = Memory.findById(pre.logicalId);
-        assertThat(after).isNotNull();
-        assertThat(after.lock).isEqualTo(MemoryLock.SYSTEM);
-        assertThat(after.ownerSubject).isEqualTo(SystemSubject.SENTINEL);
-        // The first-write channel is immutable (updatable = false): the
-        // promotion transfers ownership and the lock but keeps the original
-        // creation provenance — this row was born through the console.
+        // The seeder only ever creates missing rows: the first-write channel
+        // is immutable after creation, so the existing row cannot be turned
+        // into a system-seeded row — it stays exactly as it was, and no
+        // parallel row is planted under the key.
+        List<Memory> underKey = Memory.<Memory>find("key = ?1", key).list();
+        assertThat(underKey).hasSize(1);
+        Memory after = underKey.get(0);
+        assertThat(after.logicalId).isEqualTo(pre.logicalId);
+        assertThat(after.lock).isEqualTo(MemoryLock.NONE);
+        assertThat(after.ownerSubject).isEqualTo(ADMIN);
         assertThat(after.source).isEqualTo(SourceChannel.CONSOLE);
-        // Content has been rewritten to the canonical fixture.
-        assertThat(after.content).contains("Kumbuka mnemonics are typed");
+        assertThat(after.content).isEqualTo("an earlier hand-written version");
     }
 
     // ---------------------------------------------------------------------
