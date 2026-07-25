@@ -2,6 +2,7 @@ package ai.kumbuka.admin.dto;
 
 import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.Scope;
+import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.TeamSettings;
 import ai.kumbuka.domain.UiSettings;
 import ai.kumbuka.service.WritePolicyResolver;
@@ -56,6 +57,7 @@ public final class AdminDtos {
         String source,        // create channel
         String updatedBy,     // Amendment 4: last-editor subject (null if never edited)
         String updatedSource, // Amendment 4: last-edit channel (null if never edited)
+        boolean readOnly,     // built-in guidance: not editable/deletable via the console
         Instant createdAt,
         Instant updatedAt
     ) {
@@ -64,6 +66,10 @@ public final class AdminDtos {
                 m.logicalId, m.type.dbValue(), m.key, m.content, m.reference,
                 m.ownerSubject, m.source.dbValue(),
                 m.updatedBy, m.updatedSource == null ? null : m.updatedSource.dbValue(),
+                // Built-in guidance (the read overlay's entries and the bundled
+                // rows that shadow them) carries the system channel and is
+                // read-only on the console — no edit or delete is offered.
+                m.source == SourceChannel.SYSTEM,
                 m.createdAt, m.updatedAt
             );
         }
