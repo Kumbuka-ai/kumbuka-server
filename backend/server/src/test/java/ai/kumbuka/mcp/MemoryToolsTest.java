@@ -648,4 +648,210 @@ class MemoryToolsTest {
         assertThat(out.memory()).isNotNull();
         assertThat(out.memory().key()).isEqualTo("decision.d-ops-26");
     }
+
+    // ---------- memory_remember: D-CORE-21 reserved-namespace typed error ----
+
+    @Test
+    void remember_reservedNamespaceKey_returnsTypedError_reasonDerivedCode() {
+        // D-CORE-21: the repository rejects a non-system write to a `system.*`
+        // key with ProtectedEntryException(RESERVED_NAMESPACE); the tool must
+        // surface it as a typed ProtectedError with the reason-derived code
+        // (the same catch that maps UPSERT_BLOCKED), not a -32603.
+        when(policyResolver.resolve()).thenReturn(
+            resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
+        @SuppressWarnings("unchecked")
+        PanacheQuery<Memory> emptyQ = mock(PanacheQuery.class);
+        when(emptyQ.firstResultOptional()).thenReturn(Optional.empty());
+        when(memories.find(anyString(), any(Object[].class))).thenReturn(emptyQ);
+        when(memories.remember(
+                eq("caller-sub"), eq("global"), eq(MemoryType.CONVENTION),
+                eq("system.foo"), anyString(), eq(SourceChannel.MCP)))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.RESERVED_NAMESPACE,
+                "system.foo", "key 'system.foo' is in the reserved 'system' namespace"));
+
+        Dtos.RememberResult out = tools.memory_remember(
+            "spoof", "convention", "global", "system.foo", null);
+
+        assertThat(out.memory()).isNull();
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("PROTECTED_RESERVED_NAMESPACE");
+        assertThat(out.error().key()).isEqualTo("system.foo");
+    }
+
+    // ======================= memory_update (D-CORE-21) =======================
+    // Adapter-layer tests: the revision logic is exercised against a real DB in
+    // MemoryUpdateIT; here the repository is mocked to pin the tool's addressing,
+    // delegation, and typed-error mapping.
+
+    @Test
+    void update_nothingToRevise_throwsToolCallException() {
+        // No content/type/reference → nothing to change; a clean tool error.
+        assertThatThrownBy(() -> tools.memory_update("alpha", "k", null, null, null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("nothing to revise");
+        verify(memories, org.mockito.Mockito.never())
+            .findForUpdate(any(), any(), any(), any());
+    }
+
+    @Test
+    void update_neitherAddress_throwsToolCallException() {
+        assertThatThrownBy(() -> tools.memory_update(null, null, null, "new", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("address");
+        verify(memories, org.mockito.Mockito.never())
+            .findForUpdate(any(), any(), any(), any());
+    }
+
+    @Test
+    void update_absentTarget_throwsNotFound_neverUpdates() {
+        // Non-creation: the sharp line against memory_remember. findForUpdate
+        // returns null → typed not-found, and updateEntry is never reached.
+        when(memories.findForUpdate(eq("caller-sub"), eq("alpha"), eq("k"), isNull()))
+            .thenReturn(null);
+
+        assertThatThrownBy(() -> tools.memory_update("alpha", "k", null, "new content", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("never creates");
+
+        verify(memories, org.mockito.Mockito.never())
+            .updateEntry(any(), any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void update_byScopeKey_delegatesAndReturnsRevisedEntry() {
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "k", "old");
+        Memory revised = memory(MemoryType.CONSTRAINT, alpha, "k", "new content");
+        when(memories.findForUpdate(eq("caller-sub"), eq("alpha"), eq("k"), isNull()))
+            .thenReturn(target);
+        when(memories.updateEntry(eq("caller-sub"), eq(target), eq("new content"),
+                eq(MemoryType.CONSTRAINT), isNull(), eq(false), eq(SourceChannel.MCP)))
+            .thenReturn(revised);
+
+        Dtos.UpdateResult out = tools.memory_update("alpha", "k", null, "new content", "constraint", null);
+
+        assertThat(out.error()).isNull();
+        assertThat(out.memory()).isNotNull();
+        assertThat(out.memory().content()).isEqualTo("new content");
+        assertThat(out.memory().type()).isEqualTo("constraint");
+    }
+
+    @Test
+    void update_byId_delegates() {
+        UUID lid = UUID.randomUUID();
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "k", "old");
+        target.logicalId = lid;
+        Memory revised = memory(MemoryType.DECISION, alpha, "k", "changed");
+        when(memories.findForUpdate(eq("caller-sub"), isNull(), isNull(), eq(lid)))
+            .thenReturn(target);
+        when(memories.updateEntry(eq("caller-sub"), eq(target), eq("changed"),
+                isNull(), isNull(), eq(false), eq(SourceChannel.MCP)))
+            .thenReturn(revised);
+
+        Dtos.UpdateResult out = tools.memory_update(null, null, lid.toString(), "changed", null, null);
+
+        assertThat(out.memory()).isNotNull();
+        assertThat(out.memory().content()).isEqualTo("changed");
+    }
+
+    @Test
+    void update_idAndScopeKeyDisagree_throwsToolCallException() {
+        // Both addresses given but pointing at different entries → rejected.
+        UUID lid = UUID.randomUUID();
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "k", "old");   // alpha / k
+        target.logicalId = lid;
+        when(memories.findForUpdate(eq("caller-sub"), eq("beta"), eq("other"), eq(lid)))
+            .thenReturn(target);
+
+        assertThatThrownBy(() -> tools.memory_update("beta", "other", lid.toString(), "x", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("different entries");
+        verify(memories, org.mockito.Mockito.never())
+            .updateEntry(any(), any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void update_protectedRow_returnsTypedError() {
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "k", "old");
+        when(memories.findForUpdate(eq("caller-sub"), eq("alpha"), eq("k"), isNull()))
+            .thenReturn(target);
+        when(memories.updateEntry(any(), eq(target), any(), any(), any(), anyBoolean(), any()))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.UPDATE_BLOCKED, "k",
+                "memory row is protected"));
+
+        Dtos.UpdateResult out = tools.memory_update("alpha", "k", null, "x", null, null);
+
+        assertThat(out.memory()).isNull();
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("PROTECTED_UPDATE_BLOCKED");
+    }
+
+    @Test
+    void update_reservedNamespaceRow_returnsTypedError() {
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "system.foo", "old");
+        when(memories.findForUpdate(eq("caller-sub"), eq("alpha"), eq("system.foo"), isNull()))
+            .thenReturn(target);
+        when(memories.updateEntry(any(), eq(target), any(), any(), any(), anyBoolean(), any()))
+            .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
+                ai.kumbuka.repo.ProtectedEntryException.Reason.RESERVED_NAMESPACE, "system.foo",
+                "reserved namespace"));
+
+        Dtos.UpdateResult out = tools.memory_update("alpha", "system.foo", null, "x", null, null);
+
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("PROTECTED_RESERVED_NAMESPACE");
+    }
+
+    @Test
+    void update_staleVersion_throwsToolCallException() {
+        Scope alpha = scope("alpha", ScopeKind.PROJECT);
+        Memory target = memory(MemoryType.DECISION, alpha, "k", "old");
+        when(memories.findForUpdate(eq("caller-sub"), eq("alpha"), eq("k"), isNull()))
+            .thenReturn(target);
+        when(memories.updateEntry(any(), eq(target), any(), any(), any(), anyBoolean(), any()))
+            .thenThrow(new MemoryRepository.StaleVersionException(
+                "the entry was modified concurrently (stale version) — reload and retry.", null));
+
+        assertThatThrownBy(() -> tools.memory_update("alpha", "k", null, "x", null, null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("stale version");
+    }
+
+    @Test
+    void update_scopeLocked_returnsScopeReadOnly_neverUpdates() {
+        // A content-locked scope rejects memory_update on the MCP wire (mirrors
+        // memory_remember/forget) — surfaced as a typed SCOPE_READ_ONLY error.
+        Scope locked = scope("locked-scope", ScopeKind.PROJECT);
+        locked.locked = true;
+        Memory target = memory(MemoryType.DECISION, locked, "k", "old");
+        when(memories.findForUpdate(eq("caller-sub"), eq("locked-scope"), eq("k"), isNull()))
+            .thenReturn(target);
+
+        Dtos.UpdateResult out = tools.memory_update("locked-scope", "k", null, "x", null, null);
+
+        assertThat(out.memory()).isNull();
+        assertThat(out.error()).isNotNull();
+        assertThat(out.error().code()).isEqualTo("SCOPE_READ_ONLY");
+        verify(memories, org.mockito.Mockito.never())
+            .updateEntry(any(), any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void update_malformedUuid_throwsToolCallException() {
+        assertThatThrownBy(() -> tools.memory_update(null, null, "not-a-uuid", "x", null, null))
+            .isInstanceOf(ToolCallException.class);
+    }
+
+    @Test
+    void update_unknownType_throwsToolCallException() {
+        assertThatThrownBy(() -> tools.memory_update("alpha", "k", null, "x", "not-a-type", null))
+            .isInstanceOf(ToolCallException.class)
+            .hasMessageContaining("unknown memory type");
+    }
 }

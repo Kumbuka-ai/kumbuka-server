@@ -1,0 +1,169 @@
+package ai.kumbuka.repo;
+
+import ai.kumbuka.domain.Memory;
+import ai.kumbuka.domain.MemoryLock;
+import ai.kumbuka.domain.MemoryType;
+import ai.kumbuka.domain.SourceChannel;
+import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.Test;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * The revision verb, exercised against a running database with the real
+ * ORM/RLS weave (the mocked adapter cases live in {@code MemoryToolsTest}). The
+ * non-creating counterpart to {@code remember}: it revises an existing row's
+ * mutable fields and NEVER inserts, keeps the entry's identity and authorship
+ * immutable, honours the private-owner rule, rejects locked/reserved rows, and
+ * surfaces a concurrent stale edit as a typed conflict.
+ */
+@QuarkusTest
+class MemoryUpdateIT {
+
+    static final String OWNER = "44444444-4444-4444-4444-444444444444";
+    static final String OTHER = "99999999-9999-9999-9999-999999999999";
+
+    @Inject MemoryRepository memories;
+    @Inject EntityManager em;
+
+    // ---------- mutable fields change; identity + authorship do not ----------
+
+    @Test
+    @Transactional
+    void update_existingSharedEntry_changesMutableFields_keepsAuthorship() {
+        Memory created = memories.remember(
+            OWNER, "global", MemoryType.DECISION, "upd.basic", "v1", SourceChannel.MCP);
+        created.reference = "https://example.com/first";
+        UUID lid = created.logicalId;
+
+        // A DIFFERENT author revises the shared head (author-independent), setting
+        // content + type + clearing the reference (blank clears).
+        Memory target = memories.findForUpdate(OTHER, "global", "upd.basic", null);
+        assertThat(target).isNotNull();
+        Memory revised = memories.updateEntry(
+            OTHER, target, "v2", MemoryType.CONSTRAINT, "", true, SourceChannel.MCP);
+
+        assertThat(revised.logicalId).isEqualTo(lid);          // same entry — no insert
+        assertThat(revised.content).isEqualTo("v2");
+        assertThat(revised.type).isEqualTo(MemoryType.CONSTRAINT);
+        assertThat(revised.reference).isNull();                // blank cleared it
+        // Immutable identity + first-author authorship:
+        assertThat(revised.scope.slug).isEqualTo("global");
+        assertThat(revised.key).isEqualTo("upd.basic");
+        assertThat(revised.ownerSubject).isEqualTo(OWNER);     // creator unchanged
+        assertThat(revised.source).isEqualTo(SourceChannel.MCP);
+        // Last-editor provenance is stamped instead:
+        assertThat(revised.updatedBy).isEqualTo(OTHER);
+        assertThat(revised.updatedSource).isEqualTo(SourceChannel.MCP);
+    }
+
+    @Test
+    @Transactional
+    void update_referenceNotProvided_leavesReferenceUnchanged() {
+        Memory created = memories.remember(
+            OWNER, "global", MemoryType.DECISION, "upd.refkeep", "v1", SourceChannel.MCP);
+        created.reference = "https://example.com/keep";
+
+        Memory target = memories.findForUpdate(OWNER, "global", "upd.refkeep", null);
+        // referenceProvided = false → reference is left as-is even though content changes.
+        Memory revised = memories.updateEntry(
+            OWNER, target, "v2", null, null, false, SourceChannel.MCP);
+
+        assertThat(revised.content).isEqualTo("v2");
+        assertThat(revised.reference).isEqualTo("https://example.com/keep");
+    }
+
+    // ---------- non-creation: an absent address never inserts ----------------
+
+    @Test
+    void update_absentAddress_resolvesNull_andCreatesNoRow() {
+        // The non-creation guarantee at the repository seam: findForUpdate returns
+        // null for an address with no row, so the tool can only ever throw — there
+        // is no code path from a null resolution to an insert. Row count is
+        // unchanged across the attempt. (Tool-level not-found is pinned in
+        // MemoryToolsTest.update_absentTarget_throwsNotFound_neverUpdates; removing
+        // that guard NPEs rather than inserting — the NULL probe.)
+        long before = QuarkusTransaction.requiringNew().call(() -> memories.count());
+
+        Memory found = QuarkusTransaction.requiringNew().call(() ->
+            memories.findForUpdate(OWNER, "global", "upd.ghost-never-created", null));
+        assertThat(found).isNull();
+
+        long after = QuarkusTransaction.requiringNew().call(() -> memories.count());
+        assertThat(after).isEqualTo(before);
+    }
+
+    // ---------- private entries are owner-only, by key AND by id ------------
+
+    @Test
+    void update_privateEntry_isResolvableOnlyByOwner() {
+        UUID lid = QuarkusTransaction.requiringNew().call(() ->
+            memories.remember(OWNER, "private", MemoryType.DECISION, "upd.priv", "secret",
+                SourceChannel.MCP).logicalId);
+
+        // Another user cannot resolve it for update — by (scope, key) or by id.
+        assertThat(QuarkusTransaction.requiringNew().call(() ->
+            memories.findForUpdate(OTHER, "private", "upd.priv", null))).isNull();
+        assertThat(QuarkusTransaction.requiringNew().call(() ->
+            memories.findForUpdate(OTHER, null, null, lid))).isNull();
+
+        // The owner can.
+        assertThat(QuarkusTransaction.requiringNew().call(() ->
+            memories.findForUpdate(OWNER, "private", "upd.priv", null))).isNotNull();
+        assertThat(QuarkusTransaction.requiringNew().call(() ->
+            memories.findForUpdate(OWNER, null, null, lid))).isNotNull();
+    }
+
+    // ---------- locked rows are read-only on this path ----------------------
+
+    @Test
+    @Transactional
+    void update_lockedRow_isRejected() {
+        // A SYSTEM-seeded (locked) row is read-only for a non-system caller.
+        Memory seed = memories.remember(
+            "__system__", "global", MemoryType.CONVENTION, "upd.locked", "seed",
+            SourceChannel.SYSTEM);
+        assertThat(seed.lock).isEqualTo(MemoryLock.SYSTEM);
+
+        Memory target = memories.findForUpdate(OWNER, "global", "upd.locked", null);
+        assertThat(target).isNotNull();
+        assertThatThrownBy(() ->
+            memories.updateEntry(OWNER, target, "hijack", null, null, false, SourceChannel.MCP))
+            .isInstanceOf(ProtectedEntryException.class);
+    }
+
+    // ---------- optimistic lock: reuse the existing @Version machinery -------
+
+    @Test
+    void update_staleVersion_surfacesTypedConflict() {
+        UUID lid = QuarkusTransaction.requiringNew().call(() ->
+            memories.remember(OWNER, "global", MemoryType.DECISION, "upd.optlock", "orig",
+                SourceChannel.MCP).logicalId);
+
+        // Load the entry as a managed row (version 1), then let a concurrent commit
+        // advance its version out from under us before this revision flushes. The
+        // native bump changes only the version, so updateEntry's forced flush issues
+        // an UPDATE ... WHERE version = 1 that now matches zero rows → Hibernate's
+        // optimistic-lock failure, which updateEntry wraps into the typed
+        // StaleVersionException (the same machinery `remember` uses — not a second one).
+        assertThatThrownBy(() -> QuarkusTransaction.requiringNew().call(() -> {
+            Memory target = memories.findForUpdate(OWNER, "global", "upd.optlock", null);
+            em.createNativeQuery("update memory set version = version + 1 where logical_id = ?1")
+                .setParameter(1, lid)
+                .executeUpdate();
+            return memories.updateEntry(OWNER, target, "loser", null, null, false, SourceChannel.MCP);
+        })).isInstanceOf(MemoryRepository.StaleVersionException.class);
+
+        // The failed revision rolled back — no partial "loser" write survived.
+        String surviving = QuarkusTransaction.requiringNew().call(() ->
+            em.find(Memory.class, lid).content);
+        assertThat(surviving).isEqualTo("orig");
+    }
+}
