@@ -48,6 +48,9 @@ public class MemoryTools {
     /** Reserved slug of the one private scope per tenant (V1 unique index). */
     private static final String PRIVATE_SCOPE_SLUG = "private";
 
+    /** Typed-error code for a write rejected by a content-locked scope. */
+    private static final String SCOPE_READ_ONLY = "SCOPE_READ_ONLY";
+
     @Inject SecurityIdentity identity;
     @Inject MemoryRepository memories;
     @Inject ScopeRepository scopes;
@@ -108,10 +111,13 @@ public class MemoryTools {
     // -----------------------------------------------------------------------
 
     @Tool(description =
-        "Store a memory. Appends a new entry, or upserts an existing one if `key` is "
+        "Record a memory: appends a NEW entry, or upserts an existing one if `key` is "
       + "provided and matches a prior entry with that key in the same scope (shared "
       + "scopes hold one canonical entry per key across authors; the private scope "
-      + "keeps a per-author keyspace). "
+      + "keeps a per-author keyspace). Use this to record something, creating it if new. "
+      + "To revise an entry you already know exists — without any risk of creating a "
+      + "second one — use `memory_update` instead: it is the explicit in-place revision "
+      + "verb and errors rather than inserting when the target is absent. "
       + "When `scope` is omitted, the team's writePolicy decides: 'ask' returns a "
       + "structured prompt asking which scope to use (no silent fallback to private); "
       + "'project' writes to the configured default project scope; 'global' writes to "
@@ -206,12 +212,14 @@ public class MemoryTools {
         } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
             // FEAT-19: typed structured tool error, parallel to ProtectedError.
             return new Dtos.RememberResult(null, false, null, null,
-                new Dtos.ProtectedError("SCOPE_READ_ONLY", key, sro.getMessage()));
+                new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
-            // D-CORE-11: a protected system-seed entry already owns this key.
-            // Return a typed structured error instead of a -32603 "Internal error".
+            // A protected system entry already owns this key (UPSERT_BLOCKED), or
+            // the key is in the reserved 'system' namespace (RESERVED_NAMESPACE).
+            // Return a typed structured error (reason-derived code) instead of a
+            // bare internal error.
             return new Dtos.RememberResult(null, false, null, null,
-                new Dtos.ProtectedError("PROTECTED_UPSERT_BLOCKED", pex.key(), pex.getMessage()));
+                new Dtos.ProtectedError("PROTECTED_" + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
             // dogfood-14: an unknown or RLS-invisible scope slug surfaces as a typed
             // tool error (isError + reason), not a bare -32603 — the same MCP
@@ -248,6 +256,130 @@ public class MemoryTools {
             r.defaultScopeSlug(),
             r.defaultScopeStatus().name().toLowerCase()
         );
+    }
+
+    // -----------------------------------------------------------------------
+
+    @Tool(description =
+        "Revise an EXISTING memory in place. Address the entry by (`scope`, `key`) or by "
+      + "`id`, then change its `content`, `type`, and/or `reference`. This verb NEVER "
+      + "creates: if no entry matches the address it returns a not-found error instead of "
+      + "inserting — that is the sharp line against `memory_remember`, which records/creates. "
+      + "It cannot move the entry to another scope or change its key (those are the entry's "
+      + "identity) and cannot change who authored it. If the entry was revised by someone "
+      + "else since you last read it, the change is rejected with a conflict error so you "
+      + "can reload and retry. "
+      + "Choose `memory_update` when you have new information for an entry you know exists; "
+      + "choose `memory_remember` when recording something, creating it if new.")
+    @SuppressWarnings("java:S100")   // the MCP tool name derives from the method name (snake_case by protocol)
+    public Dtos.UpdateResult memory_update(
+        @ToolArg(description = "Scope slug of the entry to revise. Required unless `id` is given.", required = false)
+            String scope,
+        @ToolArg(description = "Key of the entry to revise, within `scope`. Required unless `id` is given.", required = false)
+            String key,
+        @ToolArg(description = "Entry id (UUID) — the alternative address to (scope, key).", required = false)
+            String id,
+        @ToolArg(description = "New content (free text). Omit to leave the content unchanged.", required = false)
+            String content,
+        @ToolArg(description = "New memory type: decision | convention | constraint | open_question | glossary | status. Omit to leave unchanged.", required = false)
+            String type,
+        @ToolArg(description = "New external provenance URL (http/https); pass an empty string to clear it. Omit to leave unchanged.", required = false)
+            String reference
+    ) {
+        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
+        MemoryType t = parseRevisionType(type, content, reference);
+        boolean referenceProvided = reference != null;
+        if (content == null && t == null && !referenceProvided) {
+            throw new ToolCallException(
+                "nothing to revise: provide new content, type, or reference");
+        }
+        Memory target = resolveUpdateTarget(scope, key, uuid);
+        return applyRevision(target, content, t, reference, referenceProvided);
+    }
+
+    /**
+     * Parse and validate the mutable revision inputs through {@code checkInput} so
+     * any rejection surfaces as a clean MCP tool error (isError + reason), never a
+     * bare -32603. Returns the parsed type (null = leave unchanged).
+     */
+    private static MemoryType parseRevisionType(String type, String content, String reference) {
+        return checkInput(() -> {
+            MemoryType parsed = (type == null || type.isBlank()) ? null : MemoryType.fromDb(type);
+            if (content != null) {
+                MemoryContentValidator.validate(content);   // F-1: ≤1500
+            }
+            if (reference != null && !reference.isBlank()) {
+                ReferenceUrlValidator.validate(reference);
+            }
+            return parsed;
+        });
+    }
+
+    /**
+     * Apply the resolved revision: the shared-write policy checks, then the
+     * non-creating repository update, mapping each typed failure to its tool
+     * result. A muted member loses shared writes (revision is a write); a
+     * content-locked scope rejects every MCP write, admins included (the MCP wire
+     * is never an override surface); a locked/reserved entry and an optimistic-lock
+     * conflict surface as typed errors.
+     */
+    private Dtos.UpdateResult applyRevision(Memory target, String content, MemoryType t,
+                                            String reference, boolean referenceProvided) {
+        if (target.scope.kind != ScopeKind.PRIVATE) {
+            writePolicy.assertCanWriteShared(callerSubject());
+        }
+        try {
+            writePolicy.assertScopeWritable(target.scope, SourceChannel.MCP, false);
+            Memory m = memories.updateEntry(
+                callerSubject(), target, content, t, reference, referenceProvided, SourceChannel.MCP);
+            return new Dtos.UpdateResult(Dtos.MemoryDto.from(m));
+        } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
+            return new Dtos.UpdateResult(null,
+                new Dtos.ProtectedError(SCOPE_READ_ONLY, target.key, sro.getMessage()));
+        } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
+            return new Dtos.UpdateResult(null,
+                new Dtos.ProtectedError("PROTECTED_" + pex.reason().name(), pex.key(), pex.getMessage()));
+        } catch (ai.kumbuka.repo.MemoryRepository.StaleVersionException sve) {
+            throw new ToolCallException(sve.getMessage());
+        }
+    }
+
+    /**
+     * Resolve the entry {@code memory_update} addresses. Exactly one address
+     * mode: (scope, key) OR id — reject "neither" and "both-but-disagreeing"
+     * with typed tool errors, and reject an absent target (the non-creating
+     * line: never fall through to an insert). Delegates the actual lookup — with
+     * the private-owner rule — to {@link MemoryRepository#findForUpdate}.
+     */
+    private Memory resolveUpdateTarget(String scope, String key, UUID uuid) {
+        boolean hasId = uuid != null;
+        boolean hasScopeKey = scope != null && !scope.isBlank() && key != null && !key.isBlank();
+        if (!hasId && !hasScopeKey) {
+            throw new ToolCallException("address the entry to revise by (scope, key) or by id");
+        }
+        final Memory target;
+        try {
+            target = memories.findForUpdate(
+                callerSubject(), hasScopeKey ? scope : null, hasScopeKey ? key : null, uuid);
+        } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
+            // Unknown/invisible scope → typed tool error, not a bare internal error.
+            throw new ToolCallException("scope '" + scope + "' does not exist or is not visible");
+        }
+        if (target == null) {
+            // Non-creating: the sharp line against memory_remember. A revision of an
+            // absent entry is a typed not-found, never an insert.
+            throw new ToolCallException(
+                "no memory matches that address — memory_update revises an existing entry "
+                + "and never creates; use memory_remember to record something new");
+        }
+        // Reject a supplied id AND (scope, key) that point at different entries.
+        if (hasId && hasScopeKey
+                && (!target.scope.slug.equals(scope) || !java.util.Objects.equals(target.key, key))) {
+            throw new ToolCallException(
+                "id and (scope, key) refer to different entries — pass only one address");
+        }
+        return target;
     }
 
     // -----------------------------------------------------------------------
@@ -299,7 +431,7 @@ public class MemoryTools {
         } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
             // FEAT-19: typed structured tool error, parallel to ProtectedError.
             return new Dtos.ForgetResult(0,
-                new Dtos.ProtectedError("SCOPE_READ_ONLY", key, sro.getMessage()));
+                new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
             // D-CORE-11: caller tried to delete a protected system-seed entry.
             // The structural trigger (memory_protected_delete_block) raised the

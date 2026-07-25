@@ -129,6 +129,18 @@ public final class Dtos {
         public ForgetResult(int deleted) { this(deleted, null); }
     }
 
+    /**
+     * Revision result. On success {@code memory} is the revised entry; on a
+     * protected / locked / reserved-namespace rejection {@code error} carries the
+     * typed reason. An absent target, a bad address, or an optimistic-lock
+     * conflict surface as tool errors (isError), not as a field here — exactly
+     * one of {@code memory} / {@code error} is non-null.
+     */
+    public record UpdateResult(MemoryDto memory, ProtectedError error) {
+        /** Convenience: the success path — no typed error. */
+        public UpdateResult(MemoryDto memory) { this(memory, null); }
+    }
+
     public record ScopesResult(List<ScopeDto> scopes) {}
 
     public record LoadContextResult(

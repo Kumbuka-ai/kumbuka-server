@@ -9,6 +9,7 @@ import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.SystemSubject;
+import ai.kumbuka.util.SystemKeyNamespace;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -46,6 +47,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
     private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
 
+    /** Per-author private lookup: each owner keeps their own keyspace. */
+    private static final String PRIVATE_KEY_LOOKUP = "scope = ?1 and ownerSubject = ?2 and key = ?3";
+
     /**
      * Append or upsert. If {@code key} is non-null and a row already exists
      * for this (scope, owner, key), update content + type. Otherwise insert.
@@ -63,6 +67,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                            SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
         assertNoProtectedConflict(scope, key, source);
+        assertKeyNamespaceAllowed(key, source);
 
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
         // ADR-0011). Repository queries below filter on intra-tenant predicates
@@ -78,7 +83,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         if (key != null) {
             boolean privateScope = scope.kind == ScopeKind.PRIVATE;
             Optional<Memory> existing = privateScope
-                ? find("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                ? find(PRIVATE_KEY_LOOKUP,
                        scope, callerSubject, key).firstResultOptional()
                 : find(SHARED_KEY_LOOKUP,
                        scope, key).firstResultOptional();
@@ -145,8 +150,100 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                                SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
         assertNoProtectedConflict(scope, key, source);
+        assertKeyNamespaceAllowed(key, source);
         assertKeyFree(scope, key, null);
         return insertNew(callerSubject, scope, type, key, content, source);
+    }
+
+    /**
+     * Resolve the entry a revision addresses. By {@code logicalId} when given,
+     * otherwise by ({@code scopeSlug}, {@code key}). Applies the private-scope
+     * rule: a private row is only ever visible to its owner, so a non-owner
+     * addressing a private row — by id or by (scope, key) — sees nothing.
+     * Returns {@code null} when nothing matches; the caller turns that into a
+     * typed not-found (a revision never creates).
+     *
+     * <p>Read-only lookup; the actual mutation and its guards live in
+     * {@link #updateEntry}.
+     */
+    public Memory findForUpdate(String callerSubject, String scopeSlug, String key, UUID logicalId) {
+        if (logicalId != null) {
+            Memory m = find("logicalId = ?1", logicalId).firstResultOptional().orElse(null);
+            if (m == null) {
+                return null;
+            }
+            // A private row is invisible to anyone but its owner.
+            if (m.scope.kind == ScopeKind.PRIVATE && !m.ownerSubject.equals(callerSubject)) {
+                return null;
+            }
+            return m;
+        }
+        Scope scope = scopes.requireBySlug(scopeSlug);
+        // Mirror remember's scope-kind-differentiated lookup: SHARED is
+        // author-independent (one canonical head per key); PRIVATE is per-author.
+        return scope.kind == ScopeKind.PRIVATE
+            ? find(PRIVATE_KEY_LOOKUP, scope, callerSubject, key)
+                  .firstResultOptional().orElse(null)
+            : find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional().orElse(null);
+    }
+
+    /**
+     * Revise an EXISTING entry in place — the non-creating counterpart to
+     * {@link #remember}'s upsert. {@code target} is a live row the caller
+     * resolved via {@link #findForUpdate}; this method applies the mutable
+     * fields and never inserts.
+     *
+     * <ul>
+     *   <li><b>Mutable:</b> {@code content}, {@code type}, {@code reference}
+     *       ({@code referenceProvided} distinguishes "leave unchanged" (false)
+     *       from "set/clear" (true — blank clears, non-blank sets, mirroring the
+     *       console content-edit)).</li>
+     *   <li><b>Immutable:</b> {@code scope}, {@code key} (the entry's identity —
+     *       this verb cannot move or rekey), {@code owner_subject} and
+     *       {@code source} (first-write authorship; {@code updatable = false} on
+     *       the mapping). The last-editor provenance is stamped instead.</li>
+     *   <li><b>Protected/reserved:</b> a locked row, or a reserved-namespace key
+     *       written by a non-system caller, is rejected with a typed
+     *       {@link ProtectedEntryException} — the same read-only guarantee the
+     *       console content-edit path enforces.</li>
+     *   <li><b>Optimistic lock:</b> a concurrent stale edit surfaces as a typed
+     *       {@link StaleVersionException} at the forced flush, exactly as
+     *       {@link #remember} does — no second locking mechanism.</li>
+     * </ul>
+     */
+    @Transactional
+    public Memory updateEntry(String callerSubject, Memory target,
+                              String content, MemoryType type,
+                              String reference, boolean referenceProvided,
+                              SourceChannel source) {
+        // Reserved namespace: a non-system caller cannot revise a system-key
+        // entry (row-independent guard, mirrors the write paths).
+        assertKeyNamespaceAllowed(target.key, source);
+        // Locked rows are read-only on every edit path (the same guard the
+        // console content-edit enforces).
+        if (target.lock != MemoryLock.NONE) {
+            throw new ProtectedEntryException(
+                ProtectedEntryException.Reason.UPDATE_BLOCKED, target.key,
+                "memory row is protected (key=" + target.key + ") — locked entries are read-only.");
+        }
+        if (content != null) {
+            target.content = content;
+        }
+        if (type != null) {
+            target.type = type;
+        }
+        if (referenceProvided) {
+            // Blank clears, non-blank sets (parallels the console edit).
+            target.reference = (reference == null || reference.isBlank()) ? null : reference;
+        }
+        // An in-place edit stamps last-editor provenance; the first-author
+        // owner_subject / source are never rewritten.
+        target.updatedBy = callerSubject;
+        target.updatedSource = source;
+        // Force the @Version check now so a concurrent stale edit surfaces as a
+        // typed conflict here, not a bare exception at commit.
+        flushDetectingStaleVersion();
+        return target;
     }
 
     /**
@@ -171,6 +268,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         }
         String effectiveKey = (newKey != null && !newKey.isBlank()) ? newKey : entry.key;
         assertNoProtectedConflict(target, effectiveKey, entry.source);
+        assertKeyNamespaceAllowed(effectiveKey, entry.source);
         assertKeyFree(target, effectiveKey, entry.logicalId);
         entry.scope = target;
         if (newKey != null && !newKey.isBlank()) entry.key = newKey;
@@ -194,6 +292,29 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                     "(D-CORE-11). The system seed cannot be overwritten or shadowed " +
                     "by an interactive write.");
             }
+        }
+    }
+
+    /**
+     * Reserved-namespace guard: a non-system caller may not write a key in the
+     * reserved {@code system} namespace ({@link SystemKeyNamespace}). Unlike
+     * {@link #assertNoProtectedConflict} this is row-independent — it holds
+     * whether or not a built-in entry currently exists under the key, so a
+     * member cannot claim a reserved key by racing the built-in content. The
+     * system channel (the only writer allowed into the namespace) is exempt.
+     *
+     * <p>Runs on every shared write method here ({@link #remember},
+     * {@link #createShared}, {@link #remap}, {@link #updateEntry}), so both the
+     * MCP tools and the console traverse it via the one repository seam they
+     * all funnel through — never re-implemented in an adapter.
+     */
+    private static void assertKeyNamespaceAllowed(String key, SourceChannel source) {
+        if (source != SourceChannel.SYSTEM && SystemKeyNamespace.isReserved(key)) {
+            throw new ProtectedEntryException(
+                ProtectedEntryException.Reason.RESERVED_NAMESPACE, key,
+                "key '" + key + "' is in the reserved '" + SystemKeyNamespace.ROOT
+                + "' namespace — it is reserved for built-in guidance; choose a "
+                + "different key.");
         }
     }
 
@@ -371,7 +492,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 // author-independent for SHARED scopes (matching the shared
                 // uniqueness + forget-by-id), and per-author for PRIVATE.
                 return isPrivate
-                    ? (int) delete("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                    ? (int) delete(PRIVATE_KEY_LOOKUP,
                                    scope, callerSubject, key)
                     : (int) delete(SHARED_KEY_LOOKUP, scope, key);
             }
