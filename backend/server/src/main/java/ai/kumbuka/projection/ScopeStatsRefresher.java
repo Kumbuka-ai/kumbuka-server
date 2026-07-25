@@ -71,6 +71,14 @@ public class ScopeStatsRefresher {
             .setParameter("tid", tid)
             .executeUpdate();
 
+        // Built-in guidance divergence: this projection counts only real
+        // `memory` rows and never the virtual built-in guidance entries the read
+        // overlay serves. While a tenant still carries the bundled guidance rows,
+        // this count matches the tenant-visible list. If those rows are ever
+        // dropped in favour of serving the guidance only from the overlay, this
+        // provider-side count will be lower than the tenant-visible count by
+        // exactly the number of built-in guidance entries on the global scope.
+        // No behaviour change here — documented divergence only.
         int inserted = em.createNativeQuery("""
             INSERT INTO scope_stats
                 (tenant_id, scope_id, scope_slug, scope_kind, type,

@@ -112,7 +112,10 @@ class CrossTenantIsolationIT {
         plantMemories();
 
         try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            List<Memory> rowsA = memories.recall(CALLER_X, "global", null, null, false);
+            // A global recall also carries the tenant-agnostic built-in guidance
+            // (bundled public content, no tenant_id); the tenant-isolation
+            // assertion is over the tenant-owned rows only.
+            List<Memory> rowsA = tenantOwned(memories.recall(CALLER_X, "global", null, null, false));
             // Tenant A planted exactly one row in global.
             assertThat(rowsA).hasSize(1);
             assertThat(rowsA).allMatch(m -> TENANT_A.toString().equals(m.tenantId));
@@ -122,7 +125,7 @@ class CrossTenantIsolationIT {
         }
 
         try (AutoCloseable ignored = tenantContext.bind(TENANT_B)) {
-            List<Memory> rowsB = memories.recall(CALLER_X, "global", null, null, false);
+            List<Memory> rowsB = tenantOwned(memories.recall(CALLER_X, "global", null, null, false));
             assertThat(rowsB).hasSize(1);
             assertThat(rowsB).allMatch(m -> TENANT_B.toString().equals(m.tenantId));
             assertThat(rowsB).noneMatch(m -> TENANT_A.toString().equals(m.tenantId));
@@ -270,6 +273,12 @@ class CrossTenantIsolationIT {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /** The stored, tenant-owned rows of a recall — filtering out the bundled
+     *  built-in guidance, which is public global content with no tenant_id. */
+    private static List<Memory> tenantOwned(List<Memory> recalled) {
+        return recalled.stream().filter(m -> m.tenantId != null).toList();
     }
 
     private long countMemoriesUnderGuc(Connection c, String tenant) throws SQLException {

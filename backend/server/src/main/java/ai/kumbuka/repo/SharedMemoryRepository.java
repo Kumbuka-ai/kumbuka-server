@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.config.MemoryConfig;
+import ai.kumbuka.overlay.GuidanceOverlay;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.MemoryLock;
@@ -33,6 +34,7 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
 
     @Inject MemoryConfig config;
     @Inject ScopeRepository scopes;
+    @Inject GuidanceOverlay guidance;
 
     /** All shared memories, optionally filtered by scope slug and type.
      *  Tenant axis is enforced structurally (ADR-0011); this query carries
@@ -51,7 +53,13 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
             params.put("type", type);
         }
         jpql.append(" order by updatedAt desc");
-        return find(jpql.toString(), params).list();
+        List<Memory> rows = find(jpql.toString(), params).list();
+        // Add the built-in guidance entries that apply to this listing,
+        // suppressed where a real global row already holds the key
+        // (coexistence). The listing counters that read this method (overview
+        // totals, per-scope entry counts) inherit the merge automatically —
+        // they are the size() of this same list.
+        return guidance.mergeIntoShared(rows, scopeSlug, type);
     }
 
     /** Look up a single shared memory by its {@code logical_id} (Amendment 3,

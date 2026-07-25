@@ -1,6 +1,7 @@
 package ai.kumbuka.repo;
 
 import ai.kumbuka.config.MemoryConfig;
+import ai.kumbuka.overlay.GuidanceOverlay;
 import ai.kumbuka.tenancy.TenantBound;
 import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.MemoryLock;
@@ -43,6 +44,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
 
     @Inject MemoryConfig config;
     @Inject ScopeRepository scopes;
+    @Inject GuidanceOverlay guidance;
 
     /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
     private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
@@ -461,7 +463,13 @@ public class MemoryRepository implements PanacheRepository<Memory> {
             params.put("q", "%" + query.toLowerCase() + "%");
         }
         jpql.append(" order by updatedAt desc");
-        return find(jpql.toString(), params).list();
+        List<Memory> rows = find(jpql.toString(), params).list();
+        // Add the built-in guidance entries that apply to this exact filter
+        // combination, suppressed where a real global row already holds the key
+        // (coexistence). The JPQL above is unchanged: the private/tenant
+        // invariants stay in SQL; the overlay only ever ADDS public global
+        // content to the result, never widens the query.
+        return guidance.mergeIntoRecall(rows, scopeSlug, type, query, includeGlobal);
     }
 
     /**
