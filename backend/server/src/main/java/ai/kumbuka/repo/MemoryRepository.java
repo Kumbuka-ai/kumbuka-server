@@ -47,6 +47,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
     private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
 
+    /** Per-author private lookup: each owner keeps their own keyspace. */
+    private static final String PRIVATE_KEY_LOOKUP = "scope = ?1 and ownerSubject = ?2 and key = ?3";
+
     /**
      * Append or upsert. If {@code key} is non-null and a row already exists
      * for this (scope, owner, key), update content + type. Otherwise insert.
@@ -80,7 +83,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         if (key != null) {
             boolean privateScope = scope.kind == ScopeKind.PRIVATE;
             Optional<Memory> existing = privateScope
-                ? find("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                ? find(PRIVATE_KEY_LOOKUP,
                        scope, callerSubject, key).firstResultOptional()
                 : find(SHARED_KEY_LOOKUP,
                        scope, key).firstResultOptional();
@@ -179,7 +182,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         // Mirror remember's scope-kind-differentiated lookup: SHARED is
         // author-independent (one canonical head per key); PRIVATE is per-author.
         return scope.kind == ScopeKind.PRIVATE
-            ? find("scope = ?1 and ownerSubject = ?2 and key = ?3", scope, callerSubject, key)
+            ? find(PRIVATE_KEY_LOOKUP, scope, callerSubject, key)
                   .firstResultOptional().orElse(null)
             : find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional().orElse(null);
     }
@@ -489,7 +492,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 // author-independent for SHARED scopes (matching the shared
                 // uniqueness + forget-by-id), and per-author for PRIVATE.
                 return isPrivate
-                    ? (int) delete("scope = ?1 and ownerSubject = ?2 and key = ?3",
+                    ? (int) delete(PRIVATE_KEY_LOOKUP,
                                    scope, callerSubject, key)
                     : (int) delete(SHARED_KEY_LOOKUP, scope, key);
             }
