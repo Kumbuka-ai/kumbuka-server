@@ -72,4 +72,17 @@ public interface MemoryConfig {
     @WithName("load-context.per-type-limit")
     @WithDefault("20")
     int loadContextPerTypeLimit();
+
+    /**
+     * Filesystem path of the operator-editable external system-guidance file
+     * (see {@code ai.kumbuka.overlay.GuidanceOverlay}). When the file exists it
+     * is the SOLE source of the built-in guidance entries; when it is absent the
+     * bundled default is used. Runtime, not build-time: settable in a container
+     * via {@code KUMBUKA_SYSTEM_GUIDANCE_PATH} without a rebuild. Read once at
+     * startup — changing the file requires a container restart. The default
+     * lives here so a downstream runtime consuming this module inherits it.
+     */
+    @WithName("system-guidance.path")
+    @WithDefault("/etc/kumbuka/system-conventions.json")
+    String systemGuidancePath();
 }

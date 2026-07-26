@@ -27,7 +27,12 @@ class GuidanceOverlayTest {
     private static final String KEY_WRITING = "convention.how-to-kumbuka.writing";
     private static final String KEY_READING = "convention.how-to-kumbuka.reading";
 
-    private final GuidanceOverlay overlay = new GuidanceOverlay();
+    private final GuidanceOverlay overlay = bundledOverlay();
+
+    /** The overlay built from the bundled default document (no external file). */
+    private static GuidanceOverlay bundledOverlay() {
+        return new GuidanceOverlay(GuidanceLoader.load(null, GuidanceOverlay.BUNDLED_RESOURCE));
+    }
 
     // ---------------------------------------------------------------------
     // Stage A — resource parsing + synthetic identity
@@ -68,7 +73,7 @@ class GuidanceOverlayTest {
         }
         // A second parse of the same resource yields identical ids — the
         // identity is derived deterministically, not generated per instance.
-        GuidanceOverlay other = new GuidanceOverlay();
+        GuidanceOverlay other = bundledOverlay();
         assertThat(other.entries()).extracting(m -> m.logicalId)
             .containsExactlyElementsOf(overlay.entries().stream().map(m -> m.logicalId).toList());
     }
