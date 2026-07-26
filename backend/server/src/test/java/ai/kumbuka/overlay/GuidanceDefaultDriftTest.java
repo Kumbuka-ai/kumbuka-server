@@ -2,6 +2,7 @@ package ai.kumbuka.overlay;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * rows are torn down (separate, later work) the seeder resource goes away and
  * this test goes with it.
  */
+@QuarkusTest
 class GuidanceDefaultDriftTest {
 
     @Test

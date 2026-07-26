@@ -1,5 +1,6 @@
 package ai.kumbuka.overlay;
 
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <p>The whole point is fail-loud: a file that exists but cannot be honoured
  * aborts (throws), it is NEVER silently downgraded to the bundled default.
  */
+@QuarkusTest
 class GuidanceLoaderTest {
 
     private static final String BUNDLED = GuidanceOverlay.BUNDLED_RESOURCE;

@@ -7,6 +7,7 @@ import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.SystemSubject;
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The real-database behaviour through the repositories is covered by
  * {@code GuidanceOverlayReadPathTest} and {@code GuidanceCoexistenceTest}.
  */
+@QuarkusTest
 class GuidanceOverlayTest {
 
     private static final String KEY_TYPES = "convention.how-to-kumbuka.types";

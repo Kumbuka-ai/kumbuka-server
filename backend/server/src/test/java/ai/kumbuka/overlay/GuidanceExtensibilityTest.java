@@ -6,6 +6,7 @@ import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.MemoryLock;
+import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
 
 import java.net.URISyntaxException;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * no code path assumes a fixed entry count, and the type filter is evaluated
  * against each entry's OWN type — not a hardcoded {@code convention}.
  */
+@QuarkusTest
 class GuidanceExtensibilityTest {
 
     private static final String KEY_CONVENTION = "convention.example-alpha";
