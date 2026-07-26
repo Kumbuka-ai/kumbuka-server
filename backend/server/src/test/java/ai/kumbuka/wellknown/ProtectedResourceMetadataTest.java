@@ -142,6 +142,7 @@ class ProtectedResourceMetadataTest {
             @Override public String realm()          { return "kumbuka"; }
             @Override public String connectorClientId() { return "kumbuka-connector"; }
             @Override public int    loadContextPerTypeLimit() { return 20; }
+            @Override public String systemGuidancePath() { return "/etc/kumbuka/system-conventions.json"; }
         };
     }
 

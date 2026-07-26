@@ -1,0 +1,13 @@
+{
+  "_comment": "A syntactically valid but INVALID document, loaded as a stand-in bundled resource to prove the 'bundled default fails validation -> boot FAILS' matrix row. The key breaks the enforced grammar (uppercase + no valid segments).",
+  "version": "1",
+  "versionDate": "2026-07-26T00:00:00Z",
+  "entries": [
+    {
+      "logicalName": "bad",
+      "key": "Convention.BadKey",
+      "type": "convention",
+      "content": "This entry has an invalid key and must fail validation."
+    }
+  ]
+}

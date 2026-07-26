@@ -1,0 +1,39 @@
+{
+  "_comment": "Test fixture for the extensibility gate: a DIFFERENT number of entries than the bundled default (five, not three) and five DIFFERENT types (convention, glossary, decision, constraint, status), including four that are not 'convention'. A suite that only ever sees three conventions proves nothing about extensibility; every extensibility test runs against this.",
+  "version": "test-1",
+  "versionDate": "2026-07-26T00:00:00Z",
+  "entries": [
+    {
+      "_comment": "an ordinary convention entry",
+      "logicalName": "example-alpha",
+      "key": "convention.example-alpha",
+      "type": "convention",
+      "content": "Example convention entry alpha — a reversible working norm."
+    },
+    {
+      "_comment": "a glossary entry — NOT a convention",
+      "logicalName": "example-term",
+      "key": "glossary.example-term",
+      "type": "glossary",
+      "content": "Example glossary term — a definition served under type=glossary only."
+    },
+    {
+      "logicalName": "example-choice",
+      "key": "decision.example-choice",
+      "type": "decision",
+      "content": "Example decision entry — a ratified choice served under type=decision only."
+    },
+    {
+      "logicalName": "example-rule",
+      "key": "constraint.example-rule",
+      "type": "constraint",
+      "content": "Example constraint entry — a durable binding rule served under type=constraint only."
+    },
+    {
+      "logicalName": "example-phase",
+      "key": "status.example-phase",
+      "type": "status",
+      "content": "Example status entry — the current steering state served under type=status only."
+    }
+  ]
+}
