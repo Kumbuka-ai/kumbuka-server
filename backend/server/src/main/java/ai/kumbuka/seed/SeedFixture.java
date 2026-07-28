@@ -17,9 +17,11 @@ import java.util.Objects;
  * tenant's global scope.
  *
  * <p>v1 seeds: the three {@code convention.how-to-kumbuka.*} entries.
- * To update the seed text or add a new seed, edit the JSON, ship a new
- * kumbuka-server release, and re-run the seed call on existing tenants
- * for the change to propagate.
+ * To update the seed text or add a new seed, edit the JSON and ship a new
+ * kumbuka-server release. Note: re-running the seed call does NOT propagate
+ * updated text to rows that already exist — {@code MemoryRepository.seed}
+ * short-circuits on an existing {@code (scope, key)} — it only plants seeds
+ * into scopes that lack them.
  */
 public record SeedFixture(List<Entry> seeds) {
 

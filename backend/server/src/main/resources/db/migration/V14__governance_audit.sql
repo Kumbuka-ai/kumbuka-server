@@ -11,8 +11,9 @@
 --
 -- Append-only is enforced with a TRIGGER, not a GRANT/RLS REVOKE, mirroring
 -- the V12 protected-delete rationale: a trigger holds against EVERY caller —
--- member, admin, service account, and the BYPASSRLS roles (kumbuka_ops_reader,
--- kumbuka) — whereas RLS/GRANT shapes are skipped by BYPASSRLS. Tenant
+-- member, admin, service account, the runtime role kumbuka (LOGIN, not
+-- BYPASSRLS), and the BYPASSRLS provider reader kumbuka_ops_reader — whereas
+-- RLS/GRANT shapes are skipped by the latter. Tenant
 -- isolation still gets the standard RLS layer (ADR-0011, mirrors V3).
 -- ===========================================================================
 
