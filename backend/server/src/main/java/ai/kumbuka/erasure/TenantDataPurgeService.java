@@ -44,11 +44,11 @@ import jakarta.transaction.Transactional;
  * misroute guard; this service operates on whatever tenant the
  * resolver hands it.
  *
- * <p>{@code user_account}, {@code team_settings}, and {@code team} use
- * native SQL via {@link EntityManager} because they are not mapped as
- * JPA entities in this module — only memory + scope are. The native
- * statements carry an explicit {@code WHERE tenant_id = ?} so they
- * still scope correctly.
+ * <p>{@code user_account}, {@code team_settings}, and {@code team} are
+ * deleted with native SQL via {@link EntityManager}: although they are mapped
+ * as JPA entities (each carries {@code @TenantId}), this purge path issues
+ * native bulk DELETEs. The native statements carry an explicit
+ * {@code WHERE tenant_id = ?} so they still scope correctly.
  *
  * <h3>The D-CORE-11 delete-lock, and why teardown clears it</h3>
  *
@@ -111,8 +111,8 @@ public class TenantDataPurgeService {
         // Step 1: memory (must precede scope).
         final int memoryDeleted = (int) Memory.deleteAll();
 
-        // Step 2: user_account. Native because user_account isn't a JPA
-        // entity in this module; we still scope by tenant explicitly.
+        // Step 2: user_account. Native bulk DELETE (user_account is a JPA
+        // entity, but this purge path deletes via SQL); scoped by tenant explicitly.
         final int userAccountsDeleted = em.createNativeQuery(
             "DELETE FROM user_account WHERE tenant_id = CAST(?1 AS uuid)")
             .setParameter(1, tenantIdLiteral)

@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
  * shipping in every tenant, the server must enforce it too.
  *
  * <p>{@code null} is allowed (key is optional — no upsert without it).
- * The DB CHECK (V14, same regex) is the defence-in-depth backstop.
+ * The DB CHECK (V2, same regex) is the defence-in-depth backstop.
  */
 public final class MemoryKeyValidator {
 

@@ -31,8 +31,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * MCP tool surface. The five tools mandated by the spec, each identity-
- * aware: the acting subject comes from {@link SecurityIdentity} (Keycloak
+ * MCP tool surface. The six tools (the five spec-mandated ones plus
+ * {@code memory_update}, D-CORE-21), each identity-aware: the acting subject
+ * comes from {@link SecurityIdentity} (Keycloak
  * {@code sub} claim from the bearer token validated by the `mcp` OIDC
  * tenant) and is never accepted as a tool argument.
  *
