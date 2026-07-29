@@ -155,14 +155,12 @@ class TenantDataPurgeServiceTest {
 
     @Test
     @Transactional
-    void purgeDeletesSystemLockedSeedRows() {
-        // Promote one seeded row to a SYSTEM-locked seed (D-CORE-11 / ADR-0024
-        // §13), exactly the shape the provisioning seeder writes for the
-        // how-to-kumbuka conventions. The memory_protected_delete_block trigger
-        // refuses to delete such a row, so a bare delete-all raises P0001 and the
-        // whole teardown aborts. The teardown must still remove it — both the
-        // 30-day cron and the emergency hard-delete depend on it. Regression guard
-        // for the 500 the ops-console purge hit on a real tenant.
+    void purgeDeletesSystemLockedRows() {
+        // Promote one seeded row to a system-locked row. A full-tenant teardown
+        // must remove such a row like any other — both the scheduled purge and
+        // the emergency hard-delete depend on it. There is no delete-block below
+        // the application layer, so the ordinary delete-all in the service removes
+        // it.
         int promoted = em.createNativeQuery(
             "UPDATE memory SET lock = 'system' WHERE tenant_id = CAST(?1 AS uuid) AND key = 'p-1'")
             .setParameter(1, TENANT_LITERAL)

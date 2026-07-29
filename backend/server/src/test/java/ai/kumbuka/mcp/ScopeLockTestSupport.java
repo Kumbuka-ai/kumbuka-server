@@ -52,12 +52,16 @@ public class ScopeLockTestSupport {
         return m.logicalId;
     }
 
-    /** Seed a SYSTEM-locked (D-CORE-11) entry into a project scope, then lock the
-     *  scope — for the axis-composition test (entry lock + scope lock). */
+    /** Seed a system-locked entry into a project scope, then lock the scope —
+     *  for the axis-composition test (entry lock + scope lock). The row is
+     *  written through the server-derived system channel, the only writer that
+     *  produces {@code lock = 'system'}. */
     @Transactional
     public UUID seedSystemEntryThenLock(String slug, String key, String content) {
         ensureProject(slug, false);
-        Memory m = memories.seed(slug, MemoryType.DECISION, key, content);
+        Memory m = memories.remember(
+            ai.kumbuka.domain.SystemSubject.SENTINEL, slug, MemoryType.DECISION, key, content,
+            ai.kumbuka.domain.SourceChannel.SYSTEM);
         scopes.setLocked(slug, true);
         return m.logicalId;
     }
@@ -87,18 +91,13 @@ public class ScopeLockTestSupport {
     /**
      * Remove everything these tests planted so the shared DevServices Postgres is
      * left clean for the count-sensitive isolation ITs (CrossTenantIsolationIT,
-     * ScopeStatsRefresherIT). Critically clears the SYSTEM lock on any seeded
-     * protected row FIRST — otherwise the {@code memory_protected_delete_block}
-     * trigger would make those rows structurally undeletable and block every
-     * later {@code DELETE FROM memory}. Restores {@code global} to unlocked.
-     * Leaves the (now-empty) {@code sl-*} test scopes — harmless, and avoids FK
-     * churn with {@code scope_stats}.
+     * ScopeStatsRefresherIT). System-locked rows delete through the ordinary path
+     * (there is no delete-block below the app layer). Restores {@code global} to
+     * unlocked. Leaves the (now-empty) {@code sl-*} test scopes — harmless, and
+     * avoids FK churn with {@code scope_stats}.
      */
     @Transactional
     public void cleanup() {
-        em.createNativeQuery(
-            "UPDATE memory SET lock = 'none' WHERE scope_id IN "
-            + "(SELECT id FROM scope WHERE slug LIKE 'sl-%')").executeUpdate();
         em.createNativeQuery(
             "DELETE FROM memory WHERE scope_id IN "
             + "(SELECT id FROM scope WHERE slug LIKE 'sl-%')").executeUpdate();

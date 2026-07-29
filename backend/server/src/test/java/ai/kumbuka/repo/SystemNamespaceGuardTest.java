@@ -20,10 +20,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * caller (MCP or console) cannot write a reserved key; the system channel — the
  * one writer allowed into the namespace — can.
  *
- * <p>This is the row-independent replacement for the row-existence-based key
- * reservation ({@code assertNoProtectedConflict}); the two coexist here. NULL
- * probe: removing the {@code assertKeyNamespaceAllowed} call from the write
- * methods turns the rejection assertions below RED (the writes then succeed).
+ * <p>This row-independent guard is the sole key reservation: it holds whether or
+ * not a row currently exists under the key. NULL probe: removing the
+ * {@code assertKeyNamespaceAllowed} call from the write methods turns the
+ * rejection assertions below RED (the writes then succeed).
  * {@code @TestTransaction} rolls each method back, leaving no committed rows.
  */
 @QuarkusTest
