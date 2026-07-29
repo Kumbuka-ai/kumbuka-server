@@ -22,16 +22,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <ul>
  *   <li>the console / admin content-edit path refuses to update a locked row
  *       (the load-bearing application guard — there is no update trigger);</li>
- *   <li>the console single-delete path refuses to delete a locked row (F-0228 —
- *       the same guard on the delete side, and likewise no delete trigger);</li>
  *   <li>an ordinary (unlocked) row still deletes through the normal path;</li>
  *   <li>only the system identity may own a system row (pre-persist invariant).</li>
  * </ul>
  *
- * <p>There is no delete-block below the application layer (the structural trigger
- * was dropped in V20): the MCP {@code forget} path still deletes a locked row at
- * the storage layer (see {@link SystemLockDeleteTest}); the console single-delete
- * is guarded here instead.
+ * <p>The delete side of a locked row — the MCP forget path deletes it, the
+ * console single-delete refuses it — is characterised together in
+ * {@link SystemLockDeleteTest}, where the two intended results sit side by side.
+ * There is no delete-block below the application layer (the structural trigger
+ * was dropped in V20); the console refusal is an application guard.
  *
  * <p>{@code @TestTransaction} rolls each method back, leaving no committed rows.
  */
@@ -76,25 +75,6 @@ class SystemLockedRowGuardsTest {
             .isInstanceOf(ProtectedEntryException.class)
             .extracting(e -> ((ProtectedEntryException) e).reason())
             .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
-    }
-
-    @Test
-    @TestTransaction
-    void lockedRow_cannotBeDeleted_viaConsoleSingleDelete() {
-        // F-0228: the console single-delete (deleteShared) is read-only for a
-        // locked row — the load-bearing application guard, mirroring the
-        // content-edit's UPDATE_BLOCKED (there is no delete-block below this layer
-        // since V20). The key is NOT reserved, so it is the LOCK axis that fires
-        // here, not the reserved-namespace guard. Red probe: drop the lock check
-        // in SharedMemoryRepository.deleteShared and the delete returns 1 instead
-        // of throwing.
-        Memory locked = plantLockedRow("guard.delete.locked", "canonical content");
-        assertThatThrownBy(() -> sharedMemories.deleteShared(locked.logicalId))
-            .isInstanceOf(ProtectedEntryException.class)
-            .extracting(e -> ((ProtectedEntryException) e).reason())
-            .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
-        // The row is untouched — the guard refused before any delete ran.
-        assertThat(sharedMemories.findSharedById(locked.logicalId)).isNotNull();
     }
 
     @Test
