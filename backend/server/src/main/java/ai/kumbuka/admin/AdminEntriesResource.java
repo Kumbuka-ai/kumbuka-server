@@ -159,8 +159,9 @@ public class AdminEntriesResource {
         if (m == null || !m.scope.slug.equals(slug)) {
             throw new NotFoundException("entry not found in scope " + slug);
         }
-        // A SYSTEM-locked row (D-CORE-11) is rejected by the delete trigger inside
-        // deleteShared — the still-binding entry axis — before the override audit.
+        // A locked row (D-CORE-11) is rejected by the lock check inside
+        // deleteShared — the still-binding entry axis — before the override audit
+        // (there is no delete trigger below it since V20).
         sharedMemories.deleteShared(id);
         auditOverrideIfLocked(scope, m.logicalId, "delete");
         return Response.noContent().build();

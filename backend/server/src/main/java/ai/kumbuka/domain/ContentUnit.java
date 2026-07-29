@@ -114,12 +114,13 @@ public abstract class ContentUnit extends PanacheEntityBase {
 
     /**
      * Entry lock — replaces the earlier boolean {@code protected} column.
-     * {@code SYSTEM} is the system-seed lock (set only by the SYSTEM seeder);
-     * it blocks move / rename / delete. DELETE is enforced structurally by
-     * the {@code memory_protected_delete_block} trigger; move/rename + edit
-     * protection is application-layer — there is deliberately NO UPDATE
-     * trigger. {@code ADMIN} is reserved; not enforced by this build. Never
-     * settable through any user-facing surface.
+     * {@code SYSTEM} is the system lock: the guidance overlay stamps it on its
+     * transient (never-persisted) entries, and a persisted system-locked row is a
+     * legacy seed. It blocks move / rename / update and the console single-delete.
+     * Enforcement is entirely application-layer — there is deliberately no update
+     * or delete trigger (the former {@code memory_protected_delete_block} was
+     * dropped in V20). {@code ADMIN} is reserved; not enforced by this build.
+     * Never settable through any user-facing surface.
      */
     @Column(name = "lock", nullable = false)
     @Convert(converter = MemoryLock.JpaConverter.class)

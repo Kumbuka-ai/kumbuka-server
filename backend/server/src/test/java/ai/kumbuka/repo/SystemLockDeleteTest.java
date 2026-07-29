@@ -47,25 +47,36 @@ class SystemLockDeleteTest {
     static final String MEMBER = "33333333-3333-3333-3333-333333333333";
 
     @Inject MemoryRepository memories;
+    @Inject ScopeRepository scopes;
     @Inject EntityManager em;
 
     @Test
     @TestTransaction
     void systemLockedRow_isDeletable_throughOrdinaryForget() {
-        // Plant a system-locked global row through the server-derived system
-        // channel — the shape the old delete-block used to protect.
-        Memory locked = memories.remember(
-            SystemSubject.SENTINEL, "global", MemoryType.CONVENTION,
-            "system.deletable.gate", "content", SourceChannel.SYSTEM);
+        // Plant a system-locked global row BELOW the write seam — the shape the
+        // old delete-block used to protect (a legacy seed row). The key is
+        // deliberately NOT in the reserved namespace: the reserved-namespace
+        // delete guard is a separate axis, so an ordinary key isolates the axis
+        // this test is about — the lock column and the dropped DB trigger.
+        Memory locked = new Memory();
+        locked.ownerSubject = SystemSubject.SENTINEL;
+        locked.scope = scopes.requireBySlug("global");
+        locked.type = MemoryType.CONVENTION;
+        locked.key = "legacy-seed.deletable-gate";
+        locked.content = "content";
+        locked.source = SourceChannel.SYSTEM;
+        locked.lock = MemoryLock.SYSTEM;
+        memories.persist(locked);
         assertThat(locked.lock).isEqualTo(MemoryLock.SYSTEM);
 
-        // An ordinary shared forget (author-independent) now removes it.
-        int deleted = memories.forget(MEMBER, "global", null, "system.deletable.gate");
+        // An ordinary shared forget (author-independent) removes it: the lock is
+        // not a delete-block on the MCP forget path — there is no DB trigger.
+        int deleted = memories.forget(MEMBER, "global", null, "legacy-seed.deletable-gate");
         assertThat(deleted).as("the system-locked row deletes through the ordinary path").isEqualTo(1);
 
         long remaining = em.createQuery(
                 "select count(m) from Memory m where m.key = :k", Long.class)
-            .setParameter("k", "system.deletable.gate")
+            .setParameter("k", "legacy-seed.deletable-gate")
             .getSingleResult();
         assertThat(remaining).as("no system-locked row remains after the delete").isZero();
     }

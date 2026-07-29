@@ -5,11 +5,13 @@ import jakarta.persistence.Converter;
 
 /**
  * Where a memory came from. Server-derived from the request channel
- * (see ADR-0008): MCP tools mark their writes MCP, admin endpoints mark
- * theirs CONSOLE, the provisioning seeder marks its writes SYSTEM
- * (D-CORE-11). Callers do not get to choose — the channel is stamped by
- * whichever handler invokes {@code MemoryRepository.remember}, never
- * carried in a tool argument or DTO field.
+ * (see ADR-0008): MCP tools mark their writes MCP, admin endpoints mark theirs
+ * CONSOLE. {@code SYSTEM} is the server-derived identity the guidance overlay
+ * stamps on its transient (never-persisted) entries — no caller-facing writer
+ * emits it, and a persisting write carrying it is refused at the repository seam.
+ * Callers do not get to choose — the channel is stamped by whichever handler
+ * invokes {@code MemoryRepository.remember}, never carried in a tool argument or
+ * DTO field.
  */
 public enum SourceChannel {
     CONSOLE("console"),
@@ -21,11 +23,11 @@ public enum SourceChannel {
     IMPORT("import"),
     MCP("mcp"),
     /**
-     * Server-derived seed identity (D-CORE-11). Used by the internal
-     * /api/internal/seed-tenant endpoint to plant protected system-seed
-     * mnemonics in a new tenant's global scope; not reachable from any
-     * caller-facing surface. Pair: owner_subject is the system sentinel
-     * (see {@link SystemSubject}).
+     * Server-derived system identity. The guidance overlay stamps it on its
+     * transient, never-persisted entries so a recall result can mark a built-in
+     * entry with {@code source: "system"}; no caller-facing surface emits it, and
+     * a persisting write carrying it is refused at the repository write seam. Pair:
+     * owner_subject is the system sentinel (see {@link SystemSubject}).
      */
     SYSTEM("system"),
     /**

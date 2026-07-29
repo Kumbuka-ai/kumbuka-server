@@ -95,12 +95,12 @@ public final class Dtos {
     }
 
     /**
-     * D-CORE-11: surfaced when a non-system caller's write or delete would
-     * touch a protected system-seed entry. Carries the typed reason so the
-     * client doesn't have to pattern-match a string message.
+     * Surfaced when a non-system caller's write or delete would touch a protected
+     * (D-CORE-11) row, or address a key in the reserved namespace. Carries the
+     * typed code so the client doesn't have to pattern-match a string message.
      */
     public record ProtectedError(
-        String code,    // PROTECTED_UPSERT_BLOCKED | PROTECTED_DELETE_BLOCKED
+        String code,    // PROTECTED_<reason> (e.g. PROTECTED_RESERVED_NAMESPACE) or SCOPE_READ_ONLY
         String key,
         String message
     ) {}

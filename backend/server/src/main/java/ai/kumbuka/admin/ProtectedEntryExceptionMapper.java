@@ -17,14 +17,15 @@ import java.util.Map;
  *
  * Body shape:
  * <pre>{@code
- *   { "code": "PROTECTED_UPSERT_BLOCKED" | "PROTECTED_DELETE_BLOCKED",
+ *   { "code": "PROTECTED_<reason>",   // e.g. PROTECTED_RESERVED_NAMESPACE
  *     "key":  "<key-or-null>",
  *     "message": "<human-readable>" }
  * }</pre>
  *
- * Parallel to the MCP-side structured error in {@code Dtos.ProtectedError}
- * — same code values so the team console can pattern-match either surface
- * with one handler.
+ * The code is derived generically from the reason name, so a new reason needs no
+ * change here. Parallel to the MCP-side structured error in {@code
+ * Dtos.ProtectedError} — same code values so the team console can pattern-match
+ * either surface with one handler.
  */
 @Provider
 public class ProtectedEntryExceptionMapper implements ExceptionMapper<ProtectedEntryException> {

@@ -33,6 +33,7 @@ class MemoryUpdateTest {
     static final String OTHER = "99999999-9999-9999-9999-999999999999";
 
     @Inject MemoryRepository memories;
+    @Inject ScopeRepository scopes;
     @Inject EntityManager em;
 
     // ---------- mutable fields change; identity + authorship do not ----------
@@ -121,10 +122,19 @@ class MemoryUpdateTest {
     @Test
     @TestTransaction
     void update_lockedRow_isRejected() {
-        // A SYSTEM-seeded (locked) row is read-only for a non-system caller.
-        Memory seed = memories.remember(
-            "__system__", "global", MemoryType.CONVENTION, "upd.locked", "seed",
-            SourceChannel.SYSTEM);
+        // A locked (system) row is read-only for a non-system caller. Plant it
+        // BELOW the write seam (direct persist) — the system channel no longer
+        // persists through the repository (it fails loud there); onCreate still
+        // requires source=SYSTEM + the sentinel owner to carry a system lock.
+        Memory seed = new Memory();
+        seed.ownerSubject = ai.kumbuka.domain.SystemSubject.SENTINEL;
+        seed.scope = scopes.requireBySlug("global");
+        seed.type = MemoryType.CONVENTION;
+        seed.key = "upd.locked";
+        seed.content = "seed";
+        seed.source = SourceChannel.SYSTEM;
+        seed.lock = MemoryLock.SYSTEM;
+        memories.persist(seed);
         assertThat(seed.lock).isEqualTo(MemoryLock.SYSTEM);
 
         Memory target = memories.findForUpdate(OWNER, "global", "upd.locked", null);

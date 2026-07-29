@@ -434,11 +434,13 @@ public class MemoryTools {
             return new Dtos.ForgetResult(0,
                 new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
-            // D-CORE-11: caller tried to delete a protected system-seed entry.
-            // The structural trigger (memory_protected_delete_block) raised the
-            // exception; we translate to a typed result for the MCP client.
+            // The delete addressed a key in the reserved `system` namespace
+            // (RESERVED_NAMESPACE). Surface a typed structured error whose code is
+            // derived from the reason — identical to the write/update paths — so
+            // the rejection reaches the client as a structured error in the result
+            // field, never as a bare isError tool fault.
             return new Dtos.ForgetResult(0,
-                new Dtos.ProtectedError("PROTECTED_DELETE_BLOCKED", pex.key(), pex.getMessage()));
+                new Dtos.ProtectedError("PROTECTED_" + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
             // dogfood-14: unknown/invisible scope → typed tool error, not -32603.
             throw new ToolCallException("scope '" + scope + "' does not exist or is not visible");

@@ -110,9 +110,29 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
 
     @Transactional
     public int deleteShared(UUID logicalId) {
-        // Note the `scope.kind != PRIVATE` guard — the same logical_id in a
-        // private scope is NEVER deletable through this code path. A locked row
-        // deletes like any other here; there is no delete-block below this layer.
+        Memory m = findSharedById(logicalId);
+        // Reserved namespace (row-independent): the console single-delete is never
+        // the system channel, so the guard is unconditional. The addressed key is
+        // resolved from the row when one exists, else from the guidance overlay
+        // (the synthetic ids a curator sees in every listing) — the same rule the
+        // write side enforces, stated once in ReservedNamespaceGuard.
+        ReservedNamespaceGuard.assertDeleteAllowed(m != null ? m.key : null, logicalId, guidance);
+        // F-0228: a locked row is read-only on this console single-delete path —
+        // the load-bearing application guard, mirroring the content-edit's
+        // UPDATE_BLOCKED. There is no delete-block below this layer (the structural
+        // trigger was dropped in V20), so the guard has to live here. Teardown and
+        // member-erasure delete AROUND this method (their own Memory.deleteAll /
+        // Memory.delete bulk statements), so this never blocks a tenant purge or an
+        // Art. 17 erasure — the ADR-0024 Amendment 5 unlock-then-delete exemption
+        // for a dying tenant is preserved by construction.
+        if (m != null && m.lock != MemoryLock.NONE) {
+            throw new ProtectedEntryException(
+                ProtectedEntryException.Reason.UPDATE_BLOCKED, m.key,
+                "memory row is protected (key=" + m.key + ") — locked entries cannot be "
+                + "deleted (D-CORE-11 / ADR-0024 §13)");
+        }
+        // The `scope.kind != PRIVATE` guard — the same logical_id in a private
+        // scope is NEVER deletable through this code path.
         return (int) delete(
             "logicalId = ?1 and scope.kind != ?2",
             logicalId, ScopeKind.PRIVATE);
