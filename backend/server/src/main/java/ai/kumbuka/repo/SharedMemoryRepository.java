@@ -111,25 +111,11 @@ public class SharedMemoryRepository implements PanacheRepository<Memory> {
     @Transactional
     public int deleteShared(UUID logicalId) {
         // Note the `scope.kind != PRIVATE` guard — the same logical_id in a
-        // private scope is NEVER deletable through this code path.
-        //
-        // D-CORE-11: the BEFORE DELETE trigger (memory_protected_delete_block)
-        // catches locked rows below this layer with SQLSTATE P0001. We translate
-        // that to a typed ProtectedEntryException so the admin resource can
-        // return a clean 409 instead of a raw 500.
-        try {
-            return (int) delete(
-                "logicalId = ?1 and scope.kind != ?2",
-                logicalId, ScopeKind.PRIVATE);
-        } catch (jakarta.persistence.PersistenceException pe) {
-            if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
-                throw new ProtectedEntryException(
-                    ProtectedEntryException.Reason.DELETE_BLOCKED,
-                    null,
-                    "delete blocked: row logical_id=" + logicalId + " is protected (D-CORE-11)");
-            }
-            throw pe;
-        }
+        // private scope is NEVER deletable through this code path. A locked row
+        // deletes like any other here; there is no delete-block below this layer.
+        return (int) delete(
+            "logicalId = ?1 and scope.kind != ?2",
+            logicalId, ScopeKind.PRIVATE);
     }
 
     /**

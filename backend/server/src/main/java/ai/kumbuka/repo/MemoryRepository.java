@@ -9,12 +9,10 @@ import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.SourceChannel;
-import ai.kumbuka.domain.SystemSubject;
 import ai.kumbuka.util.SystemKeyNamespace;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.persistence.PersistenceException;
 import jakarta.transaction.Transactional;
 
 import java.util.List;
@@ -68,7 +66,6 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                            String content,
                            SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
-        assertNoProtectedConflict(scope, key, source);
         assertKeyNamespaceAllowed(key, source);
 
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
@@ -151,7 +148,6 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                                String content,
                                SourceChannel source) {
         Scope scope = scopes.requireBySlug(scopeSlug);
-        assertNoProtectedConflict(scope, key, source);
         assertKeyNamespaceAllowed(key, source);
         assertKeyFree(scope, key, null);
         return insertNew(callerSubject, scope, type, key, content, source);
@@ -269,7 +265,6 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 "private is not a remap endpoint (private-memory guarantee, P1).");
         }
         String effectiveKey = (newKey != null && !newKey.isBlank()) ? newKey : entry.key;
-        assertNoProtectedConflict(target, effectiveKey, entry.source);
         assertKeyNamespaceAllowed(effectiveKey, entry.source);
         assertKeyFree(target, effectiveKey, entry.logicalId);
         entry.scope = target;
@@ -278,32 +273,12 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * D-CORE-11 guard: a non-system caller must not write a key reserved by a
-     * protected system-seed row (the unique index would otherwise let them
-     * shadow it with a parallel row, invisible to read paths).
-     */
-    private void assertNoProtectedConflict(Scope scope, String key, SourceChannel source) {
-        if (key != null && source != SourceChannel.SYSTEM) {
-            boolean protectedConflict = find(
-                "scope = ?1 and key = ?2 and lock = ?3",
-                scope, key, MemoryLock.SYSTEM).firstResultOptional().isPresent();
-            if (protectedConflict) {
-                throw new ProtectedEntryException(
-                    ProtectedEntryException.Reason.UPSERT_BLOCKED, key,
-                    "key '" + key + "' is reserved by a protected system-seed entry " +
-                    "(D-CORE-11). The system seed cannot be overwritten or shadowed " +
-                    "by an interactive write.");
-            }
-        }
-    }
-
-    /**
      * Reserved-namespace guard: a non-system caller may not write a key in the
-     * reserved {@code system} namespace ({@link SystemKeyNamespace}). Unlike
-     * {@link #assertNoProtectedConflict} this is row-independent — it holds
-     * whether or not a built-in entry currently exists under the key, so a
-     * member cannot claim a reserved key by racing the built-in content. The
-     * system channel (the only writer allowed into the namespace) is exempt.
+     * reserved {@code system} namespace ({@link SystemKeyNamespace}). It is
+     * row-independent — it holds whether or not a built-in entry currently
+     * exists under the key, so a member cannot claim a reserved key by racing
+     * the built-in content. The system channel (the only writer allowed into the
+     * namespace) is exempt.
      *
      * <p>Runs on every shared write method here ({@link #remember},
      * {@link #createShared}, {@link #remap}, {@link #updateEntry}), so both the
@@ -371,31 +346,6 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      *  and a typed tool error on the MCP path. */
     public static class StaleVersionException extends RuntimeException {
         public StaleVersionException(String message, Throwable cause) { super(message, cause); }
-    }
-
-    /**
-     * Seed a protected system-seed mnemonic.
-     *
-     * <p>Convenience wrapper around {@link #remember} with the system
-     * sentinel as owner_subject and {@code SourceChannel.SYSTEM} as the
-     * channel — keeps the seeder code from having to know the sentinel.
-     * Idempotent by (scope, key): seeding only ever creates <em>missing</em>
-     * rows. A row that already exists under the key — an earlier seed run's
-     * or a hand-written one — is left exactly as it is: the first-write
-     * channel is immutable after creation, so an existing row cannot be
-     * converted into a system-seeded row after the fact.
-     */
-    @Transactional
-    public Memory seed(String scopeSlug, MemoryType type, String key, String content) {
-        if (key == null || key.isBlank()) {
-            throw new IllegalArgumentException("seed requires a non-blank key");
-        }
-        Scope scope = scopes.requireBySlug(scopeSlug);
-        Optional<Memory> existing = find(SHARED_KEY_LOOKUP, scope, key).firstResultOptional();
-        if (existing.isPresent()) {
-            return existing.get();
-        }
-        return remember(SystemSubject.SENTINEL, scopeSlug, type, key, content, SourceChannel.SYSTEM);
     }
 
     /**
@@ -484,41 +434,26 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         // For private scope, restrict to caller's own rows.
         boolean isPrivate = scope.kind == ScopeKind.PRIVATE;
 
-        try {
-            if (logicalId != null) {
-                // Address by logical_id (Amendment 3). Shared deletes are
-                // author-independent (the canonical head); private restricts to
-                // the caller's own row.
-                String jpql = "logicalId = ?1 and scope = ?2" +
-                              (isPrivate ? " and ownerSubject = ?3" : "");
-                return isPrivate
-                    ? (int) delete(jpql, logicalId, scope, callerSubject)
-                    : (int) delete(jpql, logicalId, scope);
-            }
-            if (key != null) {
-                // Code Finding 2 (ratified, Delta 4): forget-by-key is
-                // author-independent for SHARED scopes (matching the shared
-                // uniqueness + forget-by-id), and per-author for PRIVATE.
-                return isPrivate
-                    ? (int) delete(PRIVATE_KEY_LOOKUP,
-                                   scope, callerSubject, key)
-                    : (int) delete(SHARED_KEY_LOOKUP, scope, key);
-            }
-            throw new IllegalArgumentException("forget requires either id or key");
-        } catch (PersistenceException pe) {
-            // D-CORE-11: the BEFORE DELETE trigger raises with SQLSTATE P0001
-            // when a protected row is in the delete-set. Translate that into
-            // a typed exception so the MCP / admin layers can return a clean
-            // 409 instead of a raw 500. Any other PSQLException re-raises.
-            if (ProtectedDeleteBlockDetector.isProtectedDeleteBlock(pe)) {
-                throw new ProtectedEntryException(
-                    ProtectedEntryException.Reason.DELETE_BLOCKED,
-                    key,
-                    "delete blocked: row(s) carry protected = true (D-CORE-11). " +
-                    "Protected system-seed mnemonics are structurally undeletable.");
-            }
-            throw pe;
+        if (logicalId != null) {
+            // Address by logical_id (Amendment 3). Shared deletes are
+            // author-independent (the canonical head); private restricts to
+            // the caller's own row.
+            String jpql = "logicalId = ?1 and scope = ?2" +
+                          (isPrivate ? " and ownerSubject = ?3" : "");
+            return isPrivate
+                ? (int) delete(jpql, logicalId, scope, callerSubject)
+                : (int) delete(jpql, logicalId, scope);
         }
+        if (key != null) {
+            // Code Finding 2 (ratified, Delta 4): forget-by-key is
+            // author-independent for SHARED scopes (matching the shared
+            // uniqueness + forget-by-id), and per-author for PRIVATE.
+            return isPrivate
+                ? (int) delete(PRIVATE_KEY_LOOKUP,
+                               scope, callerSubject, key)
+                : (int) delete(SHARED_KEY_LOOKUP, scope, key);
+        }
+        throw new IllegalArgumentException("forget requires either id or key");
     }
 
     /** Scopes visible to the caller: their private (one row) + all shared. */

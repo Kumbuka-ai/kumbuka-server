@@ -32,7 +32,8 @@ import java.util.regex.Pattern;
  * <h3>Security model</h3>
  *
  * Intentionally {@link PermitAll} and open — there is no bearer secret (contrast
- * {@code SeedTenantResource}, which is server-to-server). Abuse is contained by
+ * the internal server-to-server endpoints such as {@code EraseSubjectResource},
+ * which require one). Abuse is contained by
  * the Caddy edge rate limit, not by this code. NOT {@code @TenantBound}: a
  * waitlist row is PRE-TENANT control-plane data (no {@code app.tenant_id}), so
  * the per-tenant RLS seam does not apply.
