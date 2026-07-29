@@ -23,6 +23,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Least privilege: this workflow only reads the repository to scan it.
+permissions:
+  contents: read
+
 jobs:
   internal-references:
     name: no unresolved internal references
