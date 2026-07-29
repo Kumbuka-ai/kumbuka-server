@@ -581,24 +581,27 @@ class MemoryToolsTest {
         assertThat(out.error().message()).contains("protected");
     }
 
-    // ---------- memory_forget: D-CORE-11 protected delete-block -------------
+    // ---------- memory_forget: reserved-namespace typed error ---------------
 
+    // A reserved-namespace delete surfaces as a typed structured error in the
+    // result field, with a reason-derived code — identical to the write/update
+    // paths — never a bare isError tool fault.
     @Test
-    void forget_protectedRow_returnsTypedDeleteBlocked_notARawThrow() {
+    void forget_reservedNamespace_returnsTypedError_reasonDerived() {
         Scope shared = scope("alpha", ScopeKind.PROJECT);
         when(scopes.requireBySlug("alpha")).thenReturn(shared);
-        when(memories.forget(eq("caller-sub"), eq("alpha"), isNull(), eq("seed.key")))
+        when(memories.forget(eq("caller-sub"), eq("alpha"), isNull(), eq("system.foo")))
             .thenThrow(new ai.kumbuka.repo.ProtectedEntryException(
-                ai.kumbuka.repo.ProtectedEntryException.Reason.DELETE_BLOCKED,
-                "seed.key",
-                "delete blocked: row carries protected = true"));
+                ai.kumbuka.repo.ProtectedEntryException.Reason.RESERVED_NAMESPACE,
+                "system.foo",
+                "key 'system.foo' is in the reserved 'system' namespace"));
 
-        Dtos.ForgetResult out = tools.memory_forget("alpha", null, "seed.key");
+        Dtos.ForgetResult out = tools.memory_forget("alpha", null, "system.foo");
 
         assertThat(out.deleted()).isZero();
         assertThat(out.error()).isNotNull();
-        assertThat(out.error().code()).isEqualTo("PROTECTED_DELETE_BLOCKED");
-        assertThat(out.error().key()).isEqualTo("seed.key");
+        assertThat(out.error().code()).isEqualTo("PROTECTED_RESERVED_NAMESPACE");
+        assertThat(out.error().key()).isEqualTo("system.foo");
     }
 
     // ---------- memory_remember: D-CORE-11 + E2E-06 key-format validation ---

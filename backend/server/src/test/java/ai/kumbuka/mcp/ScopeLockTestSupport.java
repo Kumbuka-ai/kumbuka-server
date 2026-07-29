@@ -59,9 +59,19 @@ public class ScopeLockTestSupport {
     @Transactional
     public UUID seedSystemEntryThenLock(String slug, String key, String content) {
         ensureProject(slug, false);
-        Memory m = memories.remember(
-            ai.kumbuka.domain.SystemSubject.SENTINEL, slug, MemoryType.DECISION, key, content,
-            ai.kumbuka.domain.SourceChannel.SYSTEM);
+        // Plant the system-locked entry BELOW the write seam (direct persist): the
+        // system channel no longer persists through the repository (it fails loud
+        // there), so a lock='system' row is created directly, as a legacy seed row
+        // would sit in the table. onCreate still requires source=SYSTEM + sentinel.
+        Memory m = new Memory();
+        m.ownerSubject = ai.kumbuka.domain.SystemSubject.SENTINEL;
+        m.scope = scopes.requireBySlug(slug);
+        m.type = MemoryType.DECISION;
+        m.key = key;
+        m.content = content;
+        m.source = ai.kumbuka.domain.SourceChannel.SYSTEM;
+        m.lock = ai.kumbuka.domain.MemoryLock.SYSTEM;
+        memories.persist(m);
         scopes.setLocked(slug, true);
         return m.logicalId;
     }

@@ -39,10 +39,12 @@ class ProtectedEntryExceptionMapperTest {
     }
 
     @Test
-    void deleteBlocked_mapsToHttp409_withTypedCodeAndNullableKey() {
-        // Admin DELETE-by-id doesn't carry the key — the mapper must accept null.
+    void protectedRejection_withNullKey_mapsToHttp409_generically() {
+        // A protected-row rejection may carry a null key — the mapper must accept
+        // it — and the code is derived generically from the reason name (so a new
+        // reason needs no mapper change).
         ProtectedEntryException ex = new ProtectedEntryException(
-            ProtectedEntryException.Reason.DELETE_BLOCKED,
+            ProtectedEntryException.Reason.UPDATE_BLOCKED,
             null,
             "row is protected");
 
@@ -52,7 +54,7 @@ class ProtectedEntryExceptionMapperTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> body = (Map<String, Object>) r.getEntity();
         assertThat(body)
-            .containsEntry("code", "PROTECTED_DELETE_BLOCKED")
+            .containsEntry("code", "PROTECTED_UPDATE_BLOCKED")
             .containsEntry("message", "row is protected");
         assertThat(body).containsKey("key");
         assertThat(body.get("key")).isNull();

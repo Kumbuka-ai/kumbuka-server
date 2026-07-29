@@ -52,6 +52,9 @@ public class MemoryTools {
     /** Typed-error code for a write rejected by a content-locked scope. */
     private static final String SCOPE_READ_ONLY = "SCOPE_READ_ONLY";
 
+    /** Prefix for the reason-derived protected-entry error codes (PROTECTED_&lt;reason&gt;). */
+    private static final String PROTECTED_CODE_PREFIX = "PROTECTED_";
+
     @Inject SecurityIdentity identity;
     @Inject MemoryRepository memories;
     @Inject ScopeRepository scopes;
@@ -220,7 +223,7 @@ public class MemoryTools {
             // Return a typed structured error (reason-derived code) instead of a
             // bare internal error.
             return new Dtos.RememberResult(null, false, null, null,
-                new Dtos.ProtectedError("PROTECTED_" + pex.reason().name(), pex.key(), pex.getMessage()));
+                new Dtos.ProtectedError(PROTECTED_CODE_PREFIX + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
             // dogfood-14: an unknown or RLS-invisible scope slug surfaces as a typed
             // tool error (isError + reason), not a bare -32603 — the same MCP
@@ -340,7 +343,7 @@ public class MemoryTools {
                 new Dtos.ProtectedError(SCOPE_READ_ONLY, target.key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
             return new Dtos.UpdateResult(null,
-                new Dtos.ProtectedError("PROTECTED_" + pex.reason().name(), pex.key(), pex.getMessage()));
+                new Dtos.ProtectedError(PROTECTED_CODE_PREFIX + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.MemoryRepository.StaleVersionException sve) {
             throw new ToolCallException(sve.getMessage());
         }
@@ -434,11 +437,13 @@ public class MemoryTools {
             return new Dtos.ForgetResult(0,
                 new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
-            // D-CORE-11: caller tried to delete a protected system-seed entry.
-            // The structural trigger (memory_protected_delete_block) raised the
-            // exception; we translate to a typed result for the MCP client.
+            // The delete addressed a key in the reserved `system` namespace
+            // (RESERVED_NAMESPACE). Surface a typed structured error whose code is
+            // derived from the reason — identical to the write/update paths — so
+            // the rejection reaches the client as a structured error in the result
+            // field, never as a bare isError tool fault.
             return new Dtos.ForgetResult(0,
-                new Dtos.ProtectedError("PROTECTED_DELETE_BLOCKED", pex.key(), pex.getMessage()));
+                new Dtos.ProtectedError(PROTECTED_CODE_PREFIX + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
             // dogfood-14: unknown/invisible scope → typed tool error, not -32603.
             throw new ToolCallException("scope '" + scope + "' does not exist or is not visible");

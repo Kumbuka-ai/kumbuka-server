@@ -22,12 +22,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * <ul>
  *   <li>the console / admin content-edit path refuses to update a locked row
  *       (the load-bearing application guard — there is no update trigger);</li>
+ *   <li>the console single-delete path refuses to delete a locked row (F-0228 —
+ *       the same guard on the delete side, and likewise no delete trigger);</li>
  *   <li>an ordinary (unlocked) row still deletes through the normal path;</li>
  *   <li>only the system identity may own a system row (pre-persist invariant).</li>
  * </ul>
  *
- * <p>Deletion of a locked row is now permitted at the storage layer; that
- * behaviour change and its probe live in {@link SystemLockDeleteTest}.
+ * <p>There is no delete-block below the application layer (the structural trigger
+ * was dropped in V20): the MCP {@code forget} path still deletes a locked row at
+ * the storage layer (see {@link SystemLockDeleteTest}); the console single-delete
+ * is guarded here instead.
  *
  * <p>{@code @TestTransaction} rolls each method back, leaving no committed rows.
  */
@@ -41,12 +45,21 @@ class SystemLockedRowGuardsTest {
     @Inject SharedMemoryRepository sharedMemories;
     @Inject ScopeRepository scopes;
 
-    /** Write a system-locked global row directly through the system channel —
-     *  the only writer that produces {@code lock = 'system'}. */
+    /** Plant a system-locked global row BELOW the write seam (direct persist) —
+     *  the only way such a row exists now that the system channel no longer
+     *  persists through the repository (it fails loud there). A locked row is
+     *  planted directly, exactly as a legacy seed row sits in the table; the
+     *  onCreate pair-invariant still requires source=SYSTEM + the sentinel owner. */
     private Memory plantLockedRow(String key, String content) {
-        Memory m = memories.remember(
-            SystemSubject.SENTINEL, "global", MemoryType.CONVENTION, key, content,
-            SourceChannel.SYSTEM);
+        Memory m = new Memory();
+        m.ownerSubject = SystemSubject.SENTINEL;
+        m.scope = scopes.requireBySlug("global");
+        m.type = MemoryType.CONVENTION;
+        m.key = key;
+        m.content = content;
+        m.source = SourceChannel.SYSTEM;
+        m.lock = MemoryLock.SYSTEM;
+        memories.persist(m);
         assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
         return m;
     }
@@ -63,6 +76,25 @@ class SystemLockedRowGuardsTest {
             .isInstanceOf(ProtectedEntryException.class)
             .extracting(e -> ((ProtectedEntryException) e).reason())
             .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
+    }
+
+    @Test
+    @TestTransaction
+    void lockedRow_cannotBeDeleted_viaConsoleSingleDelete() {
+        // F-0228: the console single-delete (deleteShared) is read-only for a
+        // locked row — the load-bearing application guard, mirroring the
+        // content-edit's UPDATE_BLOCKED (there is no delete-block below this layer
+        // since V20). The key is NOT reserved, so it is the LOCK axis that fires
+        // here, not the reserved-namespace guard. Red probe: drop the lock check
+        // in SharedMemoryRepository.deleteShared and the delete returns 1 instead
+        // of throwing.
+        Memory locked = plantLockedRow("guard.delete.locked", "canonical content");
+        assertThatThrownBy(() -> sharedMemories.deleteShared(locked.logicalId))
+            .isInstanceOf(ProtectedEntryException.class)
+            .extracting(e -> ((ProtectedEntryException) e).reason())
+            .isEqualTo(ProtectedEntryException.Reason.UPDATE_BLOCKED);
+        // The row is untouched — the guard refused before any delete ran.
+        assertThat(sharedMemories.findSharedById(locked.logicalId)).isNotNull();
     }
 
     @Test

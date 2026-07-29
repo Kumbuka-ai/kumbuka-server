@@ -87,19 +87,14 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 : find(SHARED_KEY_LOOKUP,
                        scope, key).firstResultOptional();
             if (existing.isPresent()) {
+                // SYSTEM never reaches a persisting write (assertNotSystemChannel):
+                // the former re-seed-upgrade of an existing row is dead with the
+                // seeder gone, so a SYSTEM upsert here is a programming error, not a
+                // silent lock flip — fail loud before touching the row.
+                assertNotSystemChannel(source);
                 Memory m = existing.get();
                 m.content = content;
                 if (type != null) m.type = type;
-                // D-CORE-11: a SYSTEM re-seed upgrades the row in place —
-                // ensures the live johannesbayer how-to entries (already
-                // present as unprotected conventions) flip to the system lock on
-                // the first seed run without producing duplicates. Only the lock
-                // flips: `source` is the first-write channel and immutable
-                // (updatable = false on the mapping), so the row keeps its
-                // original channel.
-                if (source == SourceChannel.SYSTEM) {
-                    m.lock = MemoryLock.SYSTEM;
-                }
                 // `source`/`owner_subject` are the FIRST-write authorship and are
                 // intentionally not updated (Amendment 4). The in-place edit
                 // stamps the LAST-editor provenance instead. The D-CORE-7
@@ -314,6 +309,9 @@ public class MemoryRepository implements PanacheRepository<Memory> {
 
     private Memory insertNew(String callerSubject, Scope scope, MemoryType type,
                              String key, String content, SourceChannel source) {
+        // SYSTEM never reaches a persisting write (assertNotSystemChannel) — fail
+        // loud rather than silently stamp a system lock on a new row.
+        assertNotSystemChannel(source);
         Memory m = new Memory();
         // tenantId auto-populated by Hibernate from the @TenantId column.
         m.ownerSubject = callerSubject;
@@ -322,9 +320,27 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         m.key = key;
         m.content = content;
         m.source = source;
-        m.lock = (source == SourceChannel.SYSTEM) ? MemoryLock.SYSTEM : MemoryLock.NONE;
+        m.lock = MemoryLock.NONE;
         persist(m);
         return m;
+    }
+
+    /**
+     * Fail-loud write-seam assertion: {@link SourceChannel#SYSTEM} is the
+     * server-derived identity that {@link GuidanceOverlay} stamps on its transient,
+     * never-persisted entries — not a caller-facing channel, and no writer persists
+     * it since the seeder was removed. Reaching a persisting write with it is a
+     * programming error, so it dies loudly here rather than silently stamping a
+     * system lock (the former re-seed behaviour). The {@code SourceChannel.SYSTEM}
+     * enum value itself stays: the overlay stamps it on its transient objects and
+     * the read-side {@code source: "system"} marking hangs off it.
+     */
+    private static void assertNotSystemChannel(SourceChannel source) {
+        if (source == SourceChannel.SYSTEM) {
+            throw new IllegalStateException(
+                "SourceChannel.SYSTEM cannot persist a memory write — it is the transient "
+                + "GuidanceOverlay identity, never a caller channel and never persisted.");
+        }
     }
 
     /** D-CORE-16: a console create / remap hit an existing key in the scope.
@@ -430,6 +446,16 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     @Transactional
     public int forget(String callerSubject, String scopeSlug, UUID logicalId, String key) {
         Scope scope = scopes.requireBySlug(scopeSlug);
+
+        // Reserved namespace: a caller-facing delete of a key in the reserved
+        // `system` namespace is refused, row-independent, exactly as the write
+        // paths refuse a write to one. Mirrors assertKeyNamespaceAllowed on the
+        // delete side; the rule lives in one seam (ReservedNamespaceGuard), called
+        // here and by SharedMemoryRepository.deleteShared, never re-implemented.
+        // By id, the synthetic overlay ids in every recall result resolve through
+        // the guidance overlay. Teardown/erasure delete around this method, so
+        // this never fires in a purge or an erasure.
+        ReservedNamespaceGuard.assertDeleteAllowed(key, logicalId, guidance);
 
         // For private scope, restrict to caller's own rows.
         boolean isPrivate = scope.kind == ScopeKind.PRIVATE;

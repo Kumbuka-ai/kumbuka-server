@@ -431,9 +431,20 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void remap_protectedEntry_isRejected() {
-        // D-CORE-11: a protected (system-seed) entry is not remappable.
+        // D-CORE-11: a protected (locked) entry is not remappable. Plant it BELOW
+        // the write seam (direct persist) — the system channel no longer persists
+        // through the repository (it fails loud there); onCreate still requires
+        // source=SYSTEM + the sentinel owner to carry a system lock.
         String src = ensureProject("dcore17-prot");
-        Memory m = memories.remember("__system__", src, MemoryType.CONVENTION, "k.prot", "seed", SourceChannel.SYSTEM);
+        Memory m = new Memory();
+        m.ownerSubject = ai.kumbuka.domain.SystemSubject.SENTINEL;
+        m.scope = scopes.requireBySlug(src);
+        m.type = MemoryType.CONVENTION;
+        m.key = "k.prot";
+        m.content = "seed";
+        m.source = SourceChannel.SYSTEM;
+        m.lock = MemoryLock.SYSTEM;
+        memories.persist(m);
         assertThat(m.lock).isEqualTo(MemoryLock.SYSTEM);
         assertThatThrownBy(() -> memories.remap(m, "global", null))
             .isInstanceOf(ai.kumbuka.repo.ProtectedEntryException.class);

@@ -14,9 +14,9 @@ import java.util.regex.Pattern;
  * accept. That landed entries the console editor could no longer edit
  * (the underscore-key WORKLIST tech-debt regression).
  *
- * <p>Forced by the now-seeded {@code convention.how-to-kumbuka.writing}
- * mnemonic (D-CORE-11) which states the convention; with the seed
- * shipping in every tenant, the server must enforce it too.
+ * <p>The built-in guidance {@code system.how-to-kumbuka.writing} states this
+ * convention to assistants; the server enforces the format itself so a direct
+ * API/MCP caller cannot bypass it.
  *
  * <p>{@code null} is allowed (key is optional — no upsert without it).
  * The DB CHECK (V2, same regex) is the defence-in-depth backstop.

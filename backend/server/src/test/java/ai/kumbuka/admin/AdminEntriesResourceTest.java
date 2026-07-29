@@ -428,22 +428,26 @@ class AdminEntriesResourceTest {
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
-    void delete_protectedRow_returnsTypedHttp409_viaMapper() {
+    void delete_lockedRow_returnsTypedHttp409_viaMapper() {
+        // The console single-delete of a locked row is refused with UPDATE_BLOCKED
+        // (F-0228, the load-bearing application guard — no delete trigger below it):
+        // deleteShared throws, and the @Provider mapper translates it to a typed 409
+        // through the real REST pipeline.
         Scope alpha = sharedScope("alpha");
         Memory m = mem(alpha, MemoryType.CONVENTION, "convention.how-to-kumbuka.writing", "...");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         org.mockito.Mockito.doThrow(new ai.kumbuka.repo.ProtectedEntryException(
-                ai.kumbuka.repo.ProtectedEntryException.Reason.DELETE_BLOCKED,
-                null,
-                "delete blocked: row id=" + m.logicalId + " is protected (D-CORE-11)"))
+                ai.kumbuka.repo.ProtectedEntryException.Reason.UPDATE_BLOCKED,
+                m.key,
+                "memory row is protected (key=" + m.key + ") — locked entries cannot be deleted"))
             .when(sharedMemories).deleteShared(m.logicalId);
 
         given()
             .when().delete("/api/scopes/alpha/entries/" + m.logicalId)
             .then()
                 .statusCode(409)
-                .body("code", equalTo("PROTECTED_DELETE_BLOCKED"));
+                .body("code", equalTo("PROTECTED_UPDATE_BLOCKED"));
     }
 
     // ---------- D-CORE-16: console create rejects an existing key ------------
