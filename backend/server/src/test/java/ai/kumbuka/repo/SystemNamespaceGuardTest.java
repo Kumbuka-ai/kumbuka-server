@@ -82,6 +82,27 @@ class SystemNamespaceGuardTest {
                 ex -> assertThat(ex.reason()).isEqualTo(Reason.RESERVED_NAMESPACE));
     }
 
+    @Test
+    @TestTransaction
+    void ordinaryWriteToBuiltInGuidanceKey_isRejected() {
+        // The property this rename delivers: the built-in guidance keys now live
+        // in the reserved namespace, so no ordinary caller can plant a real row
+        // under one and shadow the built-in entry via suppress-by-key. Both
+        // caller-facing channels are refused. Red probe: this suite's shared NULL
+        // probe (drop assertKeyNamespaceAllowed) makes both writes succeed.
+        assertThatThrownBy(() -> memories.remember(
+                MEMBER, "global", MemoryType.CONVENTION,
+                "system.how-to-kumbuka.types", "spoof", SourceChannel.MCP))
+            .isInstanceOfSatisfying(ProtectedEntryException.class,
+                ex -> assertThat(ex.reason()).isEqualTo(Reason.RESERVED_NAMESPACE));
+
+        assertThatThrownBy(() -> memories.createShared(
+                MEMBER, "global", MemoryType.CONVENTION,
+                "system.how-to-kumbuka.writing", "spoof", SourceChannel.CONSOLE))
+            .isInstanceOfSatisfying(ProtectedEntryException.class,
+                ex -> assertThat(ex.reason()).isEqualTo(Reason.RESERVED_NAMESPACE));
+    }
+
     // ---------- the system channel is the one exempt writer ------------------
 
     @Test

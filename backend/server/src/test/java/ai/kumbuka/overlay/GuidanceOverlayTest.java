@@ -25,9 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @QuarkusTest
 class GuidanceOverlayTest {
 
-    private static final String KEY_TYPES = "convention.how-to-kumbuka.types";
-    private static final String KEY_WRITING = "convention.how-to-kumbuka.writing";
-    private static final String KEY_READING = "convention.how-to-kumbuka.reading";
+    private static final String KEY_TYPES = "system.how-to-kumbuka.types";
+    private static final String KEY_WRITING = "system.how-to-kumbuka.writing";
+    private static final String KEY_READING = "system.how-to-kumbuka.reading";
 
     private final GuidanceOverlay overlay = bundledOverlay();
 
@@ -60,7 +60,7 @@ class GuidanceOverlayTest {
 
     @Test
     void timestampsAreStableAndEqualAcrossEntries() {
-        Instant expected = Instant.parse("2026-07-25T00:00:00Z");
+        Instant expected = Instant.parse("2026-07-29T00:00:00Z");
         for (Memory m : overlay.entries()) {
             assertThat(m.createdAt).isEqualTo(expected);
             assertThat(m.updatedAt).isEqualTo(expected);
@@ -82,9 +82,9 @@ class GuidanceOverlayTest {
 
     @Test
     void syntheticIdDerivesFromTheRenameInvariantLogicalName() {
-        // The id is the version-5 UUID of the logical name (key minus the
-        // leading "convention." namespace), NOT the fully-qualified key — so a
-        // later key rename keeps the id stable.
+        // The id is the version-5 UUID of the rename-invariant logical name, NOT
+        // the fully-qualified key — so a later key rename (as here, moving the
+        // key into the reserved system.* namespace) keeps the id stable.
         Memory types = overlay.entries().get(0);
         assertThat(types.logicalId)
             .isEqualTo(GuidanceOverlay.uuidV5(namespace(), "how-to-kumbuka.types"))
@@ -192,7 +192,7 @@ class GuidanceOverlayTest {
 
         List<Memory> merged = overlay.mergeIntoShared(List.of(newest, oldest), null, null);
 
-        // newest real row first, overlay (2026-07-25) in the middle, oldest last.
+        // newest real row first, overlay (2026-07-29) in the middle, oldest last.
         assertThat(merged).first().isEqualTo(newest);
         assertThat(merged).last().isEqualTo(oldest);
         assertThat(merged).extracting(m -> m.updatedAt).isSortedAccordingTo(java.util.Comparator.reverseOrder());

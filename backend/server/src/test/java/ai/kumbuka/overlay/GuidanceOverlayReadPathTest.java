@@ -29,9 +29,9 @@ class GuidanceOverlayReadPathTest {
 
     static final String SUBJECT = "55555555-5555-5555-5555-555555555555";
 
-    private static final String KEY_TYPES = "convention.how-to-kumbuka.types";
-    private static final String KEY_WRITING = "convention.how-to-kumbuka.writing";
-    private static final String KEY_READING = "convention.how-to-kumbuka.reading";
+    private static final String KEY_TYPES = "system.how-to-kumbuka.types";
+    private static final String KEY_WRITING = "system.how-to-kumbuka.writing";
+    private static final String KEY_READING = "system.how-to-kumbuka.reading";
     private static final List<String> GUIDANCE_KEYS = List.of(KEY_TYPES, KEY_WRITING, KEY_READING);
 
     @Inject MemoryRepository memories;

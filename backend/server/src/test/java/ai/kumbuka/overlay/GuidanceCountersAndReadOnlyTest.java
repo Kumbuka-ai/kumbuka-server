@@ -21,9 +21,9 @@ import static org.hamcrest.Matchers.hasItems;
 @QuarkusTest
 class GuidanceCountersAndReadOnlyTest {
 
-    private static final String KEY_TYPES = "convention.how-to-kumbuka.types";
-    private static final String KEY_WRITING = "convention.how-to-kumbuka.writing";
-    private static final String KEY_READING = "convention.how-to-kumbuka.reading";
+    private static final String KEY_TYPES = "system.how-to-kumbuka.types";
+    private static final String KEY_WRITING = "system.how-to-kumbuka.writing";
+    private static final String KEY_READING = "system.how-to-kumbuka.reading";
 
     @Test
     @TestSecurity(user = "member-reader", roles = {"member"})
