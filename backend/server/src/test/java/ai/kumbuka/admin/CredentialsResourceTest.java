@@ -19,7 +19,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * FEAT-32 — the member-facing /api/credentials surface: type filtering,
+ * the member-facing /api/credentials surface: type filtering,
  * recovery-presence flag, caller-scoping, and ownership + type enforcement on
  * delete. The {@link KeycloakAdminService} wrapper is mocked (mirrors
  * {@link SessionsResourceTest}); real Keycloak interaction is proven by the

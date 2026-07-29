@@ -99,7 +99,7 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     }
 
     /**
-     * dogfood-16: reverse of {@link #archive}. Reversible soft-hide, no delete.
+     * reverse of {@link #archive}. Reversible soft-hide, no delete.
      * Mirrors archive's guards (fixed / non-project rejected). Idempotent — a
      * no-op on an already-active scope.
      */
@@ -116,7 +116,7 @@ public class ScopeRepository implements PanacheRepositoryBase<Scope, UUID> {
     }
 
     /**
-     * FEAT-19 / D-CORE-18: flip the {@code scope.locked} content-lock flag.
+     * flip the {@code scope.locked} content-lock flag.
      * Plain mutation, idempotent (setting the current value is a no-op write).
      * Deliberately carries NO fixed/project restriction — the lock axis is
      * orthogonal to {@code fixed}/{@code archived}, so a fixed scope (e.g. the

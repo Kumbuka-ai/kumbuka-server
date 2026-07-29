@@ -4,13 +4,13 @@ import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 /**
- * Entry lock (ADR-0024 §13), mirrored from the DB CHECK on {@code memory.lock}.
+ * Entry lock, mirrored from the DB CHECK on {@code memory.lock}.
  * Replaces the V12 boolean {@code protected} column:
  * <ul>
- *   <li>{@code SYSTEM} — the D-CORE-11 system-seed lock (the former
+ * <li>{@code SYSTEM} — the system-seed lock (the former
  *       {@code protected = true}). Blocks move / rename / delete across all
  *       surfaces; only the SYSTEM seeder writes it.</li>
- *   <li>{@code ADMIN} — reserved for the D-CORE-13 admin-lock; NOT enforced in
+ * <li>{@code ADMIN} — reserved for the admin-lock; NOT enforced in
  *       CE Step 1 (no write path sets it yet).</li>
  *   <li>{@code NONE} — an ordinary, freely mutable row (the former
  *       {@code protected = false}).</li>

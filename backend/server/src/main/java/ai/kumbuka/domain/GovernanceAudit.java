@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Append-only tenant-side governance audit (D-OPS-16 / D-CORE-9 substrate).
+ * Append-only tenant-side governance audit (substrate).
  * Records shared-governance events under the acting team-admin's KC {@code sub}
  * — distinct from the provider's {@code ops.provider_audit}. Never carries
  * memory content; erasure writes counts only.

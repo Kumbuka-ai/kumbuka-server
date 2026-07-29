@@ -224,7 +224,7 @@
                 pre-built index, the consumer would need an explicit
                 `quarkus.index-dependency.kumbuka-server.*` block to scan
                 this jar. Cheap to generate, and it makes the library
-                self-describing for ArC and Hibernate-ORM. See D-OPS-23.
+                self-describing for ArC and Hibernate-ORM.
             -->
             <plugin>
                 <groupId>io.smallrye</groupId>

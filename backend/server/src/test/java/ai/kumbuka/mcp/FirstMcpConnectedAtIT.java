@@ -15,7 +15,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * FEAT-13 — {@code first_mcp_connected_at} write-once first-connect stamp, proved
+ * {@code first_mcp_connected_at} write-once first-connect stamp, proved
  * through the REAL persistence pipeline: real {@link MemoryTools} + a real
  * {@code user_account} row against the DevServices Postgres with RLS in force.
  * The set-point lives in the {@code mcp} adapter (constraint.protocol-neutrality).

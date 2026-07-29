@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Test-only helper for the FEAT-19 scope-lock integration tests. Seeds scopes
+ * Test-only helper for the scope-lock integration tests. Seeds scopes
  * (open / locked), plants entries, and reads governance-audit rows — all inside
  * the tenant-bound transaction (the {@code app.tenant_id} GUC must be set, which
  * {@code @TenantBound} does), resolving the same default test tenant the tools

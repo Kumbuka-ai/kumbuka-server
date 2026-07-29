@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Behaviour gate for V7 {@code team.alias} (D-OPS-24): shape, uniqueness,
+ * Behaviour gate for V7 {@code team.alias}: shape, uniqueness,
  * and the deliberate carve-outs.
  *
  * <p>The reserved-alias <em>list</em> (console/ops/auth/...) is an

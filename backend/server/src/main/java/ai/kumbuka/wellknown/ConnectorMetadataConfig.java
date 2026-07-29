@@ -12,7 +12,7 @@ import java.util.List;
  *
  * <p>Both values were previously hardcoded in the resource. They are
  * externalised here so the advertised discovery contract can be curated per
- * deployment without a code change. The split was motivated by <b>F-0119</b>:
+ * deployment without a code change. The split was motivated by a strict-client incompatibility:
  * the advertised {@code scopes_supported} set was too narrow and omitted
  * {@code offline_access}, which caused strict MCP clients to abort before the
  * authorization request (see {@link #scopesSupported()}).
@@ -36,7 +36,7 @@ public interface ConnectorMetadataConfig {
      * advertised {@code scopes_supported} aborts <em>before</em> issuing the
      * authorization request — no request ever reaches Keycloak or the resource
      * server, and the client only reports a generic authorization failure.
-     * That is the F-0119 failure.
+     * That is the failure.
      */
     @WithName("scopes-supported")
     @WithDefault("openid,profile,email,offline_access")
@@ -49,7 +49,7 @@ public interface ConnectorMetadataConfig {
      * match the algorithm the authorization server (the Keycloak realm)
      * actually signs its tokens with — currently RS256. Advertising an
      * algorithm the AS does not use lies about the resource server's contract
-     * and breaks strict clients: the same failure class as F-0119, inverted.
+     * and breaks strict clients: the same failure class, inverted.
      * Change this only in lock-step with the realm's token signing algorithm.
      */
     @WithName("resource-signing-alg-values")

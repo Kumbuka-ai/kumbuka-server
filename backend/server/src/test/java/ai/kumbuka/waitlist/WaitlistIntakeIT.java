@@ -22,8 +22,8 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
 
 /**
- * REST-contract gate for {@code POST /api/public/waitlist-intake} (PROV-1a /
- * ADR-0015). Runs against a real Postgres (Quarkus DevServices container) so
+ * REST-contract gate for {@code POST /api/public/waitlist-intake}
+ * Runs against a real Postgres (Quarkus DevServices container) so
  * the partial-unique-index 23505 → 409 path is actually exercised.
  *
  * <h3>Cross-schema test fixture</h3>
@@ -160,7 +160,7 @@ class WaitlistIntakeIT {
     @Test
     void noUtmFields_persistsNulls_backwardsCompat() throws SQLException {
         // Organic, no-UTM traffic: the POST still succeeds and every attribution
-        // column stays NULL (the pre-D-OPS-32 contract must keep working).
+        // column stays NULL (the earlier contract must keep working).
         given()
             .contentType(ContentType.JSON)
             .body("{\"email\":\"organic@acme.io\",\"teamName\":\"Organic\"}")

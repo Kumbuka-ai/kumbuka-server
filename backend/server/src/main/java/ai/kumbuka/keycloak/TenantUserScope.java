@@ -14,14 +14,14 @@ import java.util.List;
  * touching {@code realm().users()} unscoped would expose/allow management of
  * EVERY tenant's users. The SaaS edition supplies an implementation that scopes
  * every user operation to the caller's tenant by <strong>KC-Organization
- * membership</strong> (D-CORE-14) — the same axis the {@code organization} claim
+ * membership</strong> — the same axis the {@code organization} claim
  * is sourced from — closing that cross-tenant gap.
  *
  * <p>This is the user-directory analogue of the data-layer tenant isolation
  * (Hibernate {@code @TenantId} + RLS): the directory lives in Keycloak, outside
  * the database, so it needs its own scoping seam.
  *
- * <p>D-CORE-14 moved tenancy identity from the free {@code tenant_alias} user
+ * <p>Tenancy identity moved from the free {@code tenant_alias} user
  * attribute to KC-Organization membership; this seam moved with it. Membership
  * can only be bound <em>after</em> the user exists (it needs the user id), so the
  * create-time hook is {@link #enrolNewUser} (post-create), not a pre-create stamp.

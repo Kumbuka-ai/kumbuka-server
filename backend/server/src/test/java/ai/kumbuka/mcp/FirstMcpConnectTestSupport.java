@@ -9,7 +9,7 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 
 /**
- * FEAT-13 test helper. Seeds a {@code user_account} row and reads back its
+ * test helper. Seeds a {@code user_account} row and reads back its
  * {@code first_mcp_connected_at} inside a tenant-bound transaction (the row is
  * RLS'd, so the {@code app.tenant_id} GUC must be set — {@code @TenantBound}
  * does that), resolving the same default test tenant the tools resolve.

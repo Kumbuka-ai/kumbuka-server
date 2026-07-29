@@ -11,7 +11,7 @@ import java.security.Principal;
 /**
  * Resolves the Keycloak user-session id ({@code sid}) that backs THIS request.
  *
- * <p>F-0082: {@code identity.getAttribute("sid")} comes back null over the
+ * <p>{@code identity.getAttribute("sid")} comes back null over the
  * bearer-token path, so the current-session marker on {@code /api/sessions} was
  * always false and the account UI offered "terminate" on the caller's own
  * session (a confusing no-op from the console's point of view). The reliable

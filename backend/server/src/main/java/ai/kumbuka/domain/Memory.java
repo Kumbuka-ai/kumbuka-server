@@ -63,7 +63,7 @@ public class Memory extends ContentUnit {
             }
         }
         if (lock == null) lock = MemoryLock.NONE;
-        // A1.3 (1a): is_private is derived from the scope kind, never client-set.
+        // is_private is derived from the scope kind, never client-set.
         isPrivate = scope != null && scope.kind == ScopeKind.PRIVATE;
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
@@ -72,8 +72,8 @@ public class Memory extends ContentUnit {
 
     @PreUpdate
     void onUpdate() {
-        // CE is update-in-place (Amendment 4): an in-place edit stamps updated_at.
-        // Correct UiP behaviour (dogfood-22 resolved by-design). updated_by /
+        // CE is update-in-place: an in-place edit stamps updated_at.
+        // Correct UiP behaviour (resolved by-design). updated_by /
         // updated_source are set explicitly by the write paths (the entity does
         // not know the acting subject/channel).
         updatedAt = Instant.now();

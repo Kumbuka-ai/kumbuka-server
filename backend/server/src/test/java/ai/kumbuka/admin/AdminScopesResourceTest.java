@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  *
  * Locks down:
  *   - listShared() never surfaces PRIVATE entries
- *   - POST honours the team's createScopes policy at runtime (D3): a
+ *   - POST honours the team's createScopes policy at runtime: a
  *     member-rolled caller is rejected when ADMINS-only is configured,
  *     even though @RolesAllowed lets them past the gate
  *   - PATCH + archive reject /api/scopes/private addressing
@@ -282,7 +282,7 @@ class AdminScopesResourceTest {
             .then().statusCode(404);
     }
 
-    // ---------- dogfood-19: scope exceptions → typed 4xx (not 500) -----------
+    // ---------- scope exceptions → typed 4xx (not 500) -----------
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
@@ -334,7 +334,7 @@ class AdminScopesResourceTest {
                 .body("code", equalTo("SCOPE_FIXED"));
     }
 
-    // ---------- dogfood-16: un-archive (admin-only, reversible) -------------
+    // ---------- un-archive (admin-only, reversible) -------------
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})

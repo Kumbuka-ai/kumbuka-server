@@ -36,7 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * D-CORE-2 mute gate on the MCP write tools. A muted member's SHARED writes
+ * mute gate on the MCP write tools. A muted member's SHARED writes
  * (remember/forget on a non-private scope) are rejected before the repository
  * is touched; their PRIVATE scope and an unmuted member are unaffected.
  *
@@ -62,7 +62,7 @@ class MemoryToolsMuteTest {
         // the policy is not the gate, but the call must not NPE.
         lenient().when(policyResolver.resolve()).thenReturn(
             new Resolved(WritePolicy.PROJECT, WritePolicy.PROJECT, DefaultScopeStatus.OK, "alpha"));
-        // FEAT-19: the unmuted/private write paths now resolve the scope for the
+        // the unmuted/private write paths now resolve the scope for the
         // scope-lock pre-check — default every slug to an open (unlocked) scope.
         // The muted-shared paths reject at the mute gate before this is reached.
         lenient().when(scopes.requireBySlug(anyString())).thenAnswer(i -> {

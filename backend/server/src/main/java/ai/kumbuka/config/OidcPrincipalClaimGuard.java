@@ -9,10 +9,10 @@ import org.eclipse.microprofile.config.Config;
 import java.util.List;
 
 /**
- * Fail-loud startup guard for the D-CORE-12 authorship pin, across every named
+ * Fail-loud startup guard for the authorship pin, across every named
  * OIDC tenant that derives an authorship/actor identity.
  *
- * <p>The defect it blocks (finding-dcore12-principal-claim-path-2026-06-15):
+ * <p>The defect it blocks:
  * the key {@code quarkus.oidc.<tenant>.principal-claim} (without the
  * {@code token.} segment) does not exist for a named OIDC tenant in Quarkus
  * 3.33.2. Quarkus ignores it silently and the tenant falls through its default
@@ -26,7 +26,7 @@ import java.util.List;
  *   <li>{@code mcp} — the bearer/MCP write path (fixed 16.A).</li>
  *   <li>{@code admin} — the console/BFF write path; console-authored entries
  *       stamp {@code owner_subject} from this principal, and the sub-keyed
- *       erasure (D-CORE-12 strict equality) only matches when it is the sub.</li>
+ * erasure (strict equality) only matches when it is the sub.</li>
  * </ul>
  *
  * <p>This guard makes a future regression structural rather than silent: if a
@@ -34,7 +34,7 @@ import java.util.List;
  * kumbuka-server and therefore protects both the OSS standalone and the SaaS
  * runtime (which augments these beans).
  *
- * <p>It also carries a second, mcp-specific boot invariant (ADR-0032 § 3):
+ * <p>It also carries a second, mcp-specific boot invariant:
  * when the {@code mcp} tenant is enabled, the {@code /mcp} bearer path must
  * validate the token audience against exactly {@code kumbuka-connector} — the
  * single generic connector client that the endpoint collapse left. A wider or
@@ -57,7 +57,7 @@ public class OidcPrincipalClaimGuard {
     private static final String PREFIX = "quarkus.oidc.";
     static final String EXPECTED = "sub";
 
-    /** The single generic connector client the {@code /mcp} audience must equal (ADR-0032 § 3). */
+    /** The single generic connector client the {@code /mcp} audience must equal. */
     static final String MCP_TENANT = "mcp";
     static final String MCP_AUDIENCE_KEY = PREFIX + MCP_TENANT + ".token.audience";
     static final String EXPECTED_AUDIENCE = "kumbuka-connector";
@@ -93,21 +93,21 @@ public class OidcPrincipalClaimGuard {
             throw new IllegalStateException(
                 "Mis-pathed OIDC config: '" + legacyKey + "' is set but Quarkus ignores it for a "
                 + "named tenant (principal-claim lives under 'token.'). Use '" + correctKey + "=" + EXPECTED
-                + "'. See D-CORE-12 / finding-dcore12-principal-claim-path.");
+                + "'.");
         }
 
         // Positive assertion: the pin must actually be effective.
         String actual = config.getOptionalValue(correctKey, String.class).orElse(null);
         if (!EXPECTED.equals(actual)) {
             throw new IllegalStateException(
-                "D-CORE-12 invariant violated: '" + correctKey + "' must be '" + EXPECTED + "' "
+                "principal-claim invariant violated: '" + correctKey + "' must be '" + EXPECTED + "' "
                 + "(authorship = Keycloak sub per ADR-0008), but was '" + actual + "'. Without it the '"
                 + tenant + "' tenant stamps preferred_username (email) into owner_subject.");
         }
     }
 
     /**
-     * ADR-0032 § 3 (audience collapse): when the {@code mcp} tenant is enabled,
+     * Audience collapse: when the {@code mcp} tenant is enabled,
      * the {@code /mcp} bearer path must validate the token audience against
      * exactly {@code kumbuka-connector} — the single generic connector client.
      * A wider value ({@code any}), an empty/absent audience, or a multi-value
@@ -128,7 +128,7 @@ public class OidcPrincipalClaimGuard {
         String actual = config.getOptionalValue(MCP_AUDIENCE_KEY, String.class).orElse(null);
         if (!EXPECTED_AUDIENCE.equals(actual)) {
             throw new IllegalStateException(
-                "ADR-0032 § 3 invariant violated: '" + MCP_AUDIENCE_KEY + "' must be '"
+                "MCP-audience invariant violated: '" + MCP_AUDIENCE_KEY + "' must be '"
                 + EXPECTED_AUDIENCE + "' (the single generic connector client), but was '" + actual
                 + "'. A wider or absent audience (e.g. 'any') lets a token minted for another client "
                 + "be replayed against /mcp — token-confusion.");

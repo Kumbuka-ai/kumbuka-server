@@ -111,7 +111,7 @@ public_healthcheck() {
 }
 
 # org_mapper_check — assert the kumbuka-admin client still emits the
-# `organization` claim. Since D-CORE-14 the claim is sourced from KC-Organization
+# `organization` claim is sourced from KC-Organization
 # MEMBERSHIP (not the former `tenant_alias` user attribute): the built-in
 # `organization` client scope carries the `oidc-organization-membership-mapper`
 # (multivalued), and that scope is a DEFAULT scope on kumbuka-admin so the claim
@@ -139,7 +139,7 @@ org_mapper_check() {
     "$base/admin/realms/$realm/clients/$cid/default-client-scopes" 2>/dev/null \
     | jq -r '.[] | select(.name=="organization") | .id' | head -n1)" || true
   if [[ -z "$sid" ]]; then
-    log "org_mapper_check FAILED -- 'organization' is not a DEFAULT client scope on kumbuka-admin; the membership-sourced 'organization' claim would not flow and tenant resolution would break (TOKEN_ORG_MISSING). See D-CORE-14."
+    log "org_mapper_check FAILED -- 'organization' is not a DEFAULT client scope on kumbuka-admin; the membership-sourced 'organization' claim would not flow and tenant resolution would break (TOKEN_ORG_MISSING)."
     return 1
   fi
   # 2) that scope must carry the multivalued organization-membership mapper
@@ -151,12 +151,12 @@ org_mapper_check() {
     log "org_mapper_check OK -- kumbuka-admin emits 'organization' (default scope, from KC-Organization membership)"
     return 0
   fi
-  log "org_mapper_check FAILED -- the 'organization' scope on kumbuka-admin is MISSING a multivalued oidc-organization-membership-mapper; tenant resolution would break (TOKEN_ORG_MISSING). See D-CORE-14 / realm template kumbuka-realm.json.tmpl."
+  log "org_mapper_check FAILED -- the 'organization' scope on kumbuka-admin is MISSING a multivalued oidc-organization-membership-mapper; tenant resolution would break (TOKEN_ORG_MISSING). See the realm template kumbuka-realm.json.tmpl."
   return 1
 }
 
 # oidc_issuer_check — assert the backend is validating tokens against the
-# same issuer Keycloak is now minting (E2E-10). The realm's `frontendUrl`
+# same issuer Keycloak is now minting. The realm's `frontendUrl`
 # attribute (or any change to KC_HOSTNAME) flips the `iss` claim, but the
 # backend cached the previous discovery at startup → silently rejects
 # every fresh token until restart. Mint a fresh client_credentials token,

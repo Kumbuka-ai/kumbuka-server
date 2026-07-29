@@ -18,7 +18,7 @@ import static org.mockito.Mockito.when;
  * listing returns the whole realm, there is no visibility guard, and there is
  * no tenant enrolment. These pin that contract so the OSS edition can never
  * silently turn into a partial tenant filter (the SaaS edition supplies its
- * own membership-scoped implementation — D-CORE-14).
+ * own membership-scoped implementation).
  */
 class DefaultTenantUserScopeTest {
 

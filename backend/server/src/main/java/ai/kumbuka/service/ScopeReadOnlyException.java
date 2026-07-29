@@ -1,7 +1,7 @@
 package ai.kumbuka.service;
 
 /**
- * FEAT-19 / D-CORE-18: a mutating operation was rejected because its target
+ * a mutating operation was rejected because its target
  * scope carries the {@code scope.locked} content-lock flag (read-only).
  *
  * <p>Thrown by {@link MemberWritePolicy#assertScopeWritable} as a pre-check,
@@ -9,8 +9,8 @@ package ai.kumbuka.service;
  * {@link ai.kumbuka.repo.ScopeRepository.ScopeFixedException} (the
  * {@code scope.fixed} existence/identity axis) and from
  * {@link ai.kumbuka.repo.ProtectedEntryException} (the per-entry
- * {@code memory.lock} axis, D-CORE-11) — the three axes are orthogonal and
- * compose freely (D-CORE-18).
+ * {@code memory.lock} axis) — the three axes are orthogonal and
+ * compose freely.
  *
  * <p>Surface mapping:
  * <ul>
@@ -21,7 +21,7 @@ package ai.kumbuka.service;
  * </ul>
  *
  * <p>The HTTP code uses the ratified UI vocabulary "read-only"; the DB column
- * stays named {@code locked} (D-CORE-18 / handover §2).
+ * stays named {@code locked}.
  */
 public class ScopeReadOnlyException extends RuntimeException {
 

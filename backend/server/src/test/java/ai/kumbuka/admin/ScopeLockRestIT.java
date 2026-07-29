@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
- * FEAT-19 / D-CORE-18 — the console (admin REST) surface of scope-lock,
+ * the console (admin REST) surface of scope-lock,
  * end-to-end through a real HTTP dispatch so {@code @RolesAllowed} role gating,
  * the typed error bodies, the admin override path, and the governance-audit
  * events are all exercised the way the team console drives them. The MCP-wire

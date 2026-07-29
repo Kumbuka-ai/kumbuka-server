@@ -32,7 +32,7 @@ import java.util.UUID;
 
 /**
  * MCP tool surface. The six tools (the five spec-mandated ones plus
- * {@code memory_update}, D-CORE-21), each identity-aware: the acting subject
+ * {@code memory_update}), each identity-aware: the acting subject
  * comes from {@link SecurityIdentity} (Keycloak
  * {@code sub} claim from the bearer token validated by the `mcp` OIDC
  * tenant) and is never accepted as a tool argument.
@@ -71,7 +71,7 @@ public class MemoryTools {
     }
 
     /**
-     * FEAT-13 set-point. constraint.protocol-neutrality: the funnel field is
+     * set-point. constraint.protocol-neutrality: the funnel field is
      * stamped HERE — in the {@code mcp} adapter, where the authenticated request
      * actually lands — never in the domain/service/repo. Called once at the head
      * of every MCP tool, so any authenticated tool call counts as the member's
@@ -135,15 +135,15 @@ public class MemoryTools {
             String type,
         @ToolArg(description = "Scope slug. When omitted, follows the team's writePolicy.", required = false)
             String scope,
-        @ToolArg(description = "Optional upsert key. Format: lowercase a-z + 0-9 with optional dot or hyphen separators (e.g. decision.d-ops-26). No underscores, no uppercase, no slashes — enforced server-side per E2E-06.", required = false)
+        @ToolArg(description = "Optional upsert key. Format: lowercase a-z + 0-9 with optional dot or hyphen separators (e.g. decision.d-ops-26). No underscores, no uppercase, no slashes — enforced server-side.", required = false)
             String key,
         @ToolArg(description = "Optional external provenance URL (http/https). Stored as metadata; never auto-fetched. Credential-bearing URLs are rejected.", required = false)
             String reference
     ) {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         // All client-input validation runs through checkInput so a rejection
         // surfaces as a clean MCP tool error (isError + reason), never a bare
-        // -32603. Covers: type enum, content ≤1500 (F-1), key format (E2E-06),
+        // -32603. Covers: type enum, content ≤1500, key format,
         // reference URL.
         MemoryType t = checkInput(() -> {
             MemoryType parsed = MemoryType.fromDb(type);
@@ -156,9 +156,9 @@ public class MemoryTools {
         String scopeSlug = scope;
         if (scopeSlug == null) {
             // No explicit scope: consult writePolicy. Private is never the default
-            // (D3 + handoff §F-2) — caller must opt in by passing 'private'.
+            // caller must opt in by passing 'private'.
             // The policy DTO is decision-bearing only on the prompt-for-scope return
-            // (dogfood-11); on every successful write the real scope is in MemoryDto,
+            // ; on every successful write the real scope is in MemoryDto,
             // so resolve + attach the policy only here, never on explicit-scope writes.
             Resolved policy = policyResolver.resolve();
             switch (policy.effective()) {
@@ -176,7 +176,7 @@ public class MemoryTools {
             }
         }
 
-        // D-CORE-2: a muted member keeps their private scope but loses shared
+        // a muted member keeps their private scope but loses shared
         // writes. There is exactly one private scope per tenant, reserved slug
         // "private" (V1, unique index) — any other slug is shared.
         if (!PRIVATE_SCOPE_SLUG.equals(scopeSlug)) {
@@ -186,7 +186,7 @@ public class MemoryTools {
         // Tenant isolation is enforced by Hibernate's @TenantId discriminator on
         // every query — never bind tenant_id by hand here. This `existed` probe
         // MUST mirror MemoryRepository.remember's scope-kind-differentiated
-        // upsert lookup (A1.3 (1)) or the DTO would report existed=false for a
+        // upsert lookup or the DTO would report existed=false for a
         // shared-key write the repo then upserts: SHARED is author-independent
         // (scope, key); PRIVATE is per-author (scope, owner, key). Private is the
         // reserved slug "private" (V1, unique index) — any other slug is shared.
@@ -205,7 +205,7 @@ public class MemoryTools {
 
         final Memory m;
         try {
-            // FEAT-19 / D-CORE-18: a content-locked scope rejects EVERY MCP write,
+            // a content-locked scope rejects EVERY MCP write,
             // including from admins — the MCP wire is never an override surface.
             // Pre-check before the upsert; mirrors the ProtectedEntry typed-error
             // surfacing below. requireBySlug fires first, so an unknown scope still
@@ -214,7 +214,7 @@ public class MemoryTools {
             writePolicy.assertScopeWritable(sc, SourceChannel.MCP, false);
             m = memories.remember(callerSubject(), scopeSlug, t, key, content, SourceChannel.MCP);
         } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
-            // FEAT-19: typed structured tool error, parallel to ProtectedError.
+            // typed structured tool error, parallel to ProtectedError.
             return new Dtos.RememberResult(null, false, null, null,
                 new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
@@ -225,19 +225,19 @@ public class MemoryTools {
             return new Dtos.RememberResult(null, false, null, null,
                 new Dtos.ProtectedError(PROTECTED_CODE_PREFIX + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
-            // dogfood-14: an unknown or RLS-invisible scope slug surfaces as a typed
+            // an unknown or RLS-invisible scope slug surfaces as a typed
             // tool error (isError + reason), not a bare -32603 — the same MCP
             // boundary typing as the #60 content-length fix. requireBySlug fires
             // before any insert, so no ghost scope/entry is created. Scopes are
-            // never auto-created here (D-CORE-14: provisioning/KC-Org only).
+            // never auto-created here (provisioning/KC-Org only).
             throw new ToolCallException("scope '" + scopeSlug + "' does not exist or is not visible");
         } catch (ai.kumbuka.repo.MemoryRepository.StaleVersionException sve) {
-            // §A1.6 optimistic lock: a concurrent edit advanced the version under
+            // optimistic lock: a concurrent edit advanced the version under
             // this stale write — surface a typed tool error (isError + reason),
             // not a bare -32603. The client should reload and retry.
             throw new ToolCallException(sve.getMessage());
         }
-        // D-CORE-7: attach the provenance URL on a freshly-written row only — an
+        // attach the provenance URL on a freshly-written row only — an
         // upsert preserves the row's original reference. Validated above; blank = none.
         if (!existed && reference != null && !reference.isBlank()) {
             m.reference = reference;
@@ -290,7 +290,7 @@ public class MemoryTools {
         @ToolArg(description = "New external provenance URL (http/https); pass an empty string to clear it. Omit to leave unchanged.", required = false)
             String reference
     ) {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
         MemoryType t = parseRevisionType(type, content, reference);
         boolean referenceProvided = reference != null;
@@ -311,7 +311,7 @@ public class MemoryTools {
         return checkInput(() -> {
             MemoryType parsed = (type == null || type.isBlank()) ? null : MemoryType.fromDb(type);
             if (content != null) {
-                MemoryContentValidator.validate(content);   // F-1: ≤1500
+                MemoryContentValidator.validate(content);   // ≤1500
             }
             if (reference != null && !reference.isBlank()) {
                 ReferenceUrlValidator.validate(reference);
@@ -400,7 +400,7 @@ public class MemoryTools {
         @ToolArg(description = "Substring match (case-insensitive) on content.", required = false) String query,
         @ToolArg(description = "When a scope is given, also include the global scope. Default false.", required = false) Boolean include_global
     ) {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         MemoryType t = checkInput(() -> type == null ? null : MemoryType.fromDb(type));
         boolean inclGlobal = include_global != null && include_global;
         List<Memory> rows = memories.recall(callerSubject(), scope, t, query, inclGlobal);
@@ -418,22 +418,22 @@ public class MemoryTools {
         @ToolArg(description = "Memory id (UUID).", required = false) String id,
         @ToolArg(description = "Upsert key, if the entry was written with one.", required = false) String key
     ) {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         UUID uuid = checkInput(() -> (id == null || id.isBlank()) ? null : UUID.fromString(id));
-        // D-CORE-2: shared forget is a write — suspended for muted members; a
+        // shared forget is a write — suspended for muted members; a
         // muted member can still forget in their own private scope (slug "private").
         if (!PRIVATE_SCOPE_SLUG.equals(scope)) {
             writePolicy.assertCanWriteShared(callerSubject());
         }
         final int n;
         try {
-            // FEAT-19 / D-CORE-18: delete (move-out) is a mutation — a content-locked
+            // delete (move-out) is a mutation — a content-locked
             // scope rejects it on the MCP wire for everyone, admins included.
             Scope sc = scopes.requireBySlug(scope);
             writePolicy.assertScopeWritable(sc, SourceChannel.MCP, false);
             n = memories.forget(callerSubject(), scope, uuid, key);
         } catch (ai.kumbuka.service.ScopeReadOnlyException sro) {
-            // FEAT-19: typed structured tool error, parallel to ProtectedError.
+            // typed structured tool error, parallel to ProtectedError.
             return new Dtos.ForgetResult(0,
                 new Dtos.ProtectedError(SCOPE_READ_ONLY, key, sro.getMessage()));
         } catch (ai.kumbuka.repo.ProtectedEntryException pex) {
@@ -445,7 +445,7 @@ public class MemoryTools {
             return new Dtos.ForgetResult(0,
                 new Dtos.ProtectedError(PROTECTED_CODE_PREFIX + pex.reason().name(), pex.key(), pex.getMessage()));
         } catch (ai.kumbuka.repo.ScopeRepository.ScopeNotFoundException snf) {
-            // dogfood-14: unknown/invisible scope → typed tool error, not -32603.
+            // unknown/invisible scope → typed tool error, not -32603.
             throw new ToolCallException("scope '" + scope + "' does not exist or is not visible");
         }
         return new Dtos.ForgetResult(n);
@@ -457,7 +457,7 @@ public class MemoryTools {
         "List scopes visible to the caller: their own private scope plus every shared "
       + "(project + global) scope on this team.")
     public Dtos.ScopesResult memory_scopes() {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         List<Scope> all = scopes.listAll();
         return new Dtos.ScopesResult(all.stream().map(Dtos.ScopeDto::from).toList());
     }
@@ -477,13 +477,13 @@ public class MemoryTools {
         @ToolArg(description = "Optional scope slug. Omit to digest private + global only; pass a project slug to digest that project.", required = false) String scope,
         @ToolArg(description = "Optional comma-separated memory types to include (decision, constraint, convention, glossary, open_question, status). Omit for the steering-types default (which excludes open_question).", required = false) String types
     ) {
-        recordFirstMcpConnection();   // FEAT-13: write-once first-connect stamp
+        recordFirstMcpConnection();   // write-once first-connect stamp
         java.util.Set<MemoryType> wanted = checkInput(() -> parseTypes(types));
         Map<MemoryType, List<Memory>> grouped = memories.loadContext(callerSubject(), scope, wanted);
         Map<String, List<Dtos.MemoryDto>> byType = new java.util.LinkedHashMap<>();
         int total = 0;
         // Deterministic ordering; only the types actually digested are emitted as keys
-        // (so the steering default carries no empty open_question bucket — D-CORE-6).
+        // (so the steering default carries no empty open_question bucket).
         for (MemoryType t : new MemoryType[]{
                 MemoryType.DECISION,
                 MemoryType.CONSTRAINT,
@@ -494,7 +494,7 @@ public class MemoryTools {
             if (!grouped.containsKey(t)) {
                 continue;
             }
-            // forDigest omits the reference URL — the digest stays lean (D-CORE-7).
+            // forDigest omits the reference URL — the digest stays lean.
             List<Dtos.MemoryDto> dtos = grouped.get(t).stream().map(Dtos.MemoryDto::forDigest).toList();
             byType.put(t.dbValue(), dtos);
             total += dtos.size();
@@ -504,7 +504,7 @@ public class MemoryTools {
 
     /**
      * Parse the optional comma-separated {@code types} arg into a type set; null/blank →
-     * null, which the repository reads as the steering-types default (D-CORE-6). An
+     * null, which the repository reads as the steering-types default. An
      * unknown type name raises a clear error back to the caller.
      */
     private static java.util.Set<MemoryType> parseTypes(String types) {

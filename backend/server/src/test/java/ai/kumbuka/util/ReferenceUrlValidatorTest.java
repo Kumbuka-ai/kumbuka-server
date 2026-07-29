@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Branch-complete test for the D-CORE-7 reference-URL guard. The URL is stored
+ * Branch-complete test for the reference-URL guard. The URL is stored
  * as metadata and never fetched, so the contract is narrow: optional, absolute
  * http(s), no embedded credentials, bounded length.
  *

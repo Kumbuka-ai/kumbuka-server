@@ -44,7 +44,7 @@ import java.util.UUID;
  *
  * <p>Tenant-teardown and member-erasure delete AROUND these seams (their own
  * {@code Memory.deleteAll} / {@code Memory.delete} bulk statements), so this guard
- * never fires in a purge or an erasure — the ADR-0024 Amendment 5
+ * never fires in a purge or an erasure — the
  * unlock-then-delete exemption for a dying tenant is preserved by construction.
  */
 final class ReservedNamespaceGuard {

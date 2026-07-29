@@ -2,7 +2,7 @@ package ai.kumbuka.domain;
 
 /**
  * The server-derived identity used to author protected system-seed mnemonics
- * (D-CORE-11). Never a real principal — the underscores make it visibly
+ * Never a real principal — the underscores make it visibly
  * non-human (mirrors {@code __former-member__} for erasure-tombstoned rows).
  *
  * <p>Used exclusively by the provisioning seeder reachable through

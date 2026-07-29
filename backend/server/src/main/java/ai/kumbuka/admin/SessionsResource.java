@@ -20,7 +20,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.List;
 
 /**
- * Member session self-management (D-CORE-8). A member sees and terminates
+ * Member session self-management. A member sees and terminates
  * their OWN active connections to Kumbuka — the browser console session and
  * any connector (MCP) sessions — labelled by OAuth client.
  *
@@ -32,7 +32,7 @@ import java.util.List;
  * for an unknown/foreign id so it never leaks whether a session exists.
  *
  * <p>The current session is marked from the access token's {@code sid} claim
- * ({@link CurrentSessionId} — F-0082: the identity attribute is null over the
+ * ({@link CurrentSessionId} — the identity attribute is null over the
  * bearer path). The UI hides "terminate" on the current row and offers
  * "sign out all other sessions" instead ({@link #logoutOthers()}).
  *
@@ -52,7 +52,7 @@ public class SessionsResource {
     @Authenticated
     public List<ActiveSessionView> list() {
         String subject = identity.getPrincipal().getName();
-        String currentSid = currentSession.get(); // sid claim, F-0082
+        String currentSid = currentSession.get(); // sid claim
         return keycloak.listUserSessions(subject).stream()
             .map(s -> new ActiveSessionView(
                 s.id(), s.ipAddress(), s.start(), s.lastAccess(),
@@ -81,7 +81,7 @@ public class SessionsResource {
      * identified (no {@code sid}, or it does not match any listed session) —
      * we never silently fall back to "log out everything including me", which
      * would sign the operator out of the very console they clicked from and
-     * defeat the "keep this device" intent (F-0082).
+     * defeat the "keep this device" intent.
      */
     @POST
     @Path("/logout-others")

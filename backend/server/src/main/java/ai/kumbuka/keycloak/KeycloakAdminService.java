@@ -115,7 +115,7 @@ public class KeycloakAdminService {
         }
 
         // Bind the new user to the caller's tenant. In SaaS this adds
-        // KC-Organization membership per D-CORE-14, the source of the
+        // KC-Organization membership, the source of the
         // organization claim — without it the invited member has no tenant
         // binding and the SaaS resolver rejects the session as
         // TOKEN_ORG_MISSING. In OSS it is a no-op. Membership needs the user
@@ -203,7 +203,7 @@ public class KeycloakAdminService {
         sendPasswordSetupEmail(user);
     }
 
-    // ---- Member session self-management (D-CORE-8) ------------------------
+    // ---- Member session self-management ------------------------
 
     public record KeycloakSession(
         String id,
@@ -238,7 +238,7 @@ public class KeycloakAdminService {
         realm().deleteSession(sessionId, false);
     }
 
-    // ---- Member credential self-management (FEAT-32) ----------------------
+    // ---- Member credential self-management ----------------------
 
     /**
      * One of a user's Keycloak credentials, reduced to the display-safe fields.

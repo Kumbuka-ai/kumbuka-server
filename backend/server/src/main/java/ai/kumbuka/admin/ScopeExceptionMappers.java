@@ -13,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * dogfood-19: map scope-lifecycle exceptions to typed HTTP 4xx with the
+ * map scope-lifecycle exceptions to typed HTTP 4xx with the
  * {@code {code,message}} body the team console's {@code mapApiError} already
  * consumes — so a duplicate / unknown / locked scope surfaces as a clean error
  * instead of a bare 500 (which the console redacts into a Server-Components
@@ -61,11 +61,11 @@ class ScopeFixedExceptionMapper implements ExceptionMapper<ScopeFixedException> 
 }
 
 /**
- * FEAT-19 / D-CORE-18: a member's mutation on a content-locked
+ * a member's mutation on a content-locked
  * ({@code scope.locked}) scope. 409 with the {@code SCOPE_READ_ONLY} code the
  * console's {@code mapApiError} consumes. Distinct from {@code SCOPE_FIXED}
  * (the existence/identity axis) — the retired fixed-scope code is never recycled
- * for the content-lock rejection (D-CORE-18).
+ * for the content-lock rejection.
  */
 @Provider
 class ScopeReadOnlyExceptionMapper implements ExceptionMapper<ScopeReadOnlyException> {

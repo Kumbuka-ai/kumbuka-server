@@ -430,7 +430,7 @@ class KeycloakAdminServiceTest {
         assertThat(KeycloakAdminService.mask("sk_live_abcdef12")).isEqualTo("••••••••••••ef12");
     }
 
-    // ---------- sessions (D-CORE-8) ------------------------------------------
+    // ---------- sessions ------------------------------------------
 
     @Test
     void listUserSessions_mapsFields_dedupesAndSortsClients() {
