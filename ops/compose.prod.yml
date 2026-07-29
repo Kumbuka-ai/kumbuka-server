@@ -69,7 +69,7 @@ services:
   kumbuka-keycloak:
     # Theme + both realms are now baked into this image and rendered at boot
     # from the source of truth in github.com/kumbuka-ai/kumbuka-keycloak
-    # (D-OPS-29). Versioned independently of KUMBUKA_VERSION via KEYCLOAK_VERSION.
+    # Versioned independently of KUMBUKA_VERSION via KEYCLOAK_VERSION.
     image: ghcr.io/kumbuka-ai/kumbuka-keycloak:${KEYCLOAK_VERSION}
     restart: unless-stopped
     environment:

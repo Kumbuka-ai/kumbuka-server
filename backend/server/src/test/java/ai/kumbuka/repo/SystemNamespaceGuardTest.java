@@ -247,7 +247,7 @@ class SystemNamespaceGuardTest {
             .as("a missing ordinary key stays 0, no error").isZero();
     }
 
-    // Teardown/erasure control (ADR-0024 Amendment 5): the guard sits on the
+    // Teardown/erasure control: the guard sits on the
     // caller-facing seams, never on the teardown/erasure path. TenantDataPurge and
     // MemberErasure delete with Memory.delete/deleteAll — the bulk primitive
     // exercised here — which does not funnel through the guard, so a reserved-key

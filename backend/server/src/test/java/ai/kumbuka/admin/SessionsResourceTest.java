@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 import io.quarkus.test.InjectMock;
 
 /**
- * D-CORE-8 — the member-facing /api/sessions surface: routing, auth gate,
+ * the member-facing /api/sessions surface: routing, auth gate,
  * caller-scoping, and ownership enforcement on terminate. Real Keycloak
  * interaction is exercised via Testcontainers elsewhere; here the
  * {@link KeycloakAdminService} wrapper is mocked.
@@ -102,7 +102,7 @@ class SessionsResourceTest {
         given().when().delete("/api/sessions/s1").then().statusCode(401);
     }
 
-    // ---- current-session detection + logout-others (F-0082) ----------------
+    // ---- current-session detection + logout-others ----------------
 
     @Test
     @TestSecurity(user = "member-sub", roles = {"member"})

@@ -22,7 +22,7 @@ import java.util.Map;
  * spec requires the resource server to advertise the authorisation servers
  * that issue tokens it accepts, plus how those tokens are presented.
  *
- * <h2>Per-tenant resource URL (D-OPS-25)</h2>
+ * <h2>Per-tenant resource URL</h2>
  * Under the SaaS profile the MCP surface is reached at
  * {@code https://<alias>.kumbuka.ai/mcp}, and the connector's
  * {@code resource} parameter (RFC 8707) must match the host the client
@@ -38,7 +38,7 @@ import java.util.Map;
  *
  * <p>The authorisation server is always the central realm
  * ({@code auth.kumbuka.ai}); tenants share one Keycloak realm with
- * Organizations as the tenant axis (D-OPS-24).
+ * Organizations as the tenant axis.
  *
  * <p>Public — no auth, no cookies. Cache-friendly.
  */
@@ -52,7 +52,7 @@ public class ProtectedResourceMetadataResource {
      * Externalised metadata values — advertised scopes and token signing
      * algorithms. See {@link ConnectorMetadataConfig} for the curation
      * constraints (scopes_supported MUST include {@code offline_access}
-     * — F-0119; the signing-alg list MUST match the AS signing algorithm).
+     * — the signing-alg list MUST match the AS signing algorithm).
      */
     @Inject ConnectorMetadataConfig connectorMetadata;
 
@@ -80,13 +80,13 @@ public class ProtectedResourceMetadataResource {
             // the authorization server (Keycloak realm) actually signs tokens
             // with — currently RS256. It is config-driven but NOT a free tuning
             // knob: a value that diverges from the AS lies about this resource
-            // server's contract and breaks strict clients (F-0119 failure
+            // server's contract and breaks strict clients (failure
             // class, inverted). See ConnectorMetadataConfig#resourceSigningAlgValues().
             Map.entry("resource_signing_alg_values_supported", connectorMetadata.resourceSigningAlgValues()),
             // scopes_supported is a deliberately narrow curation and MUST
             // include offline_access — a strict MCP client aborts before the
             // authorization request when a requested scope is absent here
-            // (F-0119). See ConnectorMetadataConfig#scopesSupported().
+            // See ConnectorMetadataConfig#scopesSupported().
             Map.entry("scopes_supported", connectorMetadata.scopesSupported()),
             // Helpful breadcrumb for the connector card / inspector.
             Map.entry("resource_documentation", docsBase + "/docs/connector"),

@@ -60,7 +60,7 @@ public class AdminUsersResource {
         String lastName,
         String role,
         String status,
-        boolean muted   // D-CORE-2
+        boolean muted   // per-member mute
     ) {
         public static UserView from(KeycloakUser u, boolean muted) {
             return new UserView(u.id(), u.email(), u.firstName(), u.lastName(), u.role(), u.status(), muted);
@@ -171,12 +171,12 @@ public class AdminUsersResource {
             keycloak.updateEnabled(id, req.enabled());
         }
         KeycloakUser ku = keycloak.findById(id);
-        boolean muted = applyMute(id, req.muted(), ku);   // D-CORE-2
+        boolean muted = applyMute(id, req.muted(), ku);   // per-member mute
         return UserView.from(ku, muted);
     }
 
     /**
-     * D-CORE-2: set/clear the mute flag on the member's {@link UserAccount},
+     * set/clear the mute flag on the member's {@link UserAccount},
      * lazily creating the row (it mirrors Keycloak and isn't pre-synced). The
      * Keycloak `sub` IS the user id, so it keys the row directly. Returns the
      * effective muted state (current value when {@code muted} is null).
@@ -198,7 +198,7 @@ public class AdminUsersResource {
         return muted;
     }
 
-    // ---------- member erasure (D-OPS-16 rev., team-admin primary path) -------
+    // ---------- member erasure (rev., team-admin primary path) -------
 
     /**
      * Permanently erase a member (GDPR Art. 17): purge their private memory,
@@ -229,7 +229,7 @@ public class AdminUsersResource {
         }
 
         // Content purge first (the lawful basis). The engine is idempotent and
-        // strict-equality-matches on the KC sub (D-CORE-12).
+        // strict-equality-matches on the KC sub.
         final MemberErasureService.EraseResult purged = erasure.eraseSubject(id);
 
         // Keycloak delete is best-effort: if it fails the content is already

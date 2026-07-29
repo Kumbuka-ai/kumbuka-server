@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Branch-complete test for the F-1 content-length guard (≤ 1500 chars),
+ * Branch-complete test for the content-length guard (≤ 1500 chars),
  * enforced server-side on both write surfaces (MCP + admin REST).
  *
  * <p>{@code @QuarkusTest} is deliberate: quarkus-jacoco only records hits on

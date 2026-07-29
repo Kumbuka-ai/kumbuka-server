@@ -113,7 +113,7 @@ class SessionResourceTest {
 
     @Test
     void displayNameFallback_prefersAccountThenNameThenPreferredUsernameThenEmail() {
-        // The displayName precedence (D-CORE-12: a human label, never the sub).
+        // The displayName precedence (a human label, never the sub).
         // @TestSecurity can't inject OIDC claims, so the ordering is pinned
         // directly on the resolver the resource uses.
         assertThat(SessionResource.firstNonBlank("Account Name", "Name Claim", "puser", "e@x"))
@@ -247,7 +247,7 @@ class SessionResourceTest {
             .then().statusCode(400);
     }
 
-    // --- D-CORE-10.1: onboarding-wizard state (V15, finding dogfood-15a) -------
+    // --- onboarding-wizard state (V15) -------
 
     @Test
     @TestSecurity(user = "sub-onb-default", roles = {"member"})

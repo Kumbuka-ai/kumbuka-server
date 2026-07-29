@@ -5,7 +5,7 @@ import java.net.URISyntaxException;
 import java.util.regex.Pattern;
 
 /**
- * Validates the optional {@code reference} provenance URL (D-CORE-7). The URL is
+ * Validates the optional {@code reference} provenance URL. The URL is
  * stored as metadata and never fetched, so the only risks are storing a secret
  * or a non-http pointer. Rules:
  * <ul>

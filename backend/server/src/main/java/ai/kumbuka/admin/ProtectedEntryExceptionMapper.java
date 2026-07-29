@@ -10,7 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Translate {@link ProtectedEntryException} (D-CORE-11) into a clean
+ * Translate {@link ProtectedEntryException} into a clean
  * HTTP 409 with a typed error body for admin REST callers — so a console
  * write or delete that hits a protected system-seed row surfaces as a
  * structured error instead of a 500.

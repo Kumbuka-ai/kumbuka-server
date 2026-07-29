@@ -295,7 +295,7 @@ class AdminUsersResourceTest {
         verify(keycloak, org.mockito.Mockito.never()).updateEnabled(any(), org.mockito.Mockito.anyBoolean());
     }
 
-    // ---------- mute (D-CORE-2) ----------------------------------------------
+    // ---------- mute ----------------------------------------------
 
     @Test
     @TestSecurity(user = "admin-sub", roles = {"admin"})
@@ -338,7 +338,7 @@ class AdminUsersResourceTest {
             .then().statusCode(403);
     }
 
-    // ---------- erasure (D-OPS-16 rev., team-admin primary path) --------------
+    // ---------- erasure (rev., team-admin primary path) --------------
 
     @Test
     @TestSecurity(user = "admin-sub", roles = {"admin"})

@@ -13,7 +13,7 @@ import java.util.UUID;
  *
  * Note: the write-scope policy + create-scopes policy used to live here in
  * Phase 0–3. They moved to the {@code team_settings} table in Phase 5; the
- * admin UI manages them at runtime (handoff §D, ADR pending). Only
+ * admin UI manages them at runtime (ADR pending). Only
  * deployment-time wiring stays in this interface.
  */
 @ConfigMapping(prefix = "kumbuka")
@@ -24,7 +24,7 @@ public interface MemoryConfig {
     String publicBaseUrl();
 
     /**
-     * Template for the public MCP endpoint URL shown to the team (D-CORE-4).
+     * Template for the public MCP endpoint URL shown to the team.
      * Empty (the CE default) means "{@link #publicBaseUrl()} + /mcp" — the
      * single-tenant behaviour. The SaaS image sets this to
      * {@code https://<alias>.kumbuka.ai/mcp}; the {@code <alias>} placeholder

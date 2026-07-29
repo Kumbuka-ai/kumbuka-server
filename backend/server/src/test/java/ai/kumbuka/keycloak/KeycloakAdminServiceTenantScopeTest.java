@@ -120,7 +120,7 @@ class KeycloakAdminServiceTenantScopeTest {
         verify(ur, never()).update(any());   // the foreign user is never modified
     }
 
-    // ---- invite: enrol-into-tenant + half-created cleanup (D-CORE-14) -----
+    // ---- invite: enrol-into-tenant + half-created cleanup -----
 
     /** A 201 Created response whose Location lets CreatedResponseUtil parse the id. */
     private Response createdResponse(String id) {

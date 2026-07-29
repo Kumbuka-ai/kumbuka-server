@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Response + request shapes for the admin REST API. Mirrors handoff §D.
+ * Response + request shapes for the admin REST API.
  * Never surfaces private rows (ADR-0003); per-scope endpoints reject the
  * private slug entirely.
  */
@@ -29,7 +29,7 @@ public final class AdminDtos {
         String kind,
         boolean fixed,
         boolean archived,
-        boolean locked,   // FEAT-19 / D-CORE-18: content read-only flag (lock icon)
+        boolean locked,   // content read-only flag (lock icon)
         String description,
         long entryCount,
         Instant createdAt
@@ -48,15 +48,15 @@ public final class AdminDtos {
     }
 
     public record EntryView(
-        UUID logicalId,       // ADR-0024 §2/§8 (Amendment 3): the entry's reference identity
+        UUID logicalId,       // the entry's reference identity
         String type,
         String key,
         String content,
-        String reference,     // D-CORE-7: optional external provenance URL
+        String reference,     // optional external provenance URL
         String authorSubject, // first-author (v1 creator) — immutable
         String source,        // create channel
-        String updatedBy,     // Amendment 4: last-editor subject (null if never edited)
-        String updatedSource, // Amendment 4: last-edit channel (null if never edited)
+        String updatedBy,     // last-editor subject (null if never edited)
+        String updatedSource, // last-edit channel (null if never edited)
         boolean readOnly,     // built-in guidance: not editable/deletable via the console
         Instant createdAt,
         Instant updatedAt
@@ -126,7 +126,7 @@ public final class AdminDtos {
         String displayName,
         String role,
         String status,
-        boolean muted   // D-CORE-2
+        boolean muted   // per-member mute
     ) {}
 
     public record SessionView(
@@ -140,9 +140,9 @@ public final class AdminDtos {
         // / passkey management. Carries a fresh PKCE challenge (kumbuka-admin
         // enforces S256). See SessionResource.securityActionUrl().
         String securityActionUrl,
-        boolean muted,  // D-CORE-2: the caller's own mute state (drives the member notice)
+        boolean muted,  // the caller's own mute state (drives the member notice)
         String locale,  // the caller's UI language preference (en | de); null = unset
-        OnboardingState onboarding,  // D-CORE-10.1: per-user wizard dismiss/resume state
+        OnboardingState onboarding,  // per-user wizard dismiss/resume state
         // Per-user UI presentation settings — typed, presentation state ONLY
         // (boundary note on UiSettings). Always present in the view; for an
         // unset field the console falls back to its own default.
@@ -150,7 +150,7 @@ public final class AdminDtos {
     ) {}
 
     /**
-     * D-CORE-10.1 onboarding-wizard state, per-user (keyed by KC sub). Serialized
+     * onboarding-wizard state, per-user (keyed by KC sub). Serialized
      * as {@code {"dismissed": bool, "lastStep": int}} — mirrors the console seam
      * (SessionView.onboarding / UpdateMeRequest.onboarding). {@code dismissed}
      * once the owner opts out OR completes the wizard; {@code lastStep} is the
@@ -159,7 +159,7 @@ public final class AdminDtos {
     public record OnboardingState(boolean dismissed, int lastStep) {}
 
     /**
-     * D-CORE-8: one of the caller's own active Keycloak sessions. Scoped to
+     * one of the caller's own active Keycloak sessions. Scoped to
      * {@code subject == caller} at the resource layer; never exposes another
      * member's session. {@code clients} are the OAuth clients seen on the
      * session (e.g. {@code kumbuka-admin}, {@code kumbuka-connector-<alias>}),
@@ -177,7 +177,7 @@ public final class AdminDtos {
     ) {}
 
     /**
-     * FEAT-32: one of the caller's own self-service credentials (an
+     * one of the caller's own self-service credentials (an
      * authenticator app or a passkey / security key). Scoped to
      * {@code subject == caller} at the resource layer. Keycloak stores no
      * "last used", so only {@code userLabel} + {@code createdDate} are shown;
@@ -192,7 +192,7 @@ public final class AdminDtos {
     ) {}
 
     /**
-     * FEAT-32: the {@code GET /api/credentials} response — the caller's
+     * the {@code GET /api/credentials} response — the caller's
      * self-service credentials plus a presence-only recovery-codes flag.
      * {@code recoveryCodesConfigured} is true when the caller holds a
      * {@code recovery-authn-codes} credential; the codes themselves are NEVER
@@ -212,7 +212,7 @@ public final class AdminDtos {
 
     public record CreateEntryRequest(String type, String key, String content, String reference) {}
     public record UpdateEntryRequest(String type, String content, String reference) {}
-    /** D-CORE-17 scope-remap: target shared scope + an optional key override to
+    /** scope-remap: target shared scope + an optional key override to
      *  dodge a target key-collision (rename instead of overwrite). */
     public record RemapEntryRequest(String targetScope, String key) {}
 

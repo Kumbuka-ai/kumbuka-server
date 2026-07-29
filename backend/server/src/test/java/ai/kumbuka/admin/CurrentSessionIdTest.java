@@ -12,7 +12,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Test for {@link CurrentSessionId} (F-0082) — the bean is normally
+ * Test for {@link CurrentSessionId} — the bean is normally
  * {@code @InjectMock}ed in {@link SessionsResourceTest}, so its own branch logic
  * is exercised here directly: the {@code sid} claim is read from a JWT principal,
  * and every non-JWT / missing-claim path returns null (marking no session as

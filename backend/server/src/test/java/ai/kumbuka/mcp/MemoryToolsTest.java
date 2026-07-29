@@ -48,7 +48,7 @@ import static org.mockito.Mockito.when;
  * SPI-side dependencies ({@link MemoryRepository}, {@link ScopeRepository},
  * {@link WritePolicyResolver}, the OIDC identity) are CDI-mocked.
  *
- * Focus: the write-policy resolution branches (D3 + handoff §F-2) — private
+ * Focus: the write-policy resolution branches — private
  * is never silently picked, an ASK policy returns a structured prompt rather
  * than guessing; plus shape assertions on the recall / forget / scopes /
  * load_context output that the MCP client depends on.
@@ -67,7 +67,7 @@ class MemoryToolsTest {
         JsonWebToken jwt = mock(JsonWebToken.class);
         when(jwt.getName()).thenReturn("caller-sub");
         when(identity.getPrincipal()).thenReturn(jwt);
-        // FEAT-19: the remember/forget tool paths now resolve the target scope
+        // the remember/forget tool paths now resolve the target scope
         // (ScopeRepository.requireBySlug) for the scope-lock pre-check before
         // delegating to the repository. Default every slug to an open (unlocked)
         // scope; the unknown-scope tests override requireBySlug to throw.
@@ -128,7 +128,7 @@ class MemoryToolsTest {
         assertThat(out.memory().content()).isEqualTo("we ship daily");
         // No prompt — explicit scope means the policy is not the gate.
         assertThat(out.prompt()).isNull();
-        // dogfood-11: the policy receipt is omitted on a successful write — the real
+        // the policy receipt is omitted on a successful write — the real
         // scope is already in MemoryDto; policy is decision-bearing only on the prompt.
         assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("alpha"), any(), any(), any(), eq(SourceChannel.MCP));
@@ -154,10 +154,10 @@ class MemoryToolsTest {
             .isInstanceOf(ToolCallException.class);
     }
 
-    // dogfood-14: an unknown/RLS-invisible scope slug resolves via
+    // an unknown/RLS-invisible scope slug resolves via
     // ScopeRepository.requireBySlug and throws ScopeNotFoundException —
     // previously uncaught → bare -32603. It must surface as a typed
-    // ToolCallException naming the slug. (FEAT-19: the resolve now happens in the
+    // ToolCallException naming the slug. (the resolve now happens in the
     // tool for the scope-lock pre-check, ahead of memories.remember/forget; the
     // ScopeNotFound path is identical.)
 
@@ -196,7 +196,7 @@ class MemoryToolsTest {
         // it must let the @TenantId discriminator handle tenant isolation —
         // binding tenant_id by hand bound a UUID to the String discriminator and
         // 500'd every keyed write (and in SaaS used the zero-sentinel, not the
-        // request tenant). V16 (A1.3 (1)): for a SHARED scope ("alpha" = project)
+        // request tenant). V16: for a SHARED scope ("alpha" = project)
         // the probe is author-independent (scope.slug, key) — no ownerSubject —
         // mirroring the new shared upsert lookup; private keeps (scope, owner, key).
         @SuppressWarnings("unchecked")
@@ -222,7 +222,7 @@ class MemoryToolsTest {
 
     @Test
     void remember_withKey_privateScope_existenceProbeStaysPerAuthor() {
-        // V16 (A1.3 (1)): the PRIVATE scope keeps a per-author keyspace, so the
+        // V16: the PRIVATE scope keeps a per-author keyspace, so the
         // existed-probe for the reserved "private" slug stays (scope, owner, key).
         Scope priv = scope("private", ScopeKind.PRIVATE);
         Memory persisted = memory(MemoryType.DECISION, priv, "note.k", "secret");
@@ -258,7 +258,7 @@ class MemoryToolsTest {
         Dtos.RememberResult out = tools.memory_remember("x", "convention", null, null, null);
 
         assertThat(out.memory()).isNotNull();
-        // dogfood-11: policy-resolved (PROJECT) success also omits the policy receipt.
+        // policy-resolved (PROJECT) success also omits the policy receipt.
         assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("alpha"), eq(MemoryType.CONVENTION), any(), any(), any());
     }
@@ -274,7 +274,7 @@ class MemoryToolsTest {
         Dtos.RememberResult out = tools.memory_remember("y", "constraint", null, null, null);
 
         assertThat(out.memory()).isNotNull();
-        // dogfood-11: policy-resolved (GLOBAL) success also omits the policy receipt.
+        // policy-resolved (GLOBAL) success also omits the policy receipt.
         assertThat(out.policy()).isNull();
         verify(memories).remember(any(), eq("global"), eq(MemoryType.CONSTRAINT), any(), any(), any());
     }
@@ -285,7 +285,7 @@ class MemoryToolsTest {
     void remember_noScope_policyAskOK_returnsPromptWithVisibleScopes() {
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.ASK, WritePolicy.ASK, DefaultScopeStatus.OK, null));
-        // Private scope MUST NOT be in the prompt list (D3/handoff §F-2).
+        // Private scope MUST NOT be in the prompt list.
         when(scopes.listAll()).thenReturn(List.of(
             scope("global", ScopeKind.GLOBAL),
             scope("alpha", ScopeKind.PROJECT),
@@ -296,7 +296,7 @@ class MemoryToolsTest {
 
         assertThat(out.memory()).isNull();
         assertThat(out.prompt()).isNotNull();
-        // dogfood-11: on the prompt-for-scope path the policy receipt is retained —
+        // on the prompt-for-scope path the policy receipt is retained —
         // here it is genuinely decision-bearing (explains why a scope is required).
         assertThat(out.policy()).isNotNull();
         assertThat(out.prompt().reason()).contains("write policy is 'ask'");
@@ -420,7 +420,7 @@ class MemoryToolsTest {
             .containsExactlyInAnyOrder("global", "alpha", "personal");
     }
 
-    // ---------- D-CORE-7: reference URL -------------------------------------
+    // ---------- reference URL -------------------------------------
 
     @Test
     void remember_storesReferenceOnNewRow() {
@@ -453,7 +453,7 @@ class MemoryToolsTest {
 
     @Test
     void remember_rejectsContentOverTheLengthLimit() {
-        // F-1: the ≤1500-char contract is enforced server-side, before any
+        // the ≤1500-char contract is enforced server-side, before any
         // policy/repo work — a direct MCP caller cannot persist unbounded content.
         when(policyResolver.resolve()).thenReturn(
             resolved(WritePolicy.GLOBAL, WritePolicy.GLOBAL, DefaultScopeStatus.OK, null));
@@ -470,7 +470,7 @@ class MemoryToolsTest {
 
     @Test
     void loadContext_digestOmitsReference() {
-        // D-CORE-7 guard 2: the digest is lean — the reference URL is verify-on-demand
+        // guard 2: the digest is lean — the reference URL is verify-on-demand
         // (surfaced by memory_recall), never in the load_context bulk.
         Scope g = scope("global", ScopeKind.GLOBAL);
         Memory dec = memory(MemoryType.DECISION, g, "d", "decided X");
@@ -488,7 +488,7 @@ class MemoryToolsTest {
 
     @Test
     void loadContext_defaultExcludesOpenQuestion_canonicalOrder() {
-        // D-CORE-6: the default digest is the steering types only — no open_question
+        // the default digest is the steering types only — no open_question
         // bucket. The tool asks the repo with a null type set (= steering default),
         // and emits keys in canonical order for the digested types only.
         Scope g = scope("global", ScopeKind.GLOBAL);
@@ -544,11 +544,11 @@ class MemoryToolsTest {
         assertThat(out.byType()).isEmpty();
     }
 
-    // ---------- memory_remember: D-CORE-11 protected-key upsert -------------
+    // ---------- memory_remember: protected-key upsert -------------
 
     @Test
     void remember_targetingProtectedKey_returnsTypedError_notARawThrow() {
-        // D-CORE-11: the repo raises ProtectedEntryException(UPSERT_BLOCKED).
+        // the repo raises ProtectedEntryException(UPSERT_BLOCKED).
         // MemoryTools must translate to a typed ProtectedError in the DTO
         // so the MCP framework returns a structured result instead of -32603.
         when(policyResolver.resolve()).thenReturn(
@@ -604,11 +604,11 @@ class MemoryToolsTest {
         assertThat(out.error().key()).isEqualTo("system.foo");
     }
 
-    // ---------- memory_remember: D-CORE-11 + E2E-06 key-format validation ---
+    // ---------- memory_remember: key-format validation ---
 
     @Test
     void remember_rejectsUnderscoreKey_atTheToolLayer_noRepoCall() {
-        // E2E-06: the underscore-key WORKLIST regression. Pre-validator the
+        // the underscore-key WORKLIST regression. Pre-validator the
         // call would persist (the DB CHECK would only fire much later for a
         // genuine bad input — the regex in V2 allows it through because
         // [a-z0-9_]?? actually no, V2 already rejects underscores at the
@@ -652,11 +652,11 @@ class MemoryToolsTest {
         assertThat(out.memory().key()).isEqualTo("decision.d-ops-26");
     }
 
-    // ---------- memory_remember: D-CORE-21 reserved-namespace typed error ----
+    // ---------- memory_remember: reserved-namespace typed error ----
 
     @Test
     void remember_reservedNamespaceKey_returnsTypedError_reasonDerivedCode() {
-        // D-CORE-21: the repository rejects a non-system write to a `system.*`
+        // the repository rejects a non-system write to a `system.*`
         // key with ProtectedEntryException(RESERVED_NAMESPACE); the tool must
         // surface it as a typed ProtectedError with the reason-derived code
         // (the same catch that maps UPSERT_BLOCKED), not a -32603.
@@ -682,7 +682,7 @@ class MemoryToolsTest {
         assertThat(out.error().key()).isEqualTo("system.foo");
     }
 
-    // ======================= memory_update (D-CORE-21) =======================
+    // ======================= memory_update =======================
     // Adapter-layer tests: the revision logic is exercised against a real DB in
     // MemoryUpdateIT; here the repository is mocked to pin the tool's addressing,
     // delegation, and typed-error mapping.

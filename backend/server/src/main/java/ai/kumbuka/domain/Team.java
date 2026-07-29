@@ -29,7 +29,7 @@ public class Team extends PanacheEntityBase {
     public String name;
 
     /**
-     * Canonical per-tenant routing key (D-OPS-24). Subdomain segment
+     * Canonical per-tenant routing key. Subdomain segment
      * ("acme" for "acme.kumbuka.ai") used by the SaaS resolver to look
      * up the data tenant. CE installs carry the literal {@code 'default'}.
      * Shape + uniqueness are enforced at the DB (V7); the reserved-alias

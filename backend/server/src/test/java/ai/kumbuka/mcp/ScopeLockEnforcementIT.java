@@ -18,7 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * FEAT-19 / D-CORE-18 scope-content-lock enforcement on the MCP wire, proved
+ * scope-content-lock enforcement on the MCP wire, proved
  * through the REAL persistence pipeline (real {@link MemoryTools} + real
  * repositories against DevServices Postgres with RLS in force) — the same path
  * a live MCP tool call takes. Mirrors the {@link MemberMuteIT} integration-layer

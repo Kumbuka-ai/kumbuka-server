@@ -5,7 +5,7 @@ import jakarta.ws.rs.BadRequestException;
 import java.util.regex.Pattern;
 
 /**
- * E2E-06 — Enforces the memory `key` format contract server-side:
+ * Enforces the memory `key` format contract server-side:
  * lowercase alphanumeric with optional dot/kebab namespace separators.
  *
  * <p>Pre-validator the format was only described in the {@code @ToolArg}

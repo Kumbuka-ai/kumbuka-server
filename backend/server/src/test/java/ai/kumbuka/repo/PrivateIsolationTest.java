@@ -149,7 +149,7 @@ class PrivateIsolationTest {
     }
 
     // ---------------------------------------------------------------------
-    // D-CORE-5 — an unscoped read defaults to private + global only; project
+    // an unscoped read defaults to private + global only; project
     // memories surface only when the caller asks for that project explicitly.
     // ---------------------------------------------------------------------
 
@@ -202,7 +202,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void defaultLoadContext_excludesOpenQuestion_explicitTypesIncludesIt() {
-        // D-CORE-6: the default digest returns steering types only; open_question is
+        // the default digest returns steering types only; open_question is
         // digested only when explicitly requested via the types set.
         Memory dec = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "d6 decision", SourceChannel.MCP);
         Memory oq = memories.remember(SUBJECT_A, "global", MemoryType.OPEN_QUESTION, null, "d6 open?", SourceChannel.MCP);
@@ -222,7 +222,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void reference_persistsAndSurfacesInRecall() {
-        // D-CORE-7: the reference column round-trips and is returned by recall
+        // the reference column round-trips and is returned by recall
         // (the explicit lookup path); the digest projection omits it (unit-tested).
         Memory m = memories.remember(SUBJECT_A, "global", MemoryType.DECISION, null, "d7 content", SourceChannel.MCP);
         m.reference = "https://example.com/origin";
@@ -232,9 +232,9 @@ class PrivateIsolationTest {
     }
 
     // ---------------------------------------------------------------------
-    // D-CORE-5.1 — an unscoped read WITH a query becomes a discovery search
+    // an unscoped read WITH a query becomes a discovery search
     // across private, global, and every PROJECT scope the caller sees by RLS.
-    // WITHOUT a query it stays the D-CORE-5 default of private and global only.
+    // WITHOUT a query it stays the default of private and global only.
     // RLS and the untouched private predicate remain the hard boundary.
     // ---------------------------------------------------------------------
 
@@ -254,7 +254,7 @@ class PrivateIsolationTest {
             .allMatch(x -> proj.equals(x.scope.slug));
 
         // WITHOUT a query the same project row is NOT in the default unscoped
-        // view — D-CORE-5 still holds and the widening is query-gated only.
+        // view — the default still holds and the widening is query-gated only.
         List<Memory> noQuery = memories.recall(SUBJECT_A, null, null, null, false);
         assertThat(noQuery).noneMatch(x -> x.logicalId.equals(inProj.logicalId));
     }
@@ -279,7 +279,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void unscopedLoadContext_withMatchingProjectRow_stillExcludesProject() {
-        // Regression: loadContext recalls with a null query, so the D-CORE-5.1
+        // Regression: loadContext recalls with a null query, so the discovery-search
         // query-gated widening must never reach it — project rows stay out of the
         // digest even when their content would match a hypothetical query.
         String proj = ensureProject("dcore51-ctx");
@@ -304,7 +304,7 @@ class PrivateIsolationTest {
             .anyMatch(x -> x.logicalId.equals(glob.logicalId));
     }
 
-    // dogfood-16/19: the fixed (global) scope cannot be archived / un-archived /
+    // the fixed (global) scope cannot be archived / un-archived /
     // renamed — the repo guards throw the typed ScopeFixedException (→ 409).
     @Test
     @Transactional
@@ -335,7 +335,7 @@ class PrivateIsolationTest {
             .isInstanceOf(ScopeRepository.ScopeAlreadyExistsException.class);
     }
 
-    // ---- D-CORE-16: console create never silently overwrites (dogfood-21) ----
+    // ---- console create never silently overwrites ----
 
     @Test
     @Transactional
@@ -363,7 +363,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void rememberMcpPath_existingKey_stillUpserts_unchanged() {
-        // Regression lock: the MCP path keeps upsert-by-key (D-CORE-16 leaves it).
+        // Regression lock: the MCP path keeps upsert-by-key (leaves it).
         String proj = ensureProject("dcore16-mcp");
         Memory r1 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v1", SourceChannel.MCP);
         Memory r2 = memories.remember(SUBJECT_A, proj, MemoryType.DECISION, "k.up", "v2", SourceChannel.MCP);
@@ -380,7 +380,7 @@ class PrivateIsolationTest {
         assertThat(a.logicalId).isNotEqualTo(b.logicalId);
     }
 
-    // ---- D-CORE-17: scope-remap (lossless; private excluded; collision-guarded) --
+    // ---- scope-remap (lossless; private excluded; collision-guarded) --
 
     @Test
     @Transactional
@@ -431,7 +431,7 @@ class PrivateIsolationTest {
     @Test
     @Transactional
     void remap_protectedEntry_isRejected() {
-        // D-CORE-11: a protected (locked) entry is not remappable. Plant it BELOW
+        // a protected (locked) entry is not remappable. Plant it BELOW
         // the write seam (direct persist) — the system channel no longer persists
         // through the repository (it fails loud there); onCreate still requires
         // source=SYSTEM + the sentinel owner to carry a system lock.
@@ -450,7 +450,7 @@ class PrivateIsolationTest {
             .isInstanceOf(ai.kumbuka.repo.ProtectedEntryException.class);
     }
 
-    // dogfood-16: archive is a reversible soft-hide — un-archive restores the row.
+    // archive is a reversible soft-hide — un-archive restores the row.
     @Test
     @Transactional
     void scope_archive_thenUnarchive_roundTrips() {
@@ -467,7 +467,7 @@ class PrivateIsolationTest {
     }
 
     // -----------------------------------------------------------------------
-    // V16 (ADR-0024 §A1.3 (1)): scope-kind-differentiated keyed upsert. The
+    // V16: scope-kind-differentiated keyed upsert. The
     // highest-risk correctness change — a shared keyed write by a SECOND author
     // must update the ONE canonical live head, not insert a parallel row that
     // the shared partial unique index then hard-rejects.

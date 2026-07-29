@@ -20,8 +20,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Member credential self-management (FEAT-32) — the caller sees and removes
- * their OWN two-factor authenticators and passkeys. Fixes F-0075 (passkeys were
+ * Member credential self-management — the caller sees and removes
+ * their OWN two-factor authenticators and passkeys. Fixes a bug (passkeys were
  * addable via the Keycloak AIA flow but never removable from the console).
  *
  * <p>Hard scope, cloned from {@link SessionsResource}: every operation is bound

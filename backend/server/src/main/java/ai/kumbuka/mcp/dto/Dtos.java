@@ -18,12 +18,12 @@ public final class Dtos {
     private Dtos() {}
 
     public record MemoryDto(
-        UUID logicalId,       // ADR-0024 §2/§8 (Amendment 3): the entry's reference identity
+        UUID logicalId,       // the entry's reference identity
         String scope,         // slug — the addressable identity (ADR-0007)
         String type,
         String key,
         String content,
-        String reference,     // D-CORE-7: external provenance URL (null in the digest)
+        String reference,     // external provenance URL (null in the digest)
         String author,        // Keycloak `sub` of the row's owner
         String source,        // 'console' or 'mcp' (ADR-0008)
         Instant createdAt,
@@ -45,7 +45,7 @@ public final class Dtos {
         }
 
         /**
-         * Digest projection — omits the {@code reference} URL (D-CORE-7 guard 2:
+         * Digest projection — omits the {@code reference} URL (guard 2:
          * verify-on-demand). Used by {@code memory_load_context} so the bulk
          * context load stays lean and carries no external pointers.
          */
@@ -78,7 +78,7 @@ public final class Dtos {
      * pick a scope (prompt is non-null). The {@code prompt} fires when no
      * scope was supplied and the team's effective writePolicy is ASK — the
      * tool refuses to silently fall back to the user's private scope
-     * (handoff §F-2, D3). Exactly one of memory / prompt is non-null.
+     * Exactly one of memory / prompt is non-null.
      */
     public record RememberResult(
         MemoryDto memory,
@@ -96,7 +96,7 @@ public final class Dtos {
 
     /**
      * Surfaced when a non-system caller's write or delete would touch a protected
-     * (D-CORE-11) row, or address a key in the reserved namespace. Carries the
+     * row, or address a key in the reserved namespace. Carries the
      * typed code so the client doesn't have to pattern-match a string message.
      */
     public record ProtectedError(

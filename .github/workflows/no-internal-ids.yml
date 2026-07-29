@@ -1,0 +1,123 @@
+# Source-hygiene gate for a PUBLIC repository.
+#
+# This repo is public and AGPL-licensed. Public source carries documentation,
+# not process bookkeeping: an internal decision/finding/task/sprint number is a
+# reference an external reader cannot resolve — it names a private record that
+# is not shipped here. This check fails a pull request that introduces such a
+# reference, pointing at the exact file and line, so the reasoning gets written
+# in words instead of cited by number.
+#
+# The check runs on the ordinary PR pipeline (a gate the pipeline never invokes
+# is not a gate) and scans this workflow file too: the patterns below are
+# regexes, never concrete numbers, so the gate passes its own check.
+name: source hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  internal-references:
+    name: no unresolved internal references
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: scan tracked source for unresolved internal references
+        run: |
+          python3 - <<'PY'
+          import subprocess, re, sys
+
+          def tracked(*args):
+              out = subprocess.run(["git", "ls-files", *args],
+                                   capture_output=True, text=True).stdout
+              return [p for p in out.split("\n") if p]
+
+          # Out of scope, each for a concrete reason (kept here, in the gate, so
+          # the exclusion never becomes a silent path nobody can find):
+          #   - Flyway migrations: an applied migration's text is folded into its
+          #     checksum; rewriting it breaks schema validation at the next boot.
+          #   - Ephemeral local worktrees are not part of the shipped source.
+          #   - Markdown docs are prose, handled outside this source gate; the
+          #     repo ships its architecture decisions under docs/adr/, so ADR
+          #     cross-references in docs resolve within the repo.
+          def in_scope(path):
+              if path.startswith("backend/server/src/main/resources/db/migration/"):
+                  return False
+              if ".claude/worktrees/" in path:
+                  return False
+              if path.endswith(".md"):
+                  return False
+              return True
+
+          files = [f for f in tracked() if in_scope(f)]
+
+          # Internal reference schemes an external reader cannot resolve. Each is a
+          # pattern, not a number, so this file passes its own scan.
+          patterns = [
+              (r"\bD-[A-Z]+-\d+",  "internal decision reference"),
+              (r"\bP-[A-Z]+-\d+",  "internal decision reference"),
+              (r"\bFEAT-\d+",      "internal feature-task reference"),
+              (r"\bCHORE-\d+",     "internal chore-task reference"),
+              (r"\bBUG-\d+",       "internal bug-tracker reference"),
+              (r"\bF-\d+",         "internal finding reference"),
+              (r"\bSPRINT_\d+",    "internal sprint reference"),
+              (r"\bdogfood-\d+",   "internal dogfooding-session reference"),
+              (r"\bE2E-\d+",       "internal test-case reference"),
+              (r"\bAmendment \d+", "internal decision-amendment reference"),
+              (r"§?\bA1\.\d",      "internal spec-section reference"),
+              (r"\bPROV-\d+",      "internal provisioning-requirement reference"),
+              (r"\bSEC-\d+",       "internal security-requirement reference"),
+              (r"Session #\d+",    "internal working-session reference"),
+          ]
+          compiled = [(re.compile(p), why) for p, why in patterns]
+
+          # ADR references are legitimate when they resolve to a decision record
+          # this repo actually ships under docs/adr/ — that is the architecture-
+          # decision convention and is good public documentation. A reference to
+          # an ADR number with no shipped record is a dangling link and is flagged.
+          shipped_adr = set()
+          for f in tracked("docs/adr/"):
+              m = re.search(r"/0*(\d+)-", f)
+              if m:
+                  shipped_adr.add(int(m.group(1)))
+          adr_ref = re.compile(r"\bADR-0*(\d+)")
+
+          violations = []
+          for f in files:
+              try:
+                  with open(f, encoding="utf-8") as fh:
+                      lines = fh.readlines()
+              except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
+                  continue
+              for n, line in enumerate(lines, 1):
+                  for rx, why in compiled:
+                      for mm in rx.finditer(line):
+                          violations.append((f, n, mm.group(0), why))
+                  for mm in adr_ref.finditer(line):
+                      if int(mm.group(1)) not in shipped_adr:
+                          violations.append((f, n, mm.group(0),
+                                             "dangling ADR reference (no shipped docs/adr record)"))
+
+          if violations:
+              print("This repository is public. The references below name internal")
+              print("records an external reader cannot resolve. State the reasoning in")
+              print("words, or reference a decision record shipped under docs/adr/.")
+              print()
+              for f, n, tok, why in sorted(violations):
+                  print(f"{f}:{n}: {tok}  <- {why}")
+              print()
+              nfiles = len(set(v[0] for v in violations))
+              print(f"{len(violations)} reference(s) across {nfiles} file(s).")
+              sys.exit(1)
+
+          print("No unresolved internal references in tracked source. OK.")
+          PY

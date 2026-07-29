@@ -61,10 +61,10 @@ class TenantRawSqlArchitectureTest {
         // boot, before any traffic is served (is_local=true, migration tx only).
         TenantyMigrationCallback.class,
         // PUBLIC pre-tenant waitlist intake: INSERT-only into ops.waitlist_entry,
-        // control-plane data with NO app.tenant_id column (D-OPS-32 / waitlist-UTM).
+        // control-plane data with NO app.tenant_id column (waitlist UTM attribution).
         // The per-tenant RLS seam does not apply, so @TenantBound would be
         // meaningless here; abuse is contained by the Caddy edge rate limit.
-        // Confirmed SAFE by ratified decision D-OPS-32 — annotating it to satisfy
+        // Confirmed SAFE by ratified decision — annotating it to satisfy
         // the guard would be a lie, not a fix.
         WaitlistIntakeResource.class);
 

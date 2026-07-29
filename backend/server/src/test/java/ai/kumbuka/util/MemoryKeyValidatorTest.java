@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * E2E-06 — pin the {@code memory.key} format contract MemoryKeyValidator
+ * pin the {@code memory.key} format contract MemoryKeyValidator
  * enforces server-side. Same regex the V2 CHECK constraint enforces at
  * the DB layer; the validator gives a clean BadRequestException instead
  * of letting the constraint violation bubble up.

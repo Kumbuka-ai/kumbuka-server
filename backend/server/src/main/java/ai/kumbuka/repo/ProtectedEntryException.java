@@ -2,7 +2,7 @@ package ai.kumbuka.repo;
 
 /**
  * Thrown when a non-system caller's write or delete would touch a protected
- * (D-CORE-11) row, or address a key in the reserved namespace.
+ * row, or address a key in the reserved namespace.
  *
  * <p>Cases:
  * <ul>

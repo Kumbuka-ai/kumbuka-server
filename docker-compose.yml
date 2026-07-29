@@ -46,7 +46,7 @@ services:
 
   keycloak:
     # Theme + realms now live in github.com/kumbuka-ai/kumbuka-keycloak and are
-    # baked into this published image (D-OPS-29). Dev consumes the same image as
+    # baked into this published image. Dev consumes the same image as
     # prod; theme/realm hacking happens in that repo (its docker-compose has a
     # build-and-verify loop). Dev test users are no longer seeded here — create
     # them via the admin console or kcadm against the running realm.
@@ -173,5 +173,5 @@ services:
 
   # The former `prod-kc` profile (a locally-built baked Keycloak) is gone:
   # the dev `keycloak` service above now runs the same published image as
-  # prod (github.com/kumbuka-ai/kumbuka-keycloak, D-OPS-29), so dev already
+  # prod (github.com/kumbuka-ai/kumbuka-keycloak), so dev already
   # has prod parity. Pin a specific build with KEYCLOAK_VERSION.

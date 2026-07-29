@@ -12,11 +12,11 @@ import jakarta.ws.rs.ForbiddenException;
  * checks:
  *
  * <ul>
- *   <li><b>D-CORE-2 per-member mute</b> ({@link #assertCanWriteShared}) — a
+ *   <li><b>Per-member mute</b> ({@link #assertCanWriteShared}) — a
  *       muted member keeps full read access and full read/write of their
  *       PRIVATE scope, but SHARED-scope writes (create/update/delete + shared
  *       forget) are suspended.</li>
- *   <li><b>FEAT-19 / D-CORE-18 scope content-lock</b>
+ * <li><b>Scope content-lock</b>
  *       ({@link #assertScopeWritable}) — a {@code scope.locked} scope rejects
  *       every member mutation over EVERY surface; the one legitimate write path
  *       is a team-admin override on the console (audited by the caller).</li>
@@ -44,14 +44,14 @@ public class MemberWritePolicy {
     }
 
     /**
-     * FEAT-19 / D-CORE-18 scope content-lock guard. Pre-check, called before any
+     * scope content-lock guard. Pre-check, called before any
      * create / update / delete / move-in / move-out on a shared scope:
      *
      * <ul>
      *   <li>{@code !scope.locked} → returns (the scope is open).</li>
      *   <li>{@code channel == MCP} → ALWAYS rejected on a locked scope, including
      *       for admins — the MCP wire is never an override surface (same rule as
-     *       the D-CORE-13 admin-lock on MCP).</li>
+     * the admin-lock on MCP).</li>
      *   <li>{@code channel == CONSOLE && !callerIsAdmin} → rejected (a member
      *       cannot mutate a locked scope on any surface).</li>
      *   <li>{@code channel == CONSOLE && callerIsAdmin} → returns — this is the
@@ -74,8 +74,7 @@ public class MemberWritePolicy {
         }
         throw new ScopeReadOnlyException(scope.slug,
             "scope '" + scope.slug + "' is read-only (locked) — members cannot add, edit, "
-            + "or delete entries; only a team admin may override, and only from the console "
-            + "(FEAT-19 / D-CORE-18).");
+            + "or delete entries; only a team admin may override, and only from the console.");
     }
 
     public static class MutedException extends ForbiddenException {

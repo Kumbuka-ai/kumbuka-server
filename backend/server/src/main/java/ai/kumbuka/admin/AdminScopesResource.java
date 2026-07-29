@@ -46,7 +46,7 @@ public class AdminScopesResource {
     @Inject SharedMemoryRepository sharedMemories;
     @Inject TeamSettingsRepository settings;
     @Inject SecurityIdentity identity;
-    @Inject ai.kumbuka.audit.TeamAuditService audit;   // FEAT-19 lock/unlock governance event
+    @Inject ai.kumbuka.audit.TeamAuditService audit;   // lock/unlock governance event
 
     @GET
     @RolesAllowed({"admin", "member"})
@@ -60,7 +60,7 @@ public class AdminScopesResource {
     @RolesAllowed({"admin", "member"})
     @Transactional
     public Response create(CreateScopeRequest req) {
-        // Honour the team's createScopes policy at runtime (D3): when
+        // Honour the team's createScopes policy at runtime: when
         // ADMINS-only, a member-rolled caller is rejected here even though
         // @RolesAllowed lets them past the gate.
         boolean isAdmin = identity.getRoles().contains("admin");
@@ -106,7 +106,7 @@ public class AdminScopesResource {
         return Response.noContent().build();
     }
 
-    // dogfood-16: reverse of :archive (reversible soft-hide, no delete). Admin-only,
+    // reverse of:archive (reversible soft-hide, no delete). Admin-only,
     // same guards (requireSharedSlug + the repo's fixed/non-project checks → 409
     // SCOPE_FIXED). 204 on success — mirrors :archive and the console's void call.
     @POST
@@ -119,7 +119,7 @@ public class AdminScopesResource {
         return Response.noContent().build();
     }
 
-    // FEAT-19 / D-CORE-18: content-lock toggle. Admin-only, mirrors :archive
+    // content-lock toggle. Admin-only, mirrors:archive
     // (requireSharedSlug → private 404; 204 on success). NO fixed/project
     // restriction — the lock axis is orthogonal, so a fixed scope (global) is
     // lockable (setLocked enforces nothing extra). Each toggle emits a

@@ -22,7 +22,7 @@ import jakarta.ws.rs.core.MediaType;
  *
  * <p><strong>SaaS</strong>: the connector is the same single generic
  * {@code kumbuka-connector} client (confidential + PKCE), shared across every
- * tenant — ADR-0032 § 4 retired the per-tenant {@code kumbuka-connector-<alias>}
+ * tenant — a later revision retired the per-tenant {@code kumbuka-connector-<alias>}
  * client. Its secret is <em>provider-managed</em>: rendered into the realm
  * config by the platform and never held by a team, so the card neither exposes
  * nor rotates it. SaaS is detected by the presence of the MCP URL template
@@ -70,7 +70,7 @@ public class AdminConnectorResource {
 
     /**
      * The connector's Keycloak client_id: always the configured base client
-     * ({@code kumbuka-connector}). ADR-0032 § 4 retired the per-tenant
+     * ({@code kumbuka-connector}). A later revision retired the per-tenant
      * {@code kumbuka-connector-<alias>} client, so CE and SaaS now address the
      * one generic client. Package-private + static so it unit-tests without
      * CDI/DB.
@@ -80,9 +80,9 @@ public class AdminConnectorResource {
     }
 
     /**
-     * The public MCP URL the console displays (D-CORE-4). CE (empty template):
+     * The public MCP URL the console displays. CE (empty template):
      * {@code publicBaseUrl + /mcp}. SaaS (template set): the configured template
-     * verbatim — post-ADR-0032 that is the single generic
+     * verbatim — that is now the single generic
      * {@code https://mcp.kumbuka.ai/mcp} endpoint, with no per-tenant
      * {@code <alias>} placeholder (tenant resolution is token-derived). Pure —
      * package-private + static so it unit-tests without CDI/DB.
@@ -94,7 +94,7 @@ public class AdminConnectorResource {
         return template;
     }
 
-    // Note: the handoff §D suggests `/secret:rotate`. We use `/secret/rotate`
+    // Note: an earlier draft suggested `/secret:rotate`. We use `/secret/rotate`
     // instead because RestAssured (and some HTTP libraries) interpret a
     // colon in the URI as a port separator. Behaviour is identical;
     // documentation should reflect the slash form.

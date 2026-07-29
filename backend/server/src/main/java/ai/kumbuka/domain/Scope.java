@@ -51,7 +51,7 @@ public class Scope extends PanacheEntityBase {
     public Boolean archived;
 
     /**
-     * FEAT-19 (ADR-0024 §13 / A1.5): read-only / frozen scope. Reserved in V16,
+     * read-only / frozen scope. Reserved in V16,
      * NOT enforced in CE Step 1 (enforcement logic + UI follow). Defaults false.
      */
     @Column(nullable = false)

@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
  * /api/scopes/{slug}/entries — memory entries inside a shared scope.
  * Member-readable and member-writable: the role gate admits members, then
  * {@link ai.kumbuka.service.MemberWritePolicy} decides at runtime (normal
- * member writes, muted member rejected — D-CORE-2), mirroring the MCP write
+ * member writes, muted member rejected), mirroring the MCP write
  * tools. Private scope addressing → 404 across every method.
  */
 @QuarkusTest
@@ -42,8 +42,8 @@ class AdminEntriesResourceTest {
     @InjectMock ScopeRepository scopes;
     @InjectMock MemoryRepository memories;
     @InjectMock SharedMemoryRepository sharedMemories;
-    @InjectMock ai.kumbuka.audit.TeamAuditService audit;   // D-CORE-17 remap audit
-    @Inject MuteTestSupport mute;   // seeds a real user_account.muted row (D-CORE-2)
+    @InjectMock ai.kumbuka.audit.TeamAuditService audit;   // remap audit
+    @Inject MuteTestSupport mute;   // seeds a real user_account.muted row
 
     private Scope sharedScope(String slug) {
         Scope s = new Scope();
@@ -128,7 +128,7 @@ class AdminEntriesResourceTest {
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
     void create_contentOverLimit_returns400() {
-        // F-1: server-side ≤1500-char enforcement on the admin write path.
+        // server-side ≤1500-char enforcement on the admin write path.
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
 
@@ -145,7 +145,7 @@ class AdminEntriesResourceTest {
     @Test
     @TestSecurity(user = "member-writer", roles = {"member"})
     void create_member_nonLocked_returnsCreated() {
-        // D-CORE-2: a normal (non-muted) member is entitled to shared writes —
+        // a normal (non-muted) member is entitled to shared writes —
         // the console path must match the MCP path. Parity with
         // MemoryToolsMuteTest#unmutedMember_canRememberToSharedScope.
         Scope alpha = sharedScope("alpha");
@@ -171,7 +171,7 @@ class AdminEntriesResourceTest {
     @TestSecurity(user = "muted-creator", roles = {"member"})
     void create_mutedMember_isForbidden_noWrite() {
         // A muted member is rejected at the runtime gate, before any write —
-        // parity with the MCP-side D-CORE-2 mute tests.
+        // parity with the MCP-side mute tests.
         mute.setMuted("muted-creator", true);
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
@@ -236,7 +236,7 @@ class AdminEntriesResourceTest {
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
     void update_contentOverLimit_returns400() {
-        // F-1: the same ≤1500 guard applies on update.
+        // the same ≤1500 guard applies on update.
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
@@ -273,7 +273,7 @@ class AdminEntriesResourceTest {
     @Test
     @TestSecurity(user = "member-editor", roles = {"member"})
     void update_member_nonLocked_returns200() {
-        // D-CORE-2: a normal member may edit a non-locked shared entry.
+        // a normal member may edit a non-locked shared entry.
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
@@ -366,7 +366,7 @@ class AdminEntriesResourceTest {
     @Test
     @TestSecurity(user = "member-deleter", roles = {"member"})
     void delete_member_nonLocked_returns204() {
-        // D-CORE-2: a normal member may delete a non-locked shared entry.
+        // a normal member may delete a non-locked shared entry.
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
         UUID id = UUID.randomUUID();
@@ -395,7 +395,7 @@ class AdminEntriesResourceTest {
         verify(sharedMemories, org.mockito.Mockito.never()).deleteShared(any());
     }
 
-    // ---------- D-CORE-11: protected-entry surface via ExceptionMapper ------
+    // ---------- protected-entry surface via ExceptionMapper ------
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
@@ -430,7 +430,7 @@ class AdminEntriesResourceTest {
     @TestSecurity(user = "admin", roles = {"admin"})
     void delete_lockedRow_returnsTypedHttp409_viaMapper() {
         // The console single-delete of a locked row is refused with UPDATE_BLOCKED
-        // (F-0228, the load-bearing application guard — no delete trigger below it):
+        // (the load-bearing application guard — no delete trigger below it):
         // deleteShared throws, and the @Provider mapper translates it to a typed 409
         // through the real REST pipeline.
         Scope alpha = sharedScope("alpha");
@@ -450,7 +450,7 @@ class AdminEntriesResourceTest {
                 .body("code", equalTo("PROTECTED_UPDATE_BLOCKED"));
     }
 
-    // ---------- D-CORE-16: console create rejects an existing key ------------
+    // ---------- console create rejects an existing key ------------
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
@@ -472,7 +472,7 @@ class AdminEntriesResourceTest {
                 .body("code", equalTo("KEY_EXISTS"));
     }
 
-    // ---------- D-CORE-17: scope-remap endpoint -----------------------------
+    // ---------- scope-remap endpoint -----------------------------
 
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
@@ -480,7 +480,7 @@ class AdminEntriesResourceTest {
         Scope alpha = sharedScope("alpha");
         Scope beta = sharedScope("beta");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
-        when(scopes.requireBySlug("beta")).thenReturn(beta);   // FEAT-19: remap now gates the target scope too
+        when(scopes.requireBySlug("beta")).thenReturn(beta);   // remap now gates the target scope too
         Memory m = mem(alpha, MemoryType.DECISION, "k.move", "content");
         when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         Memory moved = mem(beta, MemoryType.DECISION, "k.move", "content");
@@ -517,7 +517,7 @@ class AdminEntriesResourceTest {
     void remap_privateTarget_returns400_remapPrivateForbidden() {
         Scope alpha = sharedScope("alpha");
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
-        when(scopes.requireBySlug("private")).thenReturn(sharedScope("private"));   // FEAT-19: target gated before remap
+        when(scopes.requireBySlug("private")).thenReturn(sharedScope("private"));   // target gated before remap
         Memory m = mem(alpha, MemoryType.DECISION, "k", "c");
         when(sharedMemories.findSharedById(m.logicalId)).thenReturn(m);
         when(memories.remap(any(), eq("private"), any()))

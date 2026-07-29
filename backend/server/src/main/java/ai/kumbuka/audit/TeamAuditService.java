@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * Writes append-only governance-audit rows under the acting team-admin's KC
- * {@code sub} (D-OPS-16 / D-CORE-9 substrate). Tenant-scoped via
+ * {@code sub} (substrate). Tenant-scoped via
  * {@link TenantBound}; the row's payload carries outcome counts only — never
  * memory content.
  */

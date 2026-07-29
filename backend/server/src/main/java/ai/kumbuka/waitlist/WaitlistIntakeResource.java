@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * PUBLIC, unauthenticated beta waitlist intake (PROV-1a / ADR-0015, Session #23).
+ * PUBLIC, unauthenticated beta waitlist intake.
  *
  * <h3>Why this lives in kumbuka-server</h3>
  *
@@ -58,7 +58,7 @@ public class WaitlistIntakeResource {
     /** SQLState raised by the partial-unique index on a duplicate active email. */
     private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";
 
-    // UTM attribution field caps (D-OPS-32 (a)). Sanitizing lengths only — the DB
+    // UTM attribution field caps. Sanitizing lengths only — the DB
     // columns are plain TEXT (ops-console V7); the public intake truncates
     // defensively because it must not trust upstream (the n8n router also caps).
     private static final int MAX_UTM_SOURCE = 64;
@@ -103,7 +103,7 @@ public class WaitlistIntakeResource {
      * Request body. Everything past {@code teamName} is optional (nullable).
      *
      * <p>The five {@code utm*}/{@code referrer} fields are campaign attribution
-     * (D-OPS-32 (a)): camelCase on the wire, stored snake_case. Absent -> null;
+     * camelCase on the wire, stored snake_case. Absent -> null;
      * no client- or server-side "required" validation, so organic no-UTM traffic
      * stays valid. {@code referrer} is already trimmed to origin (scheme+host) by
      * the web client — the intake stores and caps it, it does NOT re-derive it.
@@ -141,7 +141,7 @@ public class WaitlistIntakeResource {
         final String message = sanitize(req.message(), MAX_MESSAGE);
         final String language = normalizeLanguage(req.language());
 
-        // Attribution (D-OPS-32 (c),(e)): sanitize defensively — blank -> null,
+        // Attribution: sanitize defensively — blank -> null,
         // truncate to cap. No enum/format validation, no hard reject on unknown
         // values (forensic visibility of mis-values beats enforced hygiene).
         final String utmSource = sanitize(req.utmSource(), MAX_UTM_SOURCE);
@@ -210,7 +210,7 @@ public class WaitlistIntakeResource {
     }
 
     /**
-     * Defensive attribution sanitizing (D-OPS-32 (c)): blank/empty -> null, then
+     * Defensive attribution sanitizing: blank/empty -> null, then
      * truncate to {@code maxLen}. No enum or format validation — this endpoint is
      * public and must tolerate any value without rejecting the whole request.
      */

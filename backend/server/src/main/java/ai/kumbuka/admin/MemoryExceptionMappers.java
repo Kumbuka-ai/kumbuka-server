@@ -8,7 +8,7 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
 /**
- * D-CORE-16 / D-CORE-17: map the memory create / remap exceptions to typed HTTP
+ * map the memory create / remap exceptions to typed HTTP
  * 4xx with the {@code {code,message}} body the console consumes (reuses
  * {@link ScopeExceptionMappers#typed}) — never a bare 500. REST surface only;
  * the MCP {@code memory_remember} upsert path is untouched.
@@ -18,7 +18,7 @@ class KeyExistsExceptionMapper implements ExceptionMapper<KeyExistsException> {
     @Override
     public Response toResponse(KeyExistsException ex) {
         // 409 — the key is taken in the scope (author-independent); the curator
-        // is offered a rename rather than a silent overwrite (dogfood-21).
+        // is offered a rename rather than a silent overwrite.
         return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "KEY_EXISTS", ex.getMessage());
     }
 }
@@ -37,7 +37,7 @@ class RemapPrivateForbiddenExceptionMapper implements ExceptionMapper<RemapPriva
 class StaleVersionExceptionMapper implements ExceptionMapper<StaleVersionException> {
     @Override
     public Response toResponse(StaleVersionException ex) {
-        // 409 — §A1.6 optimistic lock: a concurrent edit advanced the version
+        // 409 — optimistic lock: a concurrent edit advanced the version
         // under a stale writer; the console should reload and retry.
         return ScopeExceptionMappers.typed(Response.Status.CONFLICT, "STALE_VERSION", ex.getMessage());
     }

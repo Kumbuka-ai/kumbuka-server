@@ -18,13 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
- * BUG-07 / dogfood-23 (D-CORE-17) — deterministic characterisation of the
+ * deterministic characterisation of the
  * scope-remap REST path end-to-end through a real HTTP dispatch and the
  * DevServices Postgres (move + governance-audit write, the way the team console
- * drives it). The dogfood-23 generic-error symptom was traced to F-0054 (a
+ * drives it). The generic-error symptom was traced to a bootstrap grant gap (a
  * missing INSERT grant on {@code governance_audit} on the prod tenant-backend
- * role, resolved at the bootstrap level via ADR-0026) — NOT a server-code or
- * MCP/REST-shape defect. These tests stand as the D-CORE-17 regression guard:
+ * role, resolved at the bootstrap level) — NOT a server-code or
+ * MCP/REST-shape defect. These tests stand as the regression guard:
  * the happy-path move writes exactly one audit row, and a genuine rejection
  * surfaces as a TYPED 4xx code (never the generic retry toast).
  *
@@ -48,7 +48,7 @@ class ScopeRemapRestIT {
     @TestSecurity(user = "admin", roles = {"admin"})
     void admin_remap_openToOpen_movesEntry_writesOneAudit() {
         UUID id = support.seedEntryThenLock("sl-remap-src", "remap-key", "move me");
-        support.setLocked("sl-remap-src", false);   // dogfood-23 is a plain (unlocked) move
+        support.setLocked("sl-remap-src", false);   // is a plain (unlocked) move
         support.ensureProject("sl-remap-dst", false);
 
         given()
@@ -63,7 +63,7 @@ class ScopeRemapRestIT {
         assertThat(support.entryCount("sl-remap-src")).isZero();
         assertThat(support.entryCount("sl-remap-dst")).isEqualTo(1);
 
-        // Exactly one governance-audit row for this move (D-CORE-17), no override
+        // Exactly one governance-audit row for this move, no override
         // marker (both scopes open).
         List<GovernanceAudit> remaps = support.auditRows("scope.remap").stream()
             .filter(a -> "sl-remap-dst".equals(a.payload.get("toScope")))
@@ -75,7 +75,7 @@ class ScopeRemapRestIT {
     }
 
     // ---- genuine rejection (target already holds the key) → TYPED 409 KEY_EXISTS ----
-    // The generic retry toast (dogfood-23) must never stand in for a real reason.
+    // The generic retry toast must never stand in for a real reason.
     @Test
     @TestSecurity(user = "admin", roles = {"admin"})
     void admin_remap_keyCollisionInTarget_returns409_typedKeyExists() {

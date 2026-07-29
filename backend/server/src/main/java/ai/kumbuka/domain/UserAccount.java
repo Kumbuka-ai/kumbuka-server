@@ -74,7 +74,7 @@ public class UserAccount extends PanacheEntityBase {
     public UserStatus status;
 
     /**
-     * D-CORE-2 mute write-state. When true, shared-scope writes are suspended
+     * mute write-state. When true, shared-scope writes are suspended
      * (console + MCP); private memory and all reads are unaffected. Admin-set,
      * reversible; orthogonal to role and status.
      */
@@ -90,11 +90,11 @@ public class UserAccount extends PanacheEntityBase {
     public String locale;
 
     /**
-     * D-CORE-10.1: onboarding-wizard state, per-user (keyed by KC sub). {@code
+     * onboarding-wizard state, per-user (keyed by KC sub). {@code
      * onboardingDismissed} once the owner ticks "don't show again" OR completes
      * the wizard (both reach the dismissed state); {@code onboardingLastStep} is
      * the resume point while still pending. Server-side so the dialog stays
-     * dismissed across logins/devices (finding dogfood-15a). V15; defaults =
+     * dismissed across logins/devices. V15; defaults =
      * not-yet-dismissed, step 0.
      */
     @Column(name = "onboarding_dismissed", nullable = false)
@@ -119,7 +119,7 @@ public class UserAccount extends PanacheEntityBase {
     public Instant lastSeenAt;
 
     /**
-     * FEAT-13: the instant of this member's FIRST authenticated MCP request —
+     * the instant of this member's FIRST authenticated MCP request —
      * the beta-activation funnel's "first connection" step. Write-once: set once
      * by the {@code mcp} adapter while still {@code null}, never touched
      * thereafter; {@code null} = never connected over MCP. Write-once is the

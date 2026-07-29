@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
  * server adds noise that doesn't change the unit under test (a single
  * String append). The mock-based test pins the contract.
  *
- * <p>D-OPS-25: under SaaS the {@code resource} URL must reflect the host
+ * <p>Under SaaS the {@code resource} URL must reflect the host
  * the client reached. claude.ai rejects a connector whose advertised
  * resource diverges from its configured endpoint.
  */
@@ -56,7 +56,7 @@ class ProtectedResourceMetadataTest {
     }
 
     /**
-     * F-0119 regression: the resource server MUST advertise the scopes a
+     * regression: the resource server MUST advertise the scopes a
      * strict MCP client (Claude/ChatGPT) actually requests — most importantly
      * {@code offline_access} (refresh token). When a requested scope is absent
      * from {@code scopes_supported}, such a client aborts BEFORE the
@@ -72,7 +72,7 @@ class ProtectedResourceMetadataTest {
             .when().get("/.well-known/oauth-protected-resource")
             .then()
                 .statusCode(200)
-                // (a) the F-0119 fix proper: offline_access is advertised.
+                // (a) the fix proper: offline_access is advertised.
                 .body("scopes_supported", hasItem("offline_access"))
                 // (b) the curated OIDC scopes remain present...
                 .body("scopes_supported", hasItems("openid", "profile", "email"))
@@ -88,7 +88,7 @@ class ProtectedResourceMetadataTest {
         assertThat((String) doc.get("resource")).isEqualTo("https://acme.kumbuka.ai/mcp");
         assertThat((String) doc.get("resource_base_uri")).isEqualTo("https://acme.kumbuka.ai/");
         // Authorisation server stays central — tenancy axis is the
-        // Keycloak Organization, not the realm (D-OPS-24).
+        // Keycloak Organization, not the realm.
         @SuppressWarnings("unchecked")
         var authServers = (java.util.List<String>) doc.get("authorization_servers");
         assertThat(authServers).hasSize(1);
@@ -146,7 +146,7 @@ class ProtectedResourceMetadataTest {
         };
     }
 
-    /** Mirrors the shipped ConnectorMetadataConfig defaults (incl. F-0119's offline_access). */
+    /** Mirrors the shipped ConnectorMetadataConfig defaults (incl. the offline_access advertisement). */
     private static ConnectorMetadataConfig stubConnectorMetadata() {
         return new ConnectorMetadataConfig() {
             @Override public java.util.List<String> scopesSupported() {

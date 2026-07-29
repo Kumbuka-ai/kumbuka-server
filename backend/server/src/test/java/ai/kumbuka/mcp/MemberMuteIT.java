@@ -16,7 +16,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * D-CORE-2 mute, proved through the REAL persistence pipeline (vs. the
+ * mute, proved through the REAL persistence pipeline (vs. the
  * mocked-repo unit gate in {@link MemoryToolsMuteTest}). Real {@link MemoryTools}
  * + real repositories + a real {@code user_account.muted} row, against the
  * DevServices Postgres with RLS in force and the seeded {@code private}/{@code global}

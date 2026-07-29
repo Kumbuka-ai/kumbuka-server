@@ -44,7 +44,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     @Inject ScopeRepository scopes;
     @Inject GuidanceOverlay guidance;
 
-    /** Author-independent shared lookup (A1.3 (1)): one canonical live head per key. */
+    /** Author-independent shared lookup: one canonical live head per key. */
     private static final String SHARED_KEY_LOOKUP = "scope = ?1 and key = ?2";
 
     /** Per-author private lookup: each owner keeps their own keyspace. */
@@ -71,14 +71,14 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         // Tenant axis is enforced structurally (Hibernate @TenantId + RLS,
         // ADR-0011). Repository queries below filter on intra-tenant predicates
         // only — never on tenant_id by hand. The upsert lookup is scope-kind-
-        // differentiated to match the V16 partial unique indexes (A1.3 (1)):
+        // differentiated to match the V16 partial unique indexes:
         //   - SHARED (global/project): author-independent (scope, key) — there is
         //     ONE canonical live head per key, so a second author's keyed write
         //     UPDATES that head rather than inserting a parallel row the shared
         //     unique index would then hard-reject.
         //   - PRIVATE: per-author (scope, owner, key) — each owner keeps their
         //     own keyspace (the private unique index is owner-inclusive).
-        // D-CORE-16 keeps THIS path an intentional upsert.
+        // keeps THIS path an intentional upsert.
         if (key != null) {
             boolean privateScope = scope.kind == ScopeKind.PRIVATE;
             Optional<Memory> existing = privateScope
@@ -96,12 +96,12 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 m.content = content;
                 if (type != null) m.type = type;
                 // `source`/`owner_subject` are the FIRST-write authorship and are
-                // intentionally not updated (Amendment 4). The in-place edit
-                // stamps the LAST-editor provenance instead. The D-CORE-7
+                // intentionally not updated. The in-place edit
+                // stamps the LAST-editor provenance instead. The
                 // `reference` is set by the caller on a NEW row only.
                 m.updatedBy = callerSubject;
                 m.updatedSource = source;
-                // §A1.6 optimistic locking: force the @Version check now so a
+                // optimistic locking: force the @Version check now so a
                 // concurrent stale edit surfaces as a typed conflict here, not a
                 // bare exception at commit (and not -32603 on the MCP surface).
                 flushDetectingStaleVersion();
@@ -113,7 +113,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * §A1.6: flush the persistence context and translate Hibernate's optimistic-
+     * flush the persistence context and translate Hibernate's optimistic-
      * lock failure into a typed {@link StaleVersionException} (mapped to a 409 on
      * the console path and a typed tool error on the MCP path). A no-op when the
      * loaded {@code version} still matches the row.
@@ -128,12 +128,12 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * D-CORE-16: the console/admin "new entry" create path. Unlike {@link
+     * the console/admin "new entry" create path. Unlike {@link
      * #remember} (the MCP upsert-by-key), this NEVER overwrites: if {@code key}
      * already exists in the scope — <b>author-independent</b> (one key, one
      * meaning per scope) — it throws {@link KeyExistsException} (→ 409
      * KEY_EXISTS) so the curator is offered a rename instead of silently
-     * replacing the prior row (closes dogfood-21). Keyless entries never collide.
+     * replacing the prior row. Keyless entries never collide.
      */
     @Transactional
     public Memory createShared(String callerSubject,
@@ -240,10 +240,10 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * D-CORE-17: atomically re-home a shared entry into another shared scope.
+     * atomically re-home a shared entry into another shared scope.
      * "Everything preserved, only the scope changes." Admin op; the resource
-     * gates the role + excludes private. Reuses the D-CORE-16 author-independent
-     * key-collision guard against the target. Protected (D-CORE-11) entries are
+     * gates the role + excludes private. Reuses the author-independent
+     * key-collision guard against the target. Protected entries are
      * not remappable. {@code newKey} (optional) lets the admin remap under a
      * different key to dodge a target collision.
      */
@@ -252,7 +252,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         if (entry.lock != MemoryLock.NONE) {
             throw new ProtectedEntryException(
                 ProtectedEntryException.Reason.UPSERT_BLOCKED, entry.key,
-                "locked entries (ADR-0024 §13 / D-CORE-11) cannot be re-homed.");
+                "locked entries cannot be re-homed.");
         }
         Scope target = scopes.requireBySlug(targetSlug);
         if (target.kind == ScopeKind.PRIVATE) {
@@ -291,7 +291,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * D-CORE-16: reject a key that already exists in the scope, author-independent
+     * reject a key that already exists in the scope, author-independent
      * (one key, one meaning per scope). {@code excludeId} skips the row being
      * moved/edited so a same-key remap of the row itself doesn't self-collide.
      * Null/blank key never collides (keyless entries are allowed to repeat).
@@ -343,7 +343,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         }
     }
 
-    /** D-CORE-16: a console create / remap hit an existing key in the scope.
+    /** a console create / remap hit an existing key in the scope.
      *  Mapped to HTTP 409 KEY_EXISTS for REST callers. */
     public static class KeyExistsException extends RuntimeException {
         private final String key;
@@ -351,13 +351,13 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         public String key() { return key; }
     }
 
-    /** D-CORE-17: private was given as a remap source/target — structurally
+    /** private was given as a remap source/target — structurally
      *  forbidden (P1). Mapped to HTTP 422 REMAP_PRIVATE_FORBIDDEN. */
     public static class RemapPrivateForbiddenException extends RuntimeException {
         public RemapPrivateForbiddenException(String message) { super(message); }
     }
 
-    /** §A1.6 optimistic locking: a concurrent edit advanced the {@code version}
+    /** Optimistic locking: a concurrent edit advanced the {@code version}
      *  under a stale writer. Mapped to HTTP 409 STALE_VERSION on the console path
      *  and a typed tool error on the MCP path. */
     public static class StaleVersionException extends RuntimeException {
@@ -370,10 +370,10 @@ public class MemoryRepository implements PanacheRepository<Memory> {
      *   - Shared scopes (project/global): all rows in that scope.
      *
      * When {@code scopeSlug} is null (an <em>unscoped</em> read) the shared
-     * coverage depends on whether a {@code query} is given (D-CORE-5.1):
+     * coverage depends on whether a {@code query} is given:
      * <ul>
      *   <li><b>no query</b> → caller's private rows + the <strong>global</strong>
-     *       scope only; PROJECT scopes are NOT in the default view (D-CORE-5).</li>
+     * scope only; PROJECT scopes are NOT in the default view.</li>
      *   <li><b>with a non-blank query</b> → a discovery search across private +
      *       global + every PROJECT scope the caller sees by RLS, so a project
      *       memory is findable without naming its scope. Each hit carries its
@@ -395,8 +395,8 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         params.put("caller", callerSubject);
         params.put("privateKind", ScopeKind.PRIVATE);
         boolean hasQuery = query != null && !query.isBlank();
-        // D-CORE-5.1: which shared kinds an unscoped read sees, in three cases:
-        //   - scopeSlug == null, NO query  → GLOBAL only (the D-CORE-5 default
+        // which shared kinds an unscoped read sees, in three cases:
+        // - scopeSlug == null, NO query → GLOBAL only (the default
         //     digest view; PROJECT scopes surface only when asked for explicitly).
         //   - scopeSlug == null, WITH query → GLOBAL + PROJECT: a discovery search
         //     spans every project scope the caller sees by RLS, so a forgotten
@@ -461,7 +461,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
         boolean isPrivate = scope.kind == ScopeKind.PRIVATE;
 
         if (logicalId != null) {
-            // Address by logical_id (Amendment 3). Shared deletes are
+            // Address by logical_id. Shared deletes are
             // author-independent (the canonical head); private restricts to
             // the caller's own row.
             String jpql = "logicalId = ?1 and scope = ?2" +
@@ -471,7 +471,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                 : (int) delete(jpql, logicalId, scope);
         }
         if (key != null) {
-            // Code Finding 2 (ratified, Delta 4): forget-by-key is
+            // Forget-by-key is
             // author-independent for SHARED scopes (matching the shared
             // uniqueness + forget-by-id), and per-author for PRIVATE.
             return isPrivate
@@ -498,7 +498,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
     }
 
     /**
-     * The "steering" memory types — the durable, decision-shaping kinds. Per D-CORE-6
+     * The "steering" memory types — the durable, decision-shaping kinds.
      * the default digest returns ONLY these and excludes {@code open_question}, so a
      * context load isn't dominated by unresolved questions.
      */
@@ -507,7 +507,7 @@ public class MemoryRepository implements PanacheRepository<Memory> {
                              MemoryType.GLOSSARY, MemoryType.STATUS));
 
     /**
-     * D-CORE-6: typed digest. When {@code types} is null/empty the default is the
+     * typed digest. When {@code types} is null/empty the default is the
      * {@link #STEERING_TYPES} set (excludes {@code open_question}); pass an explicit set
      * — e.g. to review "what is open on topic X" — to include {@code open_question} or
      * any subset. Server-side default, not a stored filter.

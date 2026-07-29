@@ -11,7 +11,7 @@ import jakarta.inject.Inject;
 import java.util.Optional;
 
 /**
- * Resolves the team's write policy at request time (D3).
+ * Resolves the team's write policy at request time.
  *
  * If the stored {@code writePolicy} is PROJECT but the configured
  * {@code default_scope_id} is missing or points to an archived/private/

@@ -44,7 +44,7 @@ jobs:
   # The commercial multi-tenant edition (ops-console) consumes the SPI for
   # the frozen TenantResolver contract AND consumes kumbuka-server as a
   # plain Maven library so its saas-runtime/ module can overlay the
-  # request-aware resolver bean (D-OPS-23).
+  # request-aware resolver bean.
   # ---------------------------------------------------------------------
   maven-publish:
     name: maven · deploy spi + server to GitHub Packages
@@ -98,7 +98,7 @@ jobs:
         # docker image (backend-image job below) — Maven publish makes
         # it consumable as a library by ops-console/saas-runtime/ so the
         # SaaS image can overlay the request-aware resolver bean
-        # (D-OPS-23). We skip Quarkus' build-time native augmentation
+        # We skip Quarkus' build-time native augmentation
         # during deploy: -Dquarkus.build.skip=true keeps the publish a
         # plain library jar.
         run: mvn -B -ntp -DskipTests -Dquarkus.build.skip=true -pl spi,server -am deploy
@@ -156,7 +156,7 @@ jobs:
           cache-to: type=gha,scope=backend,mode=max
 
   # The Keycloak image is built & released from its own repository since
-  # D-OPS-29: github.com/kumbuka-ai/kumbuka-keycloak (versioned independently
+  # github.com/kumbuka-ai/kumbuka-keycloak (versioned independently
   # via KEYCLOAK_VERSION). It is no longer built here.
 
   # ---------------------------------------------------------------------

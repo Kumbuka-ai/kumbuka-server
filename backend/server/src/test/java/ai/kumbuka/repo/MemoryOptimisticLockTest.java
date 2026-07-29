@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * §A1.6 (Amendment 4): {@code version} is a Hibernate {@code @Version}
+ * {@code version} is a Hibernate {@code @Version}
  * optimistic-lock counter in CE. Two concurrent edits to the same shared head
  * must not silently last-write-wins — the stale writer is rejected (§11).
  *

@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Unit tests for {@link AdminConnectorResource#resolveMcpUrl(String, String)} —
- * the pure D-CORE-4 URL resolution, exercised without CDI or a database.
+ * the pure URL resolution, exercised without CDI or a database.
  */
 class McpUrlResolutionTest {
 
@@ -22,7 +22,7 @@ class McpUrlResolutionTest {
 
     @Test
     void saas_returnsGenericTemplateVerbatim() {
-        // Post-ADR-0032 the SaaS template is the single generic endpoint with
+        // The SaaS template is the single generic endpoint with
         // no <alias> placeholder — returned verbatim, no substitution.
         assertThat(AdminConnectorResource.resolveMcpUrl(
                 "https://mcp.kumbuka.ai/mcp", BASE))

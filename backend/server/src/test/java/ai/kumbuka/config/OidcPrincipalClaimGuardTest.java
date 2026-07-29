@@ -13,7 +13,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Pins the D-CORE-12 boot-guard across the guarded tenants ({@code mcp},
+ * Pins the boot-guard across the guarded tenants ({@code mcp},
  * {@code admin}). Exercised as a {@link QuarkusTest} so the branch coverage
  * lands in jacoco-quarkus.exec (a plain JUnit test would run outside the
  * Quarkus classloader and contribute zero coverage).
@@ -106,7 +106,7 @@ class OidcPrincipalClaimGuardTest {
         assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
                 audienceConfig(true, "any")))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("ADR-0032")
+            .hasMessageContaining("MCP-audience")
             .hasMessageContaining("quarkus.oidc.mcp.token.audience");
     }
 
@@ -115,7 +115,7 @@ class OidcPrincipalClaimGuardTest {
         assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
                 audienceConfig(true, null)))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("ADR-0032");
+            .hasMessageContaining("MCP-audience");
     }
 
     @Test

@@ -85,13 +85,13 @@ public class SessionResource {
         UserAccount account = ensureAccount(subject);
         // displayName fallback: the in-app name, then the Keycloak profile name,
         // then preferred_username, then email. Never the raw sub — the console
-        // chrome must render a human label, not a UUID (D-CORE-12).
+        // chrome must render a human label, not a UUID.
         String displayName = firstNonBlank(
             account.displayName,
             attr("name"),
             attr("preferred_username"),
             email);
-        boolean muted = Boolean.TRUE.equals(account.muted);   // D-CORE-2
+        boolean muted = Boolean.TRUE.equals(account.muted);   // per-member mute
         String role = callerRole();
         String accountConsoleUrl = config.authBaseUrl()
             + "/realms/" + config.realm() + "/account";
@@ -160,7 +160,7 @@ public class SessionResource {
             }
             u.locale = loc;
         }
-        // D-CORE-10.1: persist the onboarding-wizard state (per-user, by KC sub).
+        // persist the onboarding-wizard state (per-user, by KC sub).
         // Both dismiss paths from the console — "don't show again" and completing
         // the wizard — send dismissed=true here so it survives the next login.
         if (req.onboarding() != null) {
