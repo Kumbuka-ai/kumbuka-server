@@ -153,8 +153,14 @@ public class AdminEntriesResource {
         // FEAT-19 / D-CORE-18: locked scope rejects member deletes; admin overrides.
         boolean isAdmin = callerIsAdmin();
         writePolicy.assertScopeWritable(scope, SourceChannel.CONSOLE, isAdmin);
-        // Lookup first so we 404 cleanly when the id is wrong; deleteShared
-        // returns 0 silently otherwise.
+        // Lookup first so we 404 cleanly when the id addresses no row; deleteShared
+        // returns 0 silently otherwise. A synthetic id for a built-in guidance entry
+        // resolves to nothing here: the built-in entries are a read layer, not table
+        // rows, so this row-addressed route answers "not found" — never a typed
+        // reserved-namespace conflict, even though such an entry's key is reserved.
+        // That typed rejection belongs where a real row is addressed; a real row that
+        // carries a reserved key (only reachable below the write seam) is loaded here
+        // and refused inside deleteShared.
         Memory m = sharedMemories.findSharedById(id);
         if (m == null || !m.scope.slug.equals(slug)) {
             throw new NotFoundException("entry not found in scope " + slug);
