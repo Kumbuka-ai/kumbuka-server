@@ -1,0 +1,127 @@
+# Immutability gate for applied database migrations.
+#
+# This service boots with Flyway `migrate-at-start`. Flyway stores a checksum
+# over each applied migration's FULL FILE TEXT — comments, blank lines and
+# formatting all fold into it — and validates the whole history BEFORE it
+# migrates. Editing an already-applied migration file, even to fix a comment,
+# changes that checksum; validation then fails and the container does not start.
+# Not "with a warning", not "skipping the migration": it does not start. This
+# has already caused one production outage whose only repair was a throwaway
+# repair-at-start container against the live database.
+#
+# This gate fails a pull request that modifies, deletes, renames or retypes any
+# migration file that already existed at the last release tag. Adding a NEW
+# migration is the only allowed change. A text correction belongs in the
+# documentation, never in an applied migration — the migration file is the
+# historical record of what was applied, not maintained prose.
+#
+# The gate scans by pathspec glob (so it follows the files if the directory
+# moves), refuses an empty inventory, and fails LOUD when its baseline tag
+# cannot be resolved. A guard that waves everything through when the last tag is
+# missing is not a guard — that silent-green failure mode is the whole point of
+# the fetch-depth/fetch-tags settings below.
+name: migration hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege: this workflow only reads the repository to inspect its history.
+permissions:
+  contents: read
+
+jobs:
+  immutable-migrations:
+    name: applied migrations are immutable
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 + fetch-tags: true — the baseline is the last release tag
+      # reachable from HEAD; without full history and tags it cannot be resolved,
+      # which is exactly the path by which this gate would fall silently green.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: applied migrations are unchanged since the last release tag
+        run: |
+          python3 - <<'PY'
+          import subprocess, sys
+
+          def git(*args):
+              return subprocess.run(["git", *args], capture_output=True, text=True)
+
+          # Migration files are found by pathspec glob, not by hardcoded directory:
+          # if someone moves the migration directory a hardcoded path would make the
+          # diff empty and this gate green forever — disarmed without anyone
+          # noticing. The glob follows the files instead.
+          GLOBS = ["*/db/migration/*.sql", "*/db/ee-migration/*.sql"]
+
+          # 1. Baseline: the most recent tag reachable from HEAD. In a pull request
+          #    that is the last release tag before the branch point — the correct
+          #    baseline, because everything between that tag and HEAD is not yet
+          #    released and therefore still freely correctable.
+          base = git("describe", "--tags", "--abbrev=0")
+          if base.returncode != 0 or not base.stdout.strip():
+              print("FAIL: no release tag is reachable from HEAD, so the baseline for")
+              print("the immutability check cannot be resolved. This usually means the")
+              print("checkout did not fetch tags (it needs fetch-depth: 0 and")
+              print("fetch-tags: true). Refusing to pass without a baseline.")
+              sys.exit(1)
+          base = base.stdout.strip()
+
+          # 2. Inventory the tracked migration files and refuse an empty set. An
+          #    empty inventory means the globs match nothing (the directory was
+          #    moved or renamed) and the gate would be vacuously green.
+          inv = git("ls-files", *GLOBS)
+          files = [p for p in inv.stdout.split("\n") if p]
+          if not files:
+              print("FAIL: no migration files matched " + " ".join(GLOBS) + ".")
+              print("Either the migration directory moved or the globs are wrong.")
+              print("Refusing to pass on an empty inventory — this gate must see the")
+              print("migrations it exists to protect.")
+              sys.exit(1)
+
+          # 3. Diff the migration files between the baseline and HEAD. --no-renames
+          #    is deliberate: a rename must surface as delete+add so the delete
+          #    trips the guard — a renamed migration is a checksum/version break,
+          #    not a harmless move.
+          diff = git("diff", "--name-status", "--no-renames", base, "HEAD", "--", *GLOBS)
+          if diff.returncode != 0:
+              print("FAIL: could not diff migrations against " + base + ".")
+              print(diff.stderr.strip())
+              sys.exit(1)
+
+          # 4. Verdict. Status A (added) is allowed; anything else — M, D, T, and R
+          #    if it ever appears despite --no-renames — is a violation.
+          violations = []
+          for line in diff.stdout.split("\n"):
+              if not line.strip():
+                  continue
+              parts = line.split("\t")
+              status, path = parts[0], parts[-1]
+              if status != "A":
+                  violations.append((status, path))
+
+          if violations:
+              print("FAIL: migration files applied at or before " + base + " were changed.")
+              print("Flyway validates the checksum of every applied migration before it")
+              print("migrates; a changed file breaks that validation and the next boot")
+              print("fails. Add a NEW migration instead, and put text corrections in the")
+              print("documentation rather than in an already-applied migration:")
+              print()
+              for status, path in sorted(violations, key=lambda v: v[1]):
+                  print("  " + status + "\t" + path)
+              sys.exit(1)
+
+          print("OK: " + str(len(files)) + " migration file(s) inventoried; none of the")
+          print("files present at " + base + " were modified, deleted, renamed or retyped.")
+          PY
