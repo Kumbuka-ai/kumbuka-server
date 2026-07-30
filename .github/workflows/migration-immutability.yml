@@ -19,7 +19,8 @@
 # moves), refuses an empty inventory, and fails LOUD when its baseline tag
 # cannot be resolved. A guard that waves everything through when the last tag is
 # missing is not a guard — that silent-green failure mode is the whole point of
-# the fetch-depth/fetch-tags settings below.
+# the fetch-depth/fetch-tags settings below. On a violation it also writes inline
+# annotations (pinned to the offending files) and a run summary panel.
 name: migration hygiene
 
 on:
@@ -54,10 +55,28 @@ jobs:
       - name: applied migrations are unchanged since the last release tag
         run: |
           python3 - <<'PY'
-          import subprocess, sys
+          import subprocess, sys, os
 
           def git(*args):
               return subprocess.run(["git", *args], capture_output=True, text=True)
+
+          # A markdown panel on the run page (GitHub renders $GITHUB_STEP_SUMMARY).
+          # No-op locally, where the variable is unset, so the gate logic can be
+          # extracted and exercised outside CI unchanged.
+          def summary(lines):
+              path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if path:
+                  with open(path, "a", encoding="utf-8") as fh:
+                      fh.write("\n".join(lines) + "\n")
+
+          def why(status, base):
+              if status == "M":
+                  return "Modified after it was applied at " + base + " — add a new migration instead of editing this one."
+              if status == "D":
+                  return "Deleted, but it was applied at " + base + " — an applied migration must not be removed."
+              if status == "T":
+                  return "File type changed, but it was applied at " + base + " — applied migrations are immutable."
+              return "Changed (" + status + ") since " + base + " — applied migrations are immutable."
 
           # Migration files are found by pathspec glob, not by hardcoded directory:
           # if someone moves the migration directory a hardcoded path would make the
@@ -75,6 +94,13 @@ jobs:
               print("the immutability check cannot be resolved. This usually means the")
               print("checkout did not fetch tags (it needs fetch-depth: 0 and")
               print("fetch-tags: true). Refusing to pass without a baseline.")
+              print("::error::No release tag reachable from HEAD — the immutability baseline cannot be resolved (the checkout needs fetch-depth 0 and fetch-tags true).")
+              summary([
+                  "## Applied migrations are immutable — FAILED",
+                  "",
+                  "No release tag is reachable from HEAD, so the baseline cannot be resolved.",
+                  "The checkout most likely did not fetch tags (it needs `fetch-depth: 0` and `fetch-tags: true`).",
+              ])
               sys.exit(1)
           base = base.stdout.strip()
 
@@ -88,6 +114,13 @@ jobs:
               print("Either the migration directory moved or the globs are wrong.")
               print("Refusing to pass on an empty inventory — this gate must see the")
               print("migrations it exists to protect.")
+              print("::error::No migration files matched the inventory globs — nothing to protect (the migration directory was probably moved or renamed).")
+              summary([
+                  "## Applied migrations are immutable — FAILED",
+                  "",
+                  "No migration files matched the inventory globs, so there is nothing to protect.",
+                  "The migration directory was probably moved or renamed.",
+              ])
               sys.exit(1)
 
           # 3. Diff the migration files between the baseline and HEAD. --no-renames
@@ -98,6 +131,7 @@ jobs:
           if diff.returncode != 0:
               print("FAIL: could not diff migrations against " + base + ".")
               print(diff.stderr.strip())
+              print("::error::Could not diff migrations against " + base + ".")
               sys.exit(1)
 
           # 4. Verdict. Status A (added) is allowed; anything else — M, D, T, and R
@@ -110,6 +144,7 @@ jobs:
               status, path = parts[0], parts[-1]
               if status != "A":
                   violations.append((status, path))
+          violations.sort(key=lambda v: v[1])
 
           if violations:
               print("FAIL: migration files applied at or before " + base + " were changed.")
@@ -118,10 +153,31 @@ jobs:
               print("fails. Add a NEW migration instead, and put text corrections in the")
               print("documentation rather than in an already-applied migration:")
               print()
-              for status, path in sorted(violations, key=lambda v: v[1]):
+              for status, path in violations:
                   print("  " + status + "\t" + path)
+              # Inline annotations, pinned to each offending file on the diff.
+              for status, path in violations:
+                  print("::error file=" + path + "::" + why(status, base))
+              rows = ["| " + status + " | `" + path + "` |" for status, path in violations]
+              summary([
+                  "## Applied migrations are immutable — FAILED",
+                  "",
+                  "Migration files that already existed at `" + base + "` were changed. Flyway",
+                  "checksums the full text of every applied migration and validates the whole",
+                  "history before it migrates, so a changed file makes the next boot fail. Add a",
+                  "**new** migration instead, and keep text corrections in the documentation.",
+                  "",
+                  "| status | migration file |",
+                  "| --- | --- |",
+              ] + rows)
               sys.exit(1)
 
           print("OK: " + str(len(files)) + " migration file(s) inventoried; none of the")
           print("files present at " + base + " were modified, deleted, renamed or retyped.")
+          summary([
+              "## Applied migrations are immutable — OK",
+              "",
+              "**" + str(len(files)) + "** migration file(s) inventoried against baseline `" + base + "`.",
+              "None of the files present at that tag were modified, deleted, renamed or retyped.",
+          ])
           PY
