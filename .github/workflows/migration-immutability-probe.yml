@@ -31,7 +31,7 @@ jobs:
           awk '/python3 - <</{f=1;next} /^[[:space:]]*PY[[:space:]]*$/{f=0} f' \
             .github/workflows/migration-immutability.yml | sed 's/^          //' > /tmp/gate.py
           echo "--- extracted gate.py (head) ---"; sed -n '1,8p' /tmp/gate.py
-      - name: run gate on clean HEAD (predict: green, exit 0)
+      - name: run gate on clean HEAD (predict green, exit 0)
         run: |
           set +e; out=$(python3 /tmp/gate.py); rc=$?; set -e
           printf '%s\n' "$out"; echo "observed exit=$rc"
@@ -112,7 +112,7 @@ jobs:
         run: |
           awk '/python3 - <</{f=1;next} /^[[:space:]]*PY[[:space:]]*$/{f=0} f' \
             .github/workflows/migration-immutability.yml | sed 's/^          //' > /tmp/gate.py
-      - name: run gate with no reachable tag (predict: red, exit 1, baseline message)
+      - name: run gate with no reachable tag (predict red, exit 1, baseline message)
         run: |
           echo "tags visible: [$(git tag --list | tr '\n' ' ')]"
           set +e; out=$(python3 /tmp/gate.py); rc=$?; set -e
