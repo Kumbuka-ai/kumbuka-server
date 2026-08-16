@@ -68,7 +68,7 @@ $do$;
 --        app.tenant_id  — the bound tenant
 --        app.subject    — the calling subject (NEW; set by the consumers)
 --    The lookup IS the membership check: a subject sees a project scope only
---    when it is an enabled member (user_account.enabled) of that scope's tenant.
+--    when it is an active member (user_account.status = 'active') of that scope's tenant.
 --    `archived` is PUBLISHED, never filtered — a write into a retired scope must
 --    be refusable with a specific error, not with "not found". The private and
 --    global scopes never appear (kind = 'project').
@@ -83,7 +83,7 @@ CREATE VIEW platform.scope_access AS
     WHERE s.kind = 'project'
       AND s.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
       AND ua.subject  = NULLIF(current_setting('app.subject',   true), '')
-      AND ua.enabled;
+      AND ua.status   = 'active';
 
 -- ---------------------------------------------------------------------------
 -- 4. grants — individual, never ON ALL TABLES, never to PUBLIC.
