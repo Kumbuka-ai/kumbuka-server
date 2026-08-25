@@ -164,6 +164,20 @@
             <version>1.20.4</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            Flyway's PostgreSQL support, for the probe that drives Flyway
+            DIRECTLY (MigrationCallbackWitnessIT). The application never needs
+            it declared: the quarkus-flyway extension contributes it during
+            augmentation. A plain JUnit test calling Flyway.configure() runs on
+            the bare test classpath instead, where its absence surfaces as
+            "No Flyway database plugin found to handle jdbc:postgresql://…".
+            Version comes from the Quarkus BOM.
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Instruments @QuarkusTest-driven code for JaCoCo (the Quarkus test
              classloader otherwise hides coverage). Writes target/jacoco-quarkus.exec,
              which the jacoco-maven-plugin's report goal merges with target/jacoco.exec. -->
