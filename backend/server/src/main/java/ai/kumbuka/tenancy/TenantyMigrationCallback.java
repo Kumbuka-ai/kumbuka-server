@@ -1,6 +1,5 @@
 package ai.kumbuka.tenancy;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import org.flywaydb.core.api.callback.BaseCallback;
 import org.flywaydb.core.api.callback.Context;
 import org.flywaydb.core.api.callback.Event;
@@ -15,15 +14,24 @@ import java.sql.Statement;
  * passes the RLS policies introduced in V3.
  *
  * V3 itself is pure DDL and would not need this; the callback is here
- * for migrations that <em>do</em> carry DML in the future. Without it,
- * a forgotten {@code set_config} inside a seed migration would silently
- * fail closed under <code>FORCE ROW LEVEL SECURITY</code>.
+ * for the migrations that <em>do</em> carry DML — V4 and V16 each carry a
+ * backfill and each names it. Without it such a backfill fails closed under
+ * <code>FORCE ROW LEVEL SECURITY</code>: an INSERT is refused outright, and an
+ * UPDATE silently matches no row at all.
  *
- * <p>Discovery: registered as a CDI bean and picked up automatically
- * by {@code quarkus-flyway} via the
- * {@link org.flywaydb.core.api.callback.Callback} SPI.
+ * <h2>How this callback reaches Flyway</h2>
+ *
+ * Through {@code quarkus.flyway.callbacks} in application.properties, and
+ * through nothing else. The Quarkus Flyway extension resolves callbacks from
+ * that configuration key by class name and instantiates them REFLECTIVELY,
+ * through the no-argument constructor; it does not discover them as CDI beans.
+ *
+ * <p>That distinction is worth stating because getting it wrong is silent: a
+ * callback written as a CDI bean and left out of that key is never registered,
+ * every migration runs without it, and nothing reports a callback that did not
+ * fire. So this is a plain class with no injection point, and
+ * {@code MigrationCallbackWitnessIT} is what observes it firing.
  */
-@ApplicationScoped
 public class TenantyMigrationCallback extends BaseCallback {
 
     /**

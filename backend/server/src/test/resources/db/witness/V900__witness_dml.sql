@@ -1,0 +1,38 @@
+-- ===========================================================================
+-- A migration carrying DML, for MigrationCallbackWitnessIT and for nothing
+-- else. It lives in the TEST resources, on a Flyway location the application
+-- never names: `quarkus.flyway.locations` is unset in this module, so the
+-- application reads classpath:db/migration and only that.
+--
+-- WHY IT EXISTS
+--
+-- The tenant-binding callback is registered by class name in
+-- `quarkus.flyway.callbacks`, reflectively, and never as a CDI bean. A callback
+-- left out of that key is silently never registered.
+--
+-- The shipped chain does carry DML — V4 backfills team_settings, V16 backfills
+-- the identity columns of memory — but each of them runs against a table that
+-- is still empty at that point of a fresh chain, so each is a no-op there and
+-- neither can witness anything. The probe needs a statement that actually
+-- writes a row, at a point where V3's policies are already in force. This is
+-- that statement. The schema, the policy and the role it writes against are the
+-- real ones, produced by the real V1 to V3; only this statement is the test's.
+--
+-- The tenant id is a placeholder rather than a read of the session setting, and
+-- that is the point. Taking it from `app.tenant_id` would make the row
+-- trivially satisfy the policy it is supposed to be tested against, and the
+-- probe would prove nothing. As a literal it must match a setting that only the
+-- callback binds — so with the callback absent, the WITH CHECK clause compares
+-- against NULL and the insert is refused.
+--
+-- The migrator OWNS this table and is refused all the same, which is FORCE ROW
+-- LEVEL SECURITY doing its work — and the reason V3 sets FORCE even though the
+-- runtime role is not an owner.
+--
+-- The version is far above the shipped chain, so the fixture can never come
+-- between two real migrations; the order is decided by the version number, not
+-- by the order of the locations.
+-- ===========================================================================
+
+INSERT INTO scope (tenant_id, name, kind, slug)
+VALUES ('${tenantId}'::uuid, 'witness scope', 'project', 'witness-scope');
