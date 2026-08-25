@@ -40,6 +40,7 @@ class PlatformScopeAccessIT {
 
     private static final String WORKLIST   = "kumbuka_worklist";   // V21, LOGIN, not BYPASSRLS
     private static final String LOGBOOK    = "kumbuka_logbook";    // V21, LOGIN, not BYPASSRLS
+    private static final String MEMORY     = "kumbuka_memory";     // V22, LOGIN, not BYPASSRLS
     private static final String OPS_READER = "kumbuka_ops_reader"; // V6, LOGIN BYPASSRLS
     /** A kumbuka-like base-table owner: non-super, non-BYPASSRLS, as the deploy
      *  path's owner-normalisation leaves it. */
@@ -164,22 +165,76 @@ class PlatformScopeAccessIT {
         }
     }
 
-    // ---- criterion 6: the steering roles are non-super / non-BYPASSRLS ------
+    // ---- criterion 6: the reader roles are non-super / non-BYPASSRLS --------
 
     @Test
-    void criterion6_steeringRolesAreNeitherSuperNorBypassrls() throws Exception {
+    void criterion6_readerRolesAreNeitherSuperNorBypassrls() throws Exception {
         try (Connection c = ds.getConnection();
              Statement s = c.createStatement();
              ResultSet rs = s.executeQuery(
                  "SELECT rolname, rolsuper, rolbypassrls FROM pg_roles "
-               + "WHERE rolname IN ('" + WORKLIST + "','" + LOGBOOK + "') ORDER BY rolname")) {
+               + "WHERE rolname IN ('" + WORKLIST + "','" + LOGBOOK + "','" + MEMORY + "') "
+               + "ORDER BY rolname")) {
             int n = 0;
             while (rs.next()) {
                 n++;
                 assertThat(rs.getBoolean("rolsuper")).as("%s rolsuper", rs.getString("rolname")).isFalse();
                 assertThat(rs.getBoolean("rolbypassrls")).as("%s rolbypassrls", rs.getString("rolname")).isFalse();
             }
-            assertThat(n).as("both steering roles present").isEqualTo(2);
+            assertThat(n)
+                .as("all three enumerated readers present: the two steering roles (V21) and "
+                    + "the memory service (V22). The count is asserted, not just the attributes "
+                    + "of whatever happened to be found — a role missing from the chain would "
+                    + "otherwise pass this test by being absent from it")
+                .isEqualTo(3);
+        }
+    }
+
+    // ---- the memory service: granted the view, walled off from the tables ---
+
+    /**
+     * V22's half of the arrangement, from this side of the line.
+     *
+     * <p>The memory engine is moving into a service of its own. Once it is out,
+     * the scope it stores on every entry is another service's object, so the
+     * reference becomes a runtime read of this view rather than a join — and
+     * that read only works if this chain granted it. Nothing else in this suite
+     * says so: V22 could be reverted, or never applied to a cluster, and every
+     * other case here would stay green while the memory service failed to
+     * resolve a single scope.
+     *
+     * <p>The second half is the more important one. The grant is on the VIEW and
+     * on nothing else — no USAGE that reaches past it, no SELECT on the base
+     * tables. That absence is what makes the contract a question the consumer
+     * asks rather than a table it holds, and it is asserted here for the same
+     * reason criterion 4 asserts it for the steering roles.
+     */
+    @Test
+    void memoryService_readsTheDirectory_andIsWalledOffFromTheBaseTables() throws Exception {
+        try (Connection c = ds.getConnection()) {
+            c.setAutoCommit(false);
+            try (Statement s = c.createStatement()) {
+                setupOwnerShapeAndSeed(s);
+                s.execute("SET LOCAL SESSION AUTHORIZATION " + MEMORY);
+
+                // The grant: bound tenant and an active member of it, and the
+                // directory answers — under the same FORCE-RLS owner shape the
+                // steering roles are measured against.
+                setGucs(s, TENANT_A, SUBJECT_A);
+                assertThat(slugs(s))
+                    .as("V22 grants the memory service SELECT on platform.scope_access; "
+                        + "without it this read is refused with 42501 and the extracted "
+                        + "service cannot resolve any scope at all")
+                    .containsExactly("a-project-one", "a-project-two");
+
+                // And the wall: the view is the whole of the entitlement.
+                for (String t : List.of("scope", "team", "user_account")) {
+                    s.execute("SAVEPOINT sp");
+                    assertDenied(s, "SELECT 1 FROM public." + t + " LIMIT 1");
+                    s.execute("ROLLBACK TO SAVEPOINT sp");
+                }
+            }
+            c.rollback();
         }
     }
 
