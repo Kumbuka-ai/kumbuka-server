@@ -22,6 +22,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * owner after the deploy-path sweep) lives in ops-console's cold-start replay,
  * not here.
  *
+ * <p>Since V23 the base tables live in the schema {@code platform}, not in
+ * {@code public}. The statements that name a schema explicitly say
+ * {@code platform.} accordingly; the ones left unqualified stay unqualified on
+ * purpose — they resolve through the connection's search_path, which is the
+ * mechanism production actually relies on (the path sits on the database role),
+ * so leaving them qualified would stop exercising it.
+ *
  * <p>DevServices runs Postgres with a SUPERUSER app account, so the production
  * owner shape does not exist here (the owner-normalisation sweep does not run in
  * tests). Each test therefore constructs it inside an uncommitted transaction —
@@ -143,7 +150,7 @@ class PlatformScopeAccessIT {
                 s.execute("SET LOCAL SESSION AUTHORIZATION " + WORKLIST);
                 for (String t : List.of("scope", "team", "user_account")) {
                     s.execute("SAVEPOINT sp");
-                    assertDenied(s, "SELECT 1 FROM public." + t + " LIMIT 1");
+                    assertDenied(s, "SELECT 1 FROM platform." + t + " LIMIT 1");
                     s.execute("ROLLBACK TO SAVEPOINT sp");
                 }
             }
@@ -230,7 +237,7 @@ class PlatformScopeAccessIT {
                 // And the wall: the view is the whole of the entitlement.
                 for (String t : List.of("scope", "team", "user_account")) {
                     s.execute("SAVEPOINT sp");
-                    assertDenied(s, "SELECT 1 FROM public." + t + " LIMIT 1");
+                    assertDenied(s, "SELECT 1 FROM platform." + t + " LIMIT 1");
                     s.execute("ROLLBACK TO SAVEPOINT sp");
                 }
             }
@@ -275,8 +282,8 @@ class PlatformScopeAccessIT {
                 s.execute("GRANT SELECT ON scope TO " + WORKLIST); // break
                 s.execute("SET LOCAL SESSION AUTHORIZATION " + WORKLIST);
                 // The 42501 wall is gone — the select now succeeds.
-                try (ResultSet rs = s.executeQuery("SELECT count(*) FROM public.scope")) {
-                    assertThat(rs.next()).as("probe 2: worklist can now read public.scope").isTrue();
+                try (ResultSet rs = s.executeQuery("SELECT count(*) FROM platform.scope")) {
+                    assertThat(rs.next()).as("probe 2: worklist can now read platform.scope").isTrue();
                 }
             }
             c.rollback(); // revokes the grant
