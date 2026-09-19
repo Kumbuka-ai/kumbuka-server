@@ -15,12 +15,17 @@
 #   rollback     the previous chain (V1..V22) meeting an upgraded database
 #   routing      team_tenant_id_by_alias across the move, both pins
 #   catalogue    who may touch what in platform, after the move
+#   revert       the way back: step, revert, and the old image starting again
+#   reforward    step, revert, step — the second move is green
 #
 # Red probes (each named RED, each expected to fail where a green run passes)
 #   red-halfstate     history in both schemas — the step must refuse, unchanged
 #   red-baseline      baseline-on-migrate on vs off in the half-state
 #   red-catalogue     a granted SELECT on the view must turn the probe red
 #   red-routing       the OLD pin must stop resolving once the tables move
+#   red-revert-v23    after V23 the revert must refuse, unchanged
+#   red-revert-path   a foreign search_path must stop the revert, unchanged
+#   red-revert-window without the revert the old image cannot start; with it, it can
 #
 # Usage
 #   ./stage-f-probe.sh              # every case
@@ -31,6 +36,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPGRADE_SQL="${UPGRADE_SQL:-$HERE/../stage-f-relocate-history.sql}"
+REVERT_SQL="${REVERT_SQL:-$HERE/../stage-f-relocate-history-revert.sql}"
 SERVER_ROOT="${SERVER_ROOT:-$(cd "$HERE/../../.." && pwd)}"
 MIGRATIONS="${MIGRATIONS:-$SERVER_ROOT/backend/server/src/main/resources/db/migration}"
 SERVER_POM="${SERVER_POM:-$SERVER_ROOT/backend/server/pom.xml}"
@@ -63,6 +69,7 @@ die() { printf 'PROBE ABORTED: %s\n' "$*" >&2; exit 1; }
 
 [[ -d "$MIGRATIONS" ]]   || die "migration directory not found: $MIGRATIONS"
 [[ -f "$UPGRADE_SQL" ]]  || die "upgrade step not found: $UPGRADE_SQL"
+[[ -f "$REVERT_SQL" ]]   || die "revert step not found: $REVERT_SQL"
 command -v docker >/dev/null || die "docker not on PATH"
 command -v mvn    >/dev/null || die "mvn not on PATH"
 command -v javac  >/dev/null || die "javac not on PATH"
@@ -135,7 +142,22 @@ reset_cluster() {
   docker rm -f "$CT" >/dev/null 2>&1 || true
   docker run -d --name "$CT" -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_PASSWORD=probe \
     -p "$PORT":5432 "$PG_IMAGE" >/dev/null
-  for i in $(seq 1 90); do docker exec "$CT" pg_isready -U "$MIGRATOR" >/dev/null 2>&1 && break
+  # Waiting for a connection is not enough on its own. The official image starts
+  # the cluster TWICE — once for initdb with a unix socket only, then again for
+  # real — and both pg_isready and a plain SELECT answer yes to the first one.
+  # A probe that continued there met the second start mid-flight: "the database
+  # system is starting up", and one reset later "No such file or directory" for
+  # a socket that had just gone away. Measured while adding the revert cases,
+  # which multiplied the resets per run from ten to fifteen.
+  #
+  # So: wait for the image to say the init process is done, and only then for a
+  # statement to succeed. The first waits out the restart; the second waits for
+  # the cluster that will still be there afterwards.
+  for i in $(seq 1 90); do
+    docker logs "$CT" 2>&1 | grep -q 'init process complete' && break
+    sleep 1; [[ $i -lt 90 ]] || die "probe container never finished initdb"; done
+  for i in $(seq 1 90); do
+    docker exec "$CT" psql -U "$MIGRATOR" -d postgres -qtAc 'SELECT 1' >/dev/null 2>&1 && break
     sleep 1; [[ $i -lt 90 ]] || die "probe container never became ready"; done
   sqla "CREATE DATABASE $DB"
   sql "CREATE ROLE $RUNTIME LOGIN NOSUPERUSER NOBYPASSRLS" >/dev/null
@@ -159,6 +181,35 @@ ee_chain_dir() {
 
 run_upgrade_step() { docker exec -i "$CT" psql -U "$MIGRATOR" -d "$DB" -v ON_ERROR_STOP=1 \
                        -v migrator="$MIGRATOR" -v runtime="$RUNTIME" -v db="$DB" -q 2>&1 < "$UPGRADE_SQL"; }
+
+run_revert_step()  { docker exec -i "$CT" psql -U "$MIGRATOR" -d "$DB" -v ON_ERROR_STOP=1 \
+                       -v migrator="$MIGRATOR" -v runtime="$RUNTIME" -v db="$DB" -q 2>&1 < "$REVERT_SQL"; }
+
+# The three facts the relocation writes, read back as one string so that "was
+# anything touched" is a single comparison. Used by every RED revert case: a
+# refusal that changed one of the three is not a refusal.
+stage_f_state() {
+  sql "SELECT coalesce(to_regclass('platform.flyway_schema_history')::text,'-')
+           || '|' || coalesce(to_regclass('public.flyway_schema_history')::text,'-')
+           || '|' || (SELECT count(*) FROM pg_db_role_setting)
+           || '|' || has_schema_privilege('$RUNTIME','platform','USAGE')"
+}
+
+# What Hibernate's schema validation actually asks, asked the same way.
+#
+# It resolves an unqualified entity against the connection's ONE default schema
+# — current_schema(), the first entry of the search_path — and looks for the
+# table there. It does not walk the rest of the path. So the question is not
+# "can this role reach user_account" but "is user_account in the schema this
+# connection defaults to", and that is what this asks, as the runtime role.
+#
+# A stand-in for Hibernate and named as one: the probe carries no entity
+# mappings and building a persistence unit here would be a second model of the
+# application's own. What it reproduces exactly is the resolution rule that
+# sprint/185.2 measured the old image failing on.
+hibernate_would_find() {   # hibernate_would_find <table>
+  as "$RUNTIME" "SELECT coalesce(to_regclass(current_schema() || '.$1')::text, '<absent>')"
+}
 
 owner_sweep() {   # what the deployment's bootstrap does; the view only binds under a non-super owner
   sql "DO \$\$ DECLARE o record; BEGIN
@@ -345,7 +396,7 @@ case_window() {
   say "  platform: $plat"
   if [[ "$cs" == "platform" && "$plat" != *scope* ]]; then
     gap "in this window an unqualified entity mapping resolves into an empty schema" \
-        "current_schema() is already 'platform' while the tables are still in 'public'. Flyway is fine, but a restart of the OLD image validates its entities against 'platform' and finds nothing. The window must be kept short, or step 2 and step 3 taken together."
+        "current_schema() is already 'platform' while the tables are still in 'public'. Flyway is fine, but a restart of the OLD image validates its entities against 'platform' and finds nothing. The window still exists and must be kept short — but since sprint/185.3 it is no longer one-way: stage-f-relocate-history-revert.sql closes it, and red-revert-window measures that it does."
   else
     ok "current_schema() and the tables agree in the window (cs=$cs)"
   fi
@@ -566,13 +617,200 @@ case_red_routing() {
     || bad "with the new pin the same database resolves again" "$after"
 }
 
+
+# ===========================================================================
+# The way back. This is the case the whole file exists around: between the
+# upgrade step and the deploy of the V23 image the old image cannot restart,
+# and until sprint/185.3 there was nothing to undo the step with.
+# ===========================================================================
+case_revert() {
+  hdr "REVERT — production state, the step, and then the way back"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+
+  local before_state; before_state="$(stage_f_state)"
+  say "before the step: $before_state"
+
+  run_upgrade_step >/dev/null
+  say "after the step:  $(stage_f_state)"
+
+  say "the way back:"
+  run_revert_step | sed 's/^/       /'
+
+  # The three facts the dispatch names, each on its own so a failure says which.
+  [[ "$(history_in public)" != "<absent>" && "$(history_in platform)" == "<absent>" ]] \
+    && ok "the history is back in public" \
+    || bad "the history is back in public" \
+           "public=$(history_in public) platform=$(history_in platform)"
+
+  local settings; settings="$(sql "SELECT count(*) FROM pg_db_role_setting")"
+  [[ "$settings" == "0" ]] \
+    && ok "pg_db_role_setting carries no row for either role" \
+    || bad "pg_db_role_setting carries no row for either role" "rows: $settings"
+
+  local usage; usage="$(sql "SELECT has_schema_privilege('$RUNTIME','platform','USAGE')")"
+  [[ "$usage" == "f" ]] \
+    && ok "$RUNTIME has no USAGE on platform" \
+    || bad "$RUNTIME has no USAGE on platform" "has_schema_privilege said $usage"
+
+  # And the point of all three: the old image starts.
+  local out; out="$(flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=validate)"
+  printf '%s\n' "$out" | grep -q 'validate OK' \
+    && ok "the old chain validates green against the reverted database" \
+    || bad "the old chain validates green against the reverted database" "$out"
+
+  local found; found="$(hibernate_would_find user_account)"
+  [[ "$found" == *user_account* ]] \
+    && ok "an unqualified entity resolves again ($found)" \
+    || bad "an unqualified entity resolves again" "current_schema() holds: $found"
+
+  say "idempotency — the same revert again:"
+  out="$(run_revert_step)"
+  printf '%s\n' "$out" | grep -qi 'already in the pre-stage-F state' \
+    && ok "a second revert says it has nothing to do" \
+    || bad "a second revert says it has nothing to do" "$out"
+}
+
+# ===========================================================================
+case_reforward() {
+  hdr "REFORWARD — step, revert, step: the second move is green"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+
+  run_upgrade_step >/dev/null
+  run_revert_step  >/dev/null
+
+  local out; out="$(run_upgrade_step)"
+  printf '%s\n' "$out" | grep -qi 'history moved to platform' \
+    && ok "the second relocation runs green" \
+    || bad "the second relocation runs green" "$out"
+
+  [[ "$(history_in platform)" != "<absent>" && "$(history_in public)" == "<absent>" ]] \
+    && ok "and the history is in platform again" \
+    || bad "and the history is in platform again" \
+           "public=$(history_in public) platform=$(history_in platform)"
+
+  out="$(flyway --locations="filesystem:$MIGRATIONS,filesystem:$(ee_chain_dir)" --action=migrate)"
+  printf '%s\n' "$out" | grep -q 'migrate OK' \
+    && ok "the new chain migrates after the round trip" \
+    || bad "the new chain migrates after the round trip" "$out"
+}
+
+# ===========================================================================
+case_red_revert_v23() {
+  hdr "RED — after V23 the revert must refuse and change nothing"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+  run_upgrade_step >/dev/null
+
+  say "green control first — the same database, V23 not yet applied:"
+  local out; out="$(run_revert_step)"
+  printf '%s\n' "$out" | grep -qi 'history is back in public' \
+    && ok "CONTROL: before V23 the revert runs green" \
+    || bad "CONTROL: before V23 the revert runs green" "$out"
+
+  say "now forward again, and apply V23:"
+  run_upgrade_step >/dev/null
+  flyway --locations="filesystem:$MIGRATIONS,filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+
+  local before; before="$(stage_f_state)"
+  out="$(run_revert_step || true)"
+  printf '%s\n' "$out" | sed 's/^/       /'
+  printf '%s\n' "$out" | grep -qi 'forward only' \
+    && ok "RED: the revert refuses after V23, and says the way is forward only" \
+    || bad "RED: the revert refuses after V23" "$out"
+
+  [[ "$(stage_f_state)" == "$before" ]] \
+    && ok "RED: nothing was changed — history, role settings and the schema ACL are as they were" \
+    || bad "RED: nothing was changed" "before=[$before] after=[$(stage_f_state)]"
+}
+
+# ===========================================================================
+case_red_revert_path() {
+  hdr "RED — a search_path somebody else set must stop the revert, unchanged"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+  run_upgrade_step >/dev/null
+
+  say "set the runtime role's search_path to something the relocation never writes:"
+  sql "ALTER ROLE $RUNTIME SET search_path = platform, public, extensions" >/dev/null
+
+  local before; before="$(stage_f_state)"
+  local out; out="$(run_revert_step || true)"
+  printf '%s\n' "$out" | sed 's/^/       /'
+  printf '%s\n' "$out" | grep -qi 'not the .* the relocation sets' \
+    && ok "RED: the revert refuses, naming both the found and the expected value" \
+    || bad "RED: the revert refuses on a foreign search_path" "$out"
+
+  [[ "$(stage_f_state)" == "$before" ]] \
+    && ok "RED: nothing was changed — the foreign setting is still there" \
+    || bad "RED: nothing was changed" "before=[$before] after=[$(stage_f_state)]"
+
+  local still; still="$(sql "SELECT s.setconfig[1] FROM pg_db_role_setting s
+                               JOIN pg_roles r ON r.oid = s.setrole
+                              WHERE r.rolname = '$RUNTIME' AND s.setdatabase = 0")"
+  [[ "$still" == *extensions* ]] \
+    && ok "RED: and specifically, the foreign value was NOT reset away" \
+    || bad "RED: the foreign value survived the refusal" "observed: $still"
+
+  say "green control — put the expected value back and run it again:"
+  sql "ALTER ROLE $RUNTIME SET search_path = platform, public" >/dev/null
+  out="$(run_revert_step)"
+  printf '%s\n' "$out" | grep -qi 'history is back in public' \
+    && ok "CONTROL: with the expected value the revert runs green on the same database" \
+    || bad "CONTROL: with the expected value the revert runs green" "$out"
+}
+
+# ===========================================================================
+# The counter-probe to the whole dispatch: the defect the revert removes.
+# ===========================================================================
+case_red_revert_window() {
+  hdr "RED — without the revert the old image cannot start; with it, it can"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+
+  say "the state the old image needs, before anything moved:"
+  local found; found="$(hibernate_would_find user_account)"
+  [[ "$found" == *user_account* ]] \
+    && ok "CONTROL: before the step an unqualified entity resolves ($found)" \
+    || bad "CONTROL: before the step an unqualified entity resolves" "$found"
+
+  say "now the step, and the window it opens:"
+  run_upgrade_step >/dev/null
+  found="$(hibernate_would_find user_account)"
+  [[ "$found" == "<absent>" ]] \
+    && ok "RED: in the window the old image would find nothing where it looks ($found)" \
+    || bad "RED: in the window the old image finds nothing" \
+           "expected <absent> in current_schema(), got: $found"
+
+  say "and the revert closes it:"
+  run_revert_step >/dev/null
+  found="$(hibernate_would_find user_account)"
+  [[ "$found" == *user_account* ]] \
+    && ok "the old image resolves again after the revert ($found)" \
+    || bad "the old image resolves again after the revert" "$found"
+}
+
 # ===========================================================================
 main() {
   resolve_classpath
   compile_probe
   local wanted=("$@")
   [[ ${#wanted[@]} -gt 0 ]] || wanted=(fresh prod rollback window routing catalogue \
-                                       red-halfstate red-baseline red-catalogue red-routing)
+                                       revert reforward \
+                                       red-halfstate red-baseline red-catalogue red-routing \
+                                       red-revert-v23 red-revert-path red-revert-window)
   for c in "${wanted[@]}"; do
     case "$c" in
       fresh)          case_fresh ;;
@@ -585,6 +823,11 @@ main() {
       red-baseline)   case_red_baseline ;;
       red-catalogue)  case_red_catalogue ;;
       red-routing)    case_red_routing ;;
+      revert)            case_revert ;;
+      reforward)         case_reforward ;;
+      red-revert-v23)    case_red_revert_v23 ;;
+      red-revert-path)   case_red_revert_path ;;
+      red-revert-window) case_red_revert_window ;;
       *) die "unknown case: $c" ;;
     esac
   done
