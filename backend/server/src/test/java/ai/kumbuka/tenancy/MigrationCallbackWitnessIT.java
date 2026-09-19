@@ -225,6 +225,30 @@ class MigrationCallbackWitnessIT {
         // walk past a policy. New connections see the change; Flyway opens its
         // own below.
         asAdmin("ALTER ROLE " + MIGRATOR + " NOBYPASSRLS");
+
+        // Where the tables are now. Since V23 the tenancy inventory lives in
+        // `platform`, and NOTHING in the SQL says so: migrations and entities
+        // alike stay unqualified on purpose, so that one image runs against a
+        // database on either side of the move. What tells the two apart is the
+        // search_path, and in production it sits on the database ROLE — set by
+        // `deploy/upgrade/stage-f-relocate-history.sql` for an existing
+        // installation, by init-db.sh for a fresh one.
+        //
+        // The suite's other tests get this from the test profile
+        // (`currentSchema=platform,public`), because DevServices hands out a
+        // role they do not own. This test owns its role, so it does the real
+        // thing instead of the stand-in: the statement below is the one the
+        // upgrade script runs, scoped `IN DATABASE` for the same reason it is
+        // scoped that way there — the migrating role here is shared across the
+        // databases of the three cases.
+        //
+        // Applied AFTER the shipped chain, never before: the chain has to run
+        // the way a real one does, with `platform` coming into existence in
+        // V21 and the tables moving in V23.
+        asAdmin("ALTER ROLE " + MIGRATOR + " IN DATABASE " + name
+            + " SET search_path = platform, public");
+        asAdmin("ALTER ROLE " + postgres.getUsername() + " IN DATABASE " + name
+            + " SET search_path = platform, public");
         return url;
     }
 
@@ -241,6 +265,21 @@ class MigrationCallbackWitnessIT {
         // does not decide the order of the migrations — the version numbers do,
         // and the fixture is V900 so it can never come between two real ones.
         flyway(url, SHIPPED_CHAIN, WITNESS_CHAIN)
+            // The history stays where the shipped chain put it. Flyway with no
+            // schema named keeps it in current_schema(), which the role setting
+            // above has just made `platform` — and there is no history there,
+            // because this test has no step that moves one (the upgrade script
+            // moves table and search_path in ONE transaction; reproducing that
+            // here would be a second copy of it). Measured against Flyway
+            // 12.0.0: without this, the run is refused with "Found non-empty
+            // schema(s) \"platform\" but no schema history table".
+            //
+            // It does not undo the role setting. Flyway prepends its default
+            // schema rather than replacing the path — measured: a migration
+            // then runs under `\"public\",platform, public`, so `platform` is
+            // still reached and the DML below resolves. Same key, same reason,
+            // as `quarkus.flyway.default-schema=public` in the test profile.
+            .defaultSchema("public")
             .callbacks(withCallback
                 ? new Callback[] {
                     TenantyMigrationCallback.class.getDeclaredConstructor().newInstance() }
