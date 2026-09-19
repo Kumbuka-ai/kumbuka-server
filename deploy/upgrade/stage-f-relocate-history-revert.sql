@@ -46,6 +46,8 @@
 --   * a search_path that   — the relocation sets exactly `platform, public`.
 --     is not the one the     Anything else was set by somebody else, and a
 --     relocation sets        RESET would silently delete their setting.
+--   * more than one        — a role should carry at most one. Which of several
+--     search_path entry      a RESET would remove is not decidable here.
 --   * the history is       — a Flyway run holds it. It stops rather than
 --     locked                 queue behind it.
 --
@@ -82,11 +84,13 @@ DECLARE
     -- none around the equals sign.
     expected    text    := 'search_path=platform, public';
 
-    history     text;
-    v23_applied boolean;
-    migrator_sp text;
-    runtime_sp  text;
-    touched     boolean := false;
+    history      text;
+    v23_applied  boolean;
+    migrator_sps text[];
+    runtime_sps  text[];
+    migrator_sp  text;
+    runtime_sp   text;
+    touched      boolean := false;
 BEGIN
     -- ---------------------------------------------------------------- shape
     IF in_public AND in_platform THEN
@@ -140,18 +144,54 @@ BEGIN
     -- Read before anything is written. A RESET is not a subtraction of what
     -- the relocation added — it removes the whole setting — so a value this
     -- file did not put there would be destroyed rather than restored.
-    SELECT s.setconfig[1] INTO migrator_sp
+    --
+    -- Read by NAME, not by position. `setconfig` is the role's whole list of
+    -- settings and entries are appended in the order they were set, so nothing
+    -- puts `search_path` first: a role that already carried, say, a
+    -- `statement_timeout` when stage F ran has it at index 2. Measured against
+    -- PostgreSQL 16 — `ALTER ROLE r SET statement_timeout`, then `SET
+    -- search_path` — gives `{statement_timeout=31s,"search_path=platform,
+    -- public"}`, and `setconfig[1]` then matches no `search_path=%` at all.
+    -- Reading index 1 would leave both variables NULL: the foreign-value check
+    -- below would pass on nothing, the RESET further down hangs on the same
+    -- non-NULL value and would be skipped — and the run would still report the
+    -- pre-stage-F state restored while the search_path stood untouched.
+    SELECT array_agg(cfg) INTO migrator_sps
       FROM pg_catalog.pg_db_role_setting s
       JOIN pg_catalog.pg_roles r    ON r.oid = s.setrole
       JOIN pg_catalog.pg_database d ON d.oid = s.setdatabase
+      CROSS JOIN LATERAL unnest(s.setconfig) AS cfg
      WHERE r.rolname = migrator AND d.datname = db
-       AND s.setconfig[1] LIKE 'search_path=%';
+       AND cfg LIKE 'search_path=%';
 
-    SELECT s.setconfig[1] INTO runtime_sp
+    SELECT array_agg(cfg) INTO runtime_sps
       FROM pg_catalog.pg_db_role_setting s
       JOIN pg_catalog.pg_roles r ON r.oid = s.setrole
+      CROSS JOIN LATERAL unnest(s.setconfig) AS cfg
      WHERE r.rolname = runtime AND s.setdatabase = 0
-       AND s.setconfig[1] LIKE 'search_path=%';
+       AND cfg LIKE 'search_path=%';
+
+    -- At most one, and if there are more the file says so rather than picking.
+    -- PostgreSQL replaces rather than appends on `ALTER ROLE ... SET
+    -- search_path`, so a second entry cannot come from the catalogue's own
+    -- rules — and if one is there regardless, which of the two a RESET would
+    -- remove is not this file's guess to make.
+    IF coalesce(array_length(migrator_sps, 1), 0) > 1 THEN
+        RAISE EXCEPTION
+            'stage F revert: the settings of % in database % carry more than one search_path entry (%). Which one a RESET would remove is not decidable here. Nothing was changed.',
+            migrator, db, array_to_string(migrator_sps, ' | ')
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    IF coalesce(array_length(runtime_sps, 1), 0) > 1 THEN
+        RAISE EXCEPTION
+            'stage F revert: the settings of % carry more than one search_path entry (%). Which one a RESET would remove is not decidable here. Nothing was changed.',
+            runtime, array_to_string(runtime_sps, ' | ')
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    migrator_sp := migrator_sps[1];
+    runtime_sp  := runtime_sps[1];
 
     IF migrator_sp IS NOT NULL AND migrator_sp <> expected THEN
         RAISE EXCEPTION
@@ -193,9 +233,13 @@ BEGIN
         touched := true;
     END IF;
 
-    -- Unconditional, and idempotent by SQL's own rules: revoking a privilege
-    -- that is not held is not an error. Making it conditional would mean
-    -- reading the ACL to decide something the REVOKE decides anyway.
+    -- Conditional, though a REVOKE of a privilege that is not held would be no
+    -- error either. The condition is not there to make the statement safe; it
+    -- is there for the report. `touched` is what decides between the two
+    -- notices below, so a run that found no USAGE to take back must not raise
+    -- it — otherwise a database that was already in the pre-stage-F state
+    -- would be told the revert had done something. One catalogue lookup is
+    -- what that costs.
     IF has_schema_privilege(runtime, 'platform', 'USAGE') THEN
         EXECUTE format('REVOKE USAGE ON SCHEMA platform FROM %I', runtime);
         touched := true;

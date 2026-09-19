@@ -16,6 +16,8 @@
 #   routing      team_tenant_id_by_alias across the move, both pins
 #   catalogue    who may touch what in platform, after the move
 #   revert       the way back: step, revert, and the old image starting again
+#   revert-extra a role carrying another setting BEFORE the search_path — the
+#                reset still happens and the other setting survives
 #   reforward    step, revert, step — the second move is green
 #
 # Red probes (each named RED, each expected to fail where a green run passes)
@@ -24,7 +26,8 @@
 #   red-catalogue     a granted SELECT on the view must turn the probe red
 #   red-routing       the OLD pin must stop resolving once the tables move
 #   red-revert-v23    after V23 the revert must refuse, unchanged
-#   red-revert-path   a foreign search_path must stop the revert, unchanged
+#   red-revert-path   a foreign search_path must stop the revert, unchanged —
+#                     at index 1 and away from it
 #   red-revert-window without the revert the old image cannot start; with it, it can
 #
 # Usage
@@ -228,6 +231,45 @@ relations_in() { sql "SELECT coalesce(string_agg(c.relname, ',' ORDER BY c.relna
                        WHERE n.nspname='$1' AND c.relkind=ANY(ARRAY['r','p']::\"char\"[])"; }
 
 history_in() { sql "SELECT coalesce(to_regclass('$1.flyway_schema_history')::text,'<absent>')"; }
+
+# --- a role's settings, read the way the revert has to read them -------------
+#
+# `setconfig` is the role's WHOLE list of settings and entries are appended in
+# the order they were set, so nothing puts `search_path` first. These three ask
+# by name and report the position rather than assuming one — which is the fact
+# the revert-extra case and the second half of red-revert-path turn on.
+#
+# <scope> is `db` for the migrator, whose setting is IN DATABASE, and `global`
+# for the runtime role, whose setting is not.
+setting_scope() {   # setting_scope <db|global>
+  case "$1" in
+    db)     printf "s.setdatabase = (SELECT oid FROM pg_database WHERE datname = '%s')" "$DB" ;;
+    global) printf 's.setdatabase = 0' ;;
+    *)      die "setting_scope: unknown scope: $1" ;;
+  esac
+}
+
+role_settings() {   # role_settings <role> <db|global> — every entry, in catalogue order
+  sql "SELECT coalesce((SELECT array_to_string(s.setconfig, ' ; ')
+                          FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole
+                         WHERE r.rolname = '$1' AND $(setting_scope "$2")), '<none>')"
+}
+
+search_path_index() {   # search_path_index <role> <db|global> — 0 when there is none
+  sql "SELECT coalesce((SELECT min(i) FROM pg_db_role_setting s
+                          JOIN pg_roles r ON r.oid = s.setrole
+                          CROSS JOIN LATERAL generate_subscripts(s.setconfig, 1) AS i
+                         WHERE r.rolname = '$1' AND $(setting_scope "$2")
+                           AND s.setconfig[i] LIKE 'search_path=%'), 0)"
+}
+
+search_path_of() {   # search_path_of <role> <db|global> — the entry itself, wherever it stands
+  sql "SELECT coalesce((SELECT cfg FROM pg_db_role_setting s
+                          JOIN pg_roles r ON r.oid = s.setrole
+                          CROSS JOIN LATERAL unnest(s.setconfig) AS cfg
+                         WHERE r.rolname = '$1' AND $(setting_scope "$2")
+                           AND cfg LIKE 'search_path=%'), '<none>')"
+}
 
 seed_two_tenants() {
   sql "INSERT INTO platform.user_account (tenant_id, subject, email, role, status) VALUES
@@ -674,6 +716,79 @@ case_revert() {
 }
 
 # ===========================================================================
+# The state the revert used to walk past: a role whose setconfig carries more
+# than the search_path, with the search_path NOT first. Entries are appended in
+# the order they were set, so any setting a deployment made before stage F ran
+# stands ahead of it. A revert reading setconfig[1] then finds no search_path at
+# all, leaves its variables NULL, skips the RESET that hangs on them — and still
+# reports the pre-stage-F state restored, while the old image goes on failing to
+# start. Measured in sprint/185.5, corrected there.
+# ===========================================================================
+case_revert_extra() {
+  hdr "REVERT — a setting standing BEFORE the search_path: the reset still happens, and the setting survives"
+  reset_cluster
+  flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=migrate | tail -1
+  owner_sweep
+  seed_two_tenants_public
+
+  say "both roles carry a statement_timeout BEFORE the step runs:"
+  sql "ALTER ROLE $MIGRATOR IN DATABASE $DB SET statement_timeout = '31s'" >/dev/null
+  sql "ALTER ROLE $RUNTIME SET statement_timeout = '31s'" >/dev/null
+  say "migrator: $(role_settings "$MIGRATOR" db)"
+  say "runtime:  $(role_settings "$RUNTIME" global)"
+
+  run_upgrade_step >/dev/null
+  say "after the step — the search_path is appended, behind what was there:"
+  say "migrator: $(role_settings "$MIGRATOR" db)"
+  say "runtime:  $(role_settings "$RUNTIME" global)"
+
+  # Asserted, not merely printed. If the search_path ever came first here the
+  # case would pass against a revert that reads index 1 and would witness
+  # nothing at all — so the position is the first thing it checks.
+  local mi ri; mi="$(search_path_index "$MIGRATOR" db)"; ri="$(search_path_index "$RUNTIME" global)"
+  [[ "$mi" -gt 1 && "$ri" -gt 1 ]] \
+    && ok "the search_path does not stand at index 1 (migrator=$mi runtime=$ri)" \
+    || bad "the search_path must not stand at index 1 for this case to witness anything" \
+           "migrator=$mi runtime=$ri"
+
+  say "the way back:"
+  run_revert_step | sed 's/^/       /'
+
+  [[ "$(search_path_index "$MIGRATOR" db)" == "0" && "$(search_path_index "$RUNTIME" global)" == "0" ]] \
+    && ok "the search_path of both roles is reset" \
+    || bad "the search_path of both roles is reset" \
+           "migrator=[$(role_settings "$MIGRATOR" db)] runtime=[$(role_settings "$RUNTIME" global)]"
+
+  [[ "$(role_settings "$MIGRATOR" db)" == *statement_timeout=31s* \
+     && "$(role_settings "$RUNTIME" global)" == *statement_timeout=31s* ]] \
+    && ok "and the other setting survives — RESET search_path removes the entry, not the row" \
+    || bad "the other setting survives the revert" \
+           "migrator=[$(role_settings "$MIGRATOR" db)] runtime=[$(role_settings "$RUNTIME" global)]"
+
+  [[ "$(history_in public)" != "<absent>" && "$(history_in platform)" == "<absent>" ]] \
+    && ok "the history is back in public" \
+    || bad "the history is back in public" \
+           "public=$(history_in public) platform=$(history_in platform)"
+
+  local found; found="$(hibernate_would_find user_account)"
+  [[ "$found" == *user_account* ]] \
+    && ok "an unqualified entity resolves again ($found)" \
+    || bad "an unqualified entity resolves again" "current_schema() holds: $found"
+
+  # The migrator's side of the same fact, and the sharper half of it. The
+  # runtime role loses USAGE on `platform` in the same revert, so its
+  # current_schema() falls through to `public` whether the search_path was
+  # reset or not — a stale setting stays invisible there. The migrator is the
+  # superuser and never loses USAGE, so a search_path left pointing at
+  # `platform` sends Flyway looking for its history in a schema that no longer
+  # holds one. That is what the old image actually trips over.
+  local out; out="$(flyway --locations="filesystem:$(old_chain_dir),filesystem:$(ee_chain_dir)" --action=validate)"
+  printf '%s\n' "$out" | grep -q 'validate OK' \
+    && ok "the old chain validates green — the migrator finds its history where it now is" \
+    || bad "the old chain validates green against the reverted database" "$out"
+}
+
+# ===========================================================================
 case_reforward() {
   hdr "REFORWARD — step, revert, step: the second move is green"
   reset_cluster
@@ -755,9 +870,7 @@ case_red_revert_path() {
     && ok "RED: nothing was changed — the foreign setting is still there" \
     || bad "RED: nothing was changed" "before=[$before] after=[$(stage_f_state)]"
 
-  local still; still="$(sql "SELECT s.setconfig[1] FROM pg_db_role_setting s
-                               JOIN pg_roles r ON r.oid = s.setrole
-                              WHERE r.rolname = '$RUNTIME' AND s.setdatabase = 0")"
+  local still; still="$(search_path_of "$RUNTIME" global)"
   [[ "$still" == *extensions* ]] \
     && ok "RED: and specifically, the foreign value was NOT reset away" \
     || bad "RED: the foreign value survived the refusal" "observed: $still"
@@ -768,6 +881,47 @@ case_red_revert_path() {
   printf '%s\n' "$out" | grep -qi 'history is back in public' \
     && ok "CONTROL: with the expected value the revert runs green on the same database" \
     || bad "CONTROL: with the expected value the revert runs green" "$out"
+
+  # And again with the foreign value AWAY from index 1 — the refusal must not
+  # depend on where in setconfig the entry happens to sit. A revert reading
+  # index 1 finds nothing here, passes the check on a NULL, and drives on.
+  say "once more, with a statement_timeout ahead of the search_path:"
+  sql "ALTER ROLE $RUNTIME SET statement_timeout = '31s'" >/dev/null
+  run_upgrade_step >/dev/null
+  sql "ALTER ROLE $RUNTIME SET search_path = platform, public, extensions" >/dev/null
+  local idx; idx="$(search_path_index "$RUNTIME" global)"
+  say "runtime: $(role_settings "$RUNTIME" global)"
+  [[ "$idx" -gt 1 ]] \
+    && ok "the foreign search_path stands at index $idx, not 1" \
+    || bad "the foreign search_path must not stand at index 1 for this half to witness anything" \
+           "index=$idx"
+
+  before="$(stage_f_state)"
+  out="$(run_revert_step || true)"
+  printf '%s\n' "$out" | sed 's/^/       /'
+  printf '%s\n' "$out" | grep -qi 'not the .* the relocation sets' \
+    && ok "RED: the revert refuses on a foreign value at index $idx too" \
+    || bad "RED: the revert refuses on a foreign value away from index 1" "$out"
+
+  [[ "$(stage_f_state)" == "$before" ]] \
+    && ok "RED: nothing was changed by that refusal either" \
+    || bad "RED: nothing was changed" "before=[$before] after=[$(stage_f_state)]"
+
+  still="$(search_path_of "$RUNTIME" global)"
+  [[ "$still" == *extensions* ]] \
+    && ok "RED: the foreign value at index $idx was NOT reset away" \
+    || bad "RED: the foreign value at index $idx survived the refusal" "observed: $still"
+
+  say "green control — the expected value at that same place:"
+  sql "ALTER ROLE $RUNTIME SET search_path = platform, public" >/dev/null
+  [[ "$(search_path_index "$RUNTIME" global)" -gt 1 ]] \
+    && ok "CONTROL: the expected value stands where the foreign one did (index $(search_path_index "$RUNTIME" global))" \
+    || bad "CONTROL: the expected value stands where the foreign one did" \
+           "index=$(search_path_index "$RUNTIME" global)"
+  out="$(run_revert_step)"
+  printf '%s\n' "$out" | grep -qi 'history is back in public' \
+    && ok "CONTROL: and there the revert runs green" \
+    || bad "CONTROL: with the expected value away from index 1 the revert runs green" "$out"
 }
 
 # ===========================================================================
@@ -808,7 +962,7 @@ main() {
   compile_probe
   local wanted=("$@")
   [[ ${#wanted[@]} -gt 0 ]] || wanted=(fresh prod rollback window routing catalogue \
-                                       revert reforward \
+                                       revert revert-extra reforward \
                                        red-halfstate red-baseline red-catalogue red-routing \
                                        red-revert-v23 red-revert-path red-revert-window)
   for c in "${wanted[@]}"; do
@@ -824,6 +978,7 @@ main() {
       red-catalogue)  case_red_catalogue ;;
       red-routing)    case_red_routing ;;
       revert)            case_revert ;;
+      revert-extra)      case_revert_extra ;;
       reforward)         case_reforward ;;
       red-revert-v23)    case_red_revert_v23 ;;
       red-revert-path)   case_red_revert_path ;;
