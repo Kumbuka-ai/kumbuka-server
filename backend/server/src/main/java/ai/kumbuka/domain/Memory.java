@@ -18,7 +18,22 @@ import java.time.Instant;
  * {@link #scope}.
  */
 @Entity
-@Table(name = "memory")
+// `public` is named here, and it is the only entity in this model that names a
+// schema. Since V23 the tenancy inventory sits in `platform` while this table
+// and `content_relation` stay in `public` until the memory service takes them
+// over. Hibernate's schema validation does NOT walk the search_path: it
+// resolves an unqualified entity against the connection's ONE default schema
+// (current_schema()), so with the inventory in `platform` and this table in
+// `public`, no single default can cover both — whichever one is first, the
+// other side's tables come back as "missing table" and the application refuses
+// to start. Measured while building stage F: with `public` first the validator
+// misses `governance_audit`, with `platform` first it misses `memory`.
+//
+// Naming the schema on the exception rather than on the other five keeps this
+// image runnable on BOTH sides of the relocation: the unqualified entities
+// follow current_schema() wherever the inventory happens to be, and this one is
+// right either way, because this table does not move in this stage.
+@Table(name = "memory", schema = "public")
 public class Memory extends ContentUnit {
 
     @ManyToOne(optional = false)
