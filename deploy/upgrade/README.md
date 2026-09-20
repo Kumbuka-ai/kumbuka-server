@@ -14,7 +14,7 @@ transaction, points the migrator and the runtime role at that schema.
 | Situation | What to do |
 |---|---|
 | **Existing installation**, upgrading to the release that contains `V23` | Run it **before** starting the new image. |
-| **Fresh installation** | Install and start normally, let the chain run to completion, then run it **once**. |
+| **Fresh installation** | Install and start normally, let the first start finish, then run it **once** — most easily via [`finish-fresh-install.sh`](#finish-fresh-installsh). It is **not optional**: a fresh installation starts exactly once until the history has moved. |
 | Already ran it | Nothing. A second run reports that the history is in place and changes nothing. |
 
 The application may keep serving while it runs. It touches the history table and
@@ -27,6 +27,43 @@ history, which is the correct answer, not a problem to work around.
 ```
 psql -U postgres -d kumbuka -v ON_ERROR_STOP=1 -f stage-f-relocate-history.sql
 ```
+
+`db` defaults to `kumbuka` and must name the database you are CONNECTED to —
+the history moves in the connected database while `ALTER ROLE ... IN DATABASE`
+uses `db`, so a mismatch would split the two halves apart. Since sprint/186.5
+the file refuses on a mismatch instead of reporting success; pass
+`-v db=<name>` whenever your database is not called `kumbuka`.
+
+## `finish-fresh-install.sh`
+
+The one step that finishes a FRESH installation, as a single idempotent
+command. It runs `stage-f-relocate-history.sql` with `migrator` and `runtime`
+both set to the app role, which is the CE shape: one role migrates and runs.
+
+```
+./finish-fresh-install.sh
+KUMBUKA_DB_NAME=kumbuka_prod ./finish-fresh-install.sh
+PSQL="docker exec -i kumbuka-postgres psql" ./finish-fresh-install.sh
+```
+
+### Why a fresh installation needs it
+
+`init-db.sh` pins the app role's search_path to `platform, public` at creation,
+so `current_schema()` is `public` until V21 creates `platform` and `platform`
+from then on. Flyway keeps its history in `current_schema()`. Measured
+2026-09-20 against PostgreSQL 16 and Flyway 12.0.0:
+
+```
+boot 1  Schema history table "public"."flyway_schema_history" does not exist yet
+        RESULT migrate OK executed=22
+boot 2  Schema history table "platform"."flyway_schema_history" does not exist yet
+        FlywayException: Found non-empty schema(s) "platform" but no schema
+        history table.
+```
+
+With `baseline-on-migrate` off — deliberately, so a half state is loud — the
+second boot is a hard refusal. Running this once after the first start moves
+the history to where every later boot looks for it.
 
 Three names can be overridden; the defaults are what a stock installation uses.
 

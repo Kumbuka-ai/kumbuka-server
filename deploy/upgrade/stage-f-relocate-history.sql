@@ -108,6 +108,30 @@ BEGIN
             USING ERRCODE = 'P0001';
     END IF;
 
+    -- The database this file is CONNECTED to and the one `db` names must be
+    -- the same, and until sprint/186.5 nothing checked it.
+    --
+    -- Everything above and below reads and writes the CONNECTED database:
+    -- to_regclass, to_regnamespace, and the ALTER TABLE that moves the
+    -- history. Only `ALTER ROLE ... IN DATABASE` uses `db`. The existence
+    -- check alone does not catch a mismatch — it passes for any database that
+    -- happens to exist, and `db` carries the silent default `kumbuka`.
+    --
+    -- Measured 2026-09-20 against PostgreSQL 16: connected to `kumbuka_prod`
+    -- with `db` left at its default, the run reported success while the
+    -- history moved in `kumbuka_prod` and the search_path setting landed on
+    -- `kumbuka`. That is exactly the split this file's own header calls the
+    -- dangerous one — "change either alone and the next start either invents a
+    -- second history or fails to find the first" — produced by a run that says
+    -- it succeeded, and with baseline-on-migrate off the next start refuses.
+    -- The revert does not help, because it inherits the same split.
+    IF db <> current_database() THEN
+        RAISE EXCEPTION
+            'stage F: db=% but this session is connected to % — the history would move in one database and the search_path setting land on the other. Pass -v db=% , or connect to %. Nothing was changed.',
+            db, current_database(), current_database(), db
+            USING ERRCODE = 'P0001';
+    END IF;
+
     IF in_platform THEN
         RAISE NOTICE 'stage F: flyway_schema_history is already in platform and absent from public — nothing to do.';
         RETURN;
