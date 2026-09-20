@@ -20,6 +20,14 @@
 #                reset still happens and the other setting survives
 #   reforward    step, revert, step — the second move is green
 #
+#   The CE shape (sprint/186.5) — ONE role, migrator and runtime at once, as
+#   ops/postgres/init-db.sh creates it. The cases above all migrate as a
+#   SUPERUSER with a separate runtime role, which is the ops-console shape;
+#   that is why neither B1 nor B2 was visible here before.
+#   fresh-ce     a fresh CE installation, the finishing step, three starts
+#   revert-ce    relocate then revert where the runtime role OWNS platform
+#   db-mismatch  both scripts refuse when db is not the connected database
+#
 # Red probes (each named RED, each expected to fail where a green run passes)
 #   red-halfstate     history in both schemas — the step must refuse, unchanged
 #   red-baseline      baseline-on-migrate on vs off in the half-state
@@ -29,6 +37,9 @@
 #   red-revert-path   a foreign search_path must stop the revert, unchanged —
 #                     at index 1 and away from it
 #   red-revert-window without the revert the old image cannot start; with it, it can
+#   red-fresh-ce     without the finishing step a fresh CE install starts once
+#   red-revert-ce    the OLD revert condition strips the schema owner
+#   red-db-mismatch  without the db check the two halves come apart silently
 #
 # Usage
 #   ./stage-f-probe.sh              # every case
@@ -40,6 +51,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPGRADE_SQL="${UPGRADE_SQL:-$HERE/../stage-f-relocate-history.sql}"
 REVERT_SQL="${REVERT_SQL:-$HERE/../stage-f-relocate-history-revert.sql}"
+FINISH_SH="${FINISH_SH:-$HERE/../finish-fresh-install.sh}"
 SERVER_ROOT="${SERVER_ROOT:-$(cd "$HERE/../../.." && pwd)}"
 MIGRATIONS="${MIGRATIONS:-$SERVER_ROOT/backend/server/src/main/resources/db/migration}"
 SERVER_POM="${SERVER_POM:-$SERVER_ROOT/backend/server/pom.xml}"
@@ -49,6 +61,8 @@ CT="${PROBE_CONTAINER:-kumbuka-stage-f-acceptance}"
 DB=kumbuka
 MIGRATOR=postgres
 RUNTIME=kumbuka
+# The single role of the CE shape — migrator and runtime at once.
+CE_ROLE=kumbuka
 KEEP="${KEEP:-}"
 
 TENANT_A=11111111-1111-1111-1111-111111111111
@@ -73,6 +87,7 @@ die() { printf 'PROBE ABORTED: %s\n' "$*" >&2; exit 1; }
 [[ -d "$MIGRATIONS" ]]   || die "migration directory not found: $MIGRATIONS"
 [[ -f "$UPGRADE_SQL" ]]  || die "upgrade step not found: $UPGRADE_SQL"
 [[ -f "$REVERT_SQL" ]]   || die "revert step not found: $REVERT_SQL"
+[[ -x "$FINISH_SH" ]]    || die "finishing step not found or not executable: $FINISH_SH"
 command -v docker >/dev/null || die "docker not on PATH"
 command -v mvn    >/dev/null || die "mvn not on PATH"
 command -v javac  >/dev/null || die "javac not on PATH"
@@ -98,6 +113,19 @@ import org.flywaydb.core.api.configuration.FluentConfiguration;
 import java.util.*;
 
 public class StageFFlyway {
+    static class TenantBind extends org.flywaydb.core.api.callback.BaseCallback {
+        public boolean supports(org.flywaydb.core.api.callback.Event e,
+                                org.flywaydb.core.api.callback.Context c) {
+            return e == org.flywaydb.core.api.callback.Event.BEFORE_EACH_MIGRATE;
+        }
+        public void handle(org.flywaydb.core.api.callback.Event e,
+                           org.flywaydb.core.api.callback.Context c) {
+            try (java.sql.Statement st = c.getConnection().createStatement()) {
+                st.execute("SELECT set_config('app.tenant_id',"
+                    + "'00000000-0000-0000-0000-000000000001',true)");
+            } catch (Exception x) { throw new IllegalStateException(x); }
+        }
+    }
     public static void main(String[] a) {
         Map<String,String> o = new HashMap<>();
         for (String s : a) { int i = s.indexOf('='); o.put(s.substring(2, i), s.substring(i + 1)); }
@@ -106,6 +134,13 @@ public class StageFFlyway {
             .locations(o.get("locations").split(","))
             .baselineOnMigrate(Boolean.parseBoolean(o.getOrDefault("baseline", "false")))
             .outOfOrder(true);
+        // The tenant binding the image registers via quarkus.flyway.callbacks.
+        // The two-role cases migrate as a SUPERUSER and never needed it —
+        // superusers bypass RLS. The CE cases migrate as the app role, which
+        // does not, and without this V7 cannot fill `team.alias`: FORCE RLS
+        // hides the rows it has to update, and the NOT NULL then fails with
+        // "column \"alias\" of relation \"team\" contains null values".
+        if (!"false".equals(o.get("tenantCallback"))) c.callbacks(new TenantBind());
         if (o.containsKey("target")) c.target(org.flywaydb.core.api.MigrationVersion.fromVersion(o.get("target")));
         Flyway f = c.load();
         String action = o.getOrDefault("action", "migrate");
@@ -137,6 +172,11 @@ flyway() { java -cp "$WORK/java:$CP" StageFFlyway --url="jdbc:postgresql://local
              --user="$MIGRATOR" --password= "$@" 2>&1 | grep -vE '^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}'; }
 
 sqla() { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d postgres -qtAc "$1"; }
+# sqla() is pinned to the `postgres` database. Anything that asks about a
+# NAMED database — which every CE case does, because db-mismatch deliberately
+# uses two — must say which, or it reads the wrong catalogue and reports a
+# green that measured nothing.
+sqlin() { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d "$1" -qtAc "$2"; }
 sql()  { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d "$DB" -qtAc "$1"; }
 sqlq() { docker exec -i "$CT" psql -U "$MIGRATOR" -d "$DB" -qtAc "$1" 2>&1; }   # may fail, captured
 as()   { docker exec -i "$CT" psql -U "$1" -d "$DB" -qtAc "$2" 2>&1; }
@@ -165,6 +205,58 @@ reset_cluster() {
   sqla "CREATE DATABASE $DB"
   sql "CREATE ROLE $RUNTIME LOGIN NOSUPERUSER NOBYPASSRLS" >/dev/null
 }
+
+# ---------------------------------------------------------------------------
+# The CE shape: ONE role, which migrates AND runs, exactly as init-db.sh
+# creates it. This is the installation a self-hoster gets, and it is the shape
+# the two-role cases above never model — which is why B1 and B2 were only
+# found by review and not by this suite.
+#
+# Read from init-db.sh rather than retyped, so the probe cannot drift away
+# from the artefact it is supposed to witness.
+# ---------------------------------------------------------------------------
+INIT_DB_SH="${INIT_DB_SH:-$SERVER_ROOT/ops/postgres/init-db.sh}"
+
+reset_cluster_ce() {   # reset_cluster_ce [dbname]
+  local db="${1:-$DB}"
+  docker rm -f "$CT" >/dev/null 2>&1 || true
+  docker run -d --name "$CT" -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_PASSWORD=probe \
+    -p "$PORT":5432 "$PG_IMAGE" >/dev/null
+  for i in $(seq 1 90); do
+    docker logs "$CT" 2>&1 | grep -q 'init process complete' && break
+    sleep 1; [[ $i -lt 90 ]] || die "probe container never finished initdb"; done
+  for i in $(seq 1 90); do
+    docker exec "$CT" psql -U "$MIGRATOR" -d postgres -qtAc 'SELECT 1' >/dev/null 2>&1 && break
+    sleep 1; [[ $i -lt 90 ]] || die "probe container never became ready"; done
+
+  # init-db.sh's own statements, with its environment supplied. Everything
+  # about the role — its attributes, its pinned search_path, the four chain
+  # roles it pre-creates — therefore comes from the file under test.
+  docker exec -i \
+    -e POSTGRES_USER="$MIGRATOR" \
+    -e KEYCLOAK_DB_USER=kc -e KEYCLOAK_DB_PASSWORD=kc -e KEYCLOAK_DB_NAME=kc \
+    -e KUMBUKA_DB_USER="$CE_ROLE" -e KUMBUKA_DB_PASSWORD=probe -e KUMBUKA_DB_NAME="$db" \
+    "$CT" bash -s < "$INIT_DB_SH" >/dev/null \
+    || die "init-db.sh failed against the probe cluster"
+}
+
+# The app role's attributes, as one string, so "did init-db.sh keep it
+# unprivileged" is a single comparison. BYPASSRLS on the runtime role would
+# switch off the tenant isolation, so this is a security assertion, not tidiness.
+ce_role_attrs() {
+  sqla "SELECT rolsuper||'/'||rolcreaterole||'/'||rolbypassrls
+          FROM pg_roles WHERE rolname='$CE_ROLE'"
+}
+
+# flyway as an arbitrary role against an arbitrary database.
+flyway_as() { local user="$1" db="$2"; shift 2
+  java -cp "$WORK/java:$CP" StageFFlyway --url="jdbc:postgresql://localhost:$PORT/$db" \
+    --user="$user" --password= "$@" 2>&1 | grep -vE '^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}'; }
+
+# The upgrade/revert step run by an arbitrary role, against an arbitrary db.
+step_as() {  # step_as <sqlfile> <role> <db> [dbparam]
+  docker exec -i "$CT" psql -U "$2" -d "$3" -v ON_ERROR_STOP=1 \
+    -v migrator="$2" -v runtime="$2" -v db="${4:-$3}" -q 2>&1 < "$1"; }
 
 # The chain as the OLD image carries it: V1..V22 only.
 old_chain_dir() {
@@ -957,17 +1049,204 @@ case_red_revert_window() {
 }
 
 # ===========================================================================
+# THE CE SHAPE — sprint/186.5. Everything below drives the ONE-ROLE
+# installation that init-db.sh actually creates.
+# ===========================================================================
+
+case_fresh_ce() {
+  hdr "FRESH-CE — a fresh CE installation, started three times"
+  reset_cluster_ce
+
+  local attrs; attrs="$(ce_role_attrs)"
+  [[ "$attrs" == "false/false/false" ]] \
+    && ok "the app role stays unprivileged (super/createrole/bypassrls = $attrs)" \
+    || bad "the app role must stay unprivileged" \
+           "observed super/createrole/bypassrls = $attrs. BYPASSRLS on the RUNTIME role switches off row-level security for the application itself — that is the tenant isolation, not a detail."
+
+  # The four roles the chain grants to. The app role cannot create them (it has
+  # neither CREATEROLE nor BYPASSRLS), so init-db.sh must have done it, or the
+  # chain dies at V6 before stage F is even reached.
+  local roles; roles="$(sqla "SELECT string_agg(rolname,',' ORDER BY rolname)
+                                FROM pg_roles
+                               WHERE rolname IN ('kumbuka_logbook','kumbuka_memory',
+                                                 'kumbuka_ops_reader','kumbuka_worklist')")"
+  [[ "$roles" == "kumbuka_logbook,kumbuka_memory,kumbuka_ops_reader,kumbuka_worklist" ]] \
+    && ok "init-db.sh pre-created the chain's four roles" \
+    || bad "init-db.sh must pre-create the chain's four roles" "observed: ${roles:-<none>}"
+
+  say "START 1 — the chain, as the app role"
+  local out; out="$(flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$MIGRATIONS" --action=migrate)"
+  printf '%s\n' "$out" | grep -q 'migrate OK' \
+    && ok "start 1: the chain runs to completion" \
+    || bad "start 1: the chain runs to completion" "$(printf '%s' "$out" | tail -3)"
+
+  say "the finishing step a fresh installation needs"
+  out="$(KUMBUKA_DB_NAME="$DB" KUMBUKA_DB_USER="$CE_ROLE" \
+         PSQL="docker exec -i $CT psql" "$FINISH_SH" 2>&1)" || true
+  printf '%s\n' "$out" | sed 's/^/       /'
+  [[ "$(history_in platform)" != "<absent>" && "$(history_in public)" == "<absent>" ]] \
+    && ok "the history is in platform and gone from public" \
+    || bad "the history is in platform" "public=$(history_in public) platform=$(history_in platform)"
+
+  local n
+  for n in 2 3; do
+    out="$(flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$MIGRATIONS" --action=migrate)"
+    printf '%s\n' "$out" | grep -q 'migrate OK' \
+      && ok "start $n: the installation starts again" \
+      || bad "start $n: the installation starts again" \
+             "$(printf '%s' "$out" | grep -E 'RESULT|cause' | head -2)"
+  done
+
+  say "idempotency — the finishing step a second time:"
+  out="$(KUMBUKA_DB_NAME="$DB" KUMBUKA_DB_USER="$CE_ROLE" \
+         PSQL="docker exec -i $CT psql" "$FINISH_SH" 2>&1)" || true
+  printf '%s\n' "$out" | grep -qi 'already in platform' \
+    && ok "a second run says it has nothing to do" \
+    || bad "a second run says it has nothing to do" "$out"
+}
+
+case_revert_ce() {
+  hdr "REVERT-CE — the revert must not strip the schema OWNER"
+  reset_cluster_ce
+  flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$(old_chain_dir)" --action=migrate | tail -1
+
+  local owner; owner="$(sql "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='platform'")"
+  [[ "$owner" == "$CE_ROLE" ]] \
+    && ok "the app role owns schema platform (it ran V21) — the shape B2 is about" \
+    || bad "the app role owns schema platform" "observed owner: $owner"
+
+  local before; before="$(as "$CE_ROLE" "SELECT count(*) FROM platform.scope_access" || true)"
+  say "acl before relocate: $(sql "SELECT coalesce(nspacl::text,'<null>') FROM pg_namespace WHERE nspname='platform'")"
+
+  step_as "$UPGRADE_SQL" "$CE_ROLE" "$DB" >/dev/null
+  step_as "$REVERT_SQL"  "$CE_ROLE" "$DB" | sed 's/^/       /'
+  say "acl after revert : $(sql "SELECT coalesce(nspacl::text,'<null>') FROM pg_namespace WHERE nspname='platform'")"
+
+  local after; after="$(as "$CE_ROLE" "SELECT count(*) FROM platform.scope_access" || true)"
+  if [[ "$after" == "$before" ]]; then
+    ok "the view reads the same after the revert as before the relocate ($after)"
+  else
+    bad "the revert left the runtime role's access as it found it" \
+        "before='$before' after='$after'. The revert exists to restore the pre-stage-F state; a runtime role that owns the schema was never GRANTED usage, so nothing may be revoked from it."
+  fi
+}
+
+case_db_mismatch() {
+  hdr "DB-MISMATCH — both scripts refuse when db is not the connected database"
+  reset_cluster_ce kumbuka_prod
+  sqla "CREATE DATABASE $DB OWNER $CE_ROLE" >/dev/null   # the default name exists, so the existence check passes
+  flyway_as "$CE_ROLE" kumbuka_prod --locations="filesystem:$(old_chain_dir)" --action=migrate | tail -1
+
+  local before_hist before_settings
+  before_hist="$(sqlin kumbuka_prod "SELECT coalesce(to_regclass('public.flyway_schema_history')::text,'-')")"
+  before_settings="$(sqla "SELECT count(*) FROM pg_db_role_setting")"
+
+  local f r
+  f="$(step_as "$UPGRADE_SQL" "$CE_ROLE" kumbuka_prod "$DB" || true)"
+  printf '%s\n' "$f" | grep -q 'connected to' \
+    && ok "the relocation refuses on a db mismatch" \
+    || bad "the relocation refuses on a db mismatch" "$f"
+
+  r="$(step_as "$REVERT_SQL" "$CE_ROLE" kumbuka_prod "$DB" || true)"
+  printf '%s\n' "$r" | grep -q 'connected to' \
+    && ok "the revert refuses on a db mismatch" \
+    || bad "the revert refuses on a db mismatch" "$r"
+
+  # A refusal that changed something is not a refusal.
+  [[ "$(sqlin kumbuka_prod "SELECT coalesce(to_regclass('public.flyway_schema_history')::text,'-')")" == "$before_hist" \
+     && "$(sqla "SELECT count(*) FROM pg_db_role_setting")" == "$before_settings" ]] \
+    && ok "and neither run changed anything" \
+    || bad "a refusal must change nothing" \
+           "history and/or role settings moved: hist=$before_hist->$(sqlin kumbuka_prod "SELECT coalesce(to_regclass('public.flyway_schema_history')::text,'-')") settings=$before_settings->$(sqla "SELECT count(*) FROM pg_db_role_setting")"
+}
+
+# --- the three red probes of sprint/186.5 ----------------------------------
+# Each takes the fix back out of a COPY of the artefact and shows the case go
+# red. A fix whose removal changes nothing was never the fix.
+
+case_red_fresh_ce() {
+  hdr "RED — without the finishing step a fresh CE installation starts once"
+  reset_cluster_ce
+  flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$MIGRATIONS" --action=migrate | grep -E 'RESULT' | head -1
+  say "start 2, with the finishing step deliberately NOT run:"
+  local out; out="$(flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$MIGRATIONS" --action=migrate)"
+  printf '%s\n' "$out" | grep -E 'RESULT|Found non-empty' | head -2 | sed 's/^/       /'
+  printf '%s\n' "$out" | grep -q 'Found non-empty schema' \
+    && ok "RED: it refuses with \"Found non-empty schema(s)\" — the step is load-bearing" \
+    || bad "RED: the second start must refuse without the step" "$out"
+}
+
+case_red_revert_ce() {
+  hdr "RED — the OLD revert condition strips the owner"
+  reset_cluster_ce
+  flyway_as "$CE_ROLE" "$DB" --locations="filesystem:$(old_chain_dir)" --action=migrate | tail -1
+  # The revert as it stood before sprint/186.5: has_schema_privilege, which is
+  # true for an owner too.
+  local old="$WORK/revert-old.sql"
+  awk '/RED-ANCHOR-BEGIN owner-safe-revoke/{skip=1;
+         print "    IF has_schema_privilege(runtime, '\''platform'\'', '\''USAGE'\'') THEN"; next}
+       /RED-ANCHOR-END owner-safe-revoke/{skip=0; next}
+       skip{next}
+       {print}' "$REVERT_SQL" > "$old"
+  grep -q 'has_schema_privilege(runtime' "$old" || die "red-revert-ce: could not build the old condition"
+
+  step_as "$UPGRADE_SQL" "$CE_ROLE" "$DB" >/dev/null
+  docker exec -i "$CT" psql -U "$CE_ROLE" -d "$DB" -v ON_ERROR_STOP=1 \
+    -v migrator="$CE_ROLE" -v runtime="$CE_ROLE" -v db="$DB" -q < "$old" >/dev/null 2>&1 || true
+  local r; r="$(as "$CE_ROLE" "SELECT count(*) FROM platform.scope_access" || true)"
+  printf '%s\n' "$r" | grep -q 'permission denied' \
+    && ok "RED: with the old condition the owner loses USAGE — the fix is load-bearing" \
+    || bad "RED: the old condition must strip the owner" "observed: $r"
+}
+
+case_red_db_mismatch() {
+  hdr "RED — without the db check the halves come apart silently"
+  reset_cluster_ce kumbuka_prod
+  sqla "CREATE DATABASE $DB OWNER $CE_ROLE" >/dev/null
+  flyway_as "$CE_ROLE" kumbuka_prod --locations="filesystem:$(old_chain_dir)" --action=migrate | tail -1
+
+  # The relocation with the sprint/186.5 guard taken back out.
+  local old="$WORK/relocate-nodbcheck.sql"
+  awk '/^    IF db <> current_database\(\) THEN$/{skip=1}
+       skip && /^    END IF;$/{skip=0; next}
+       skip{next}
+       {print}' "$UPGRADE_SQL" > "$old"
+  grep -q 'db <> current_database' "$old" && die "red-db-mismatch: the guard is still in the copy"
+
+  docker exec -i "$CT" psql -U "$CE_ROLE" -d kumbuka_prod -v ON_ERROR_STOP=1 \
+    -v migrator="$CE_ROLE" -v runtime="$CE_ROLE" -v db="$DB" -q < "$old" 2>&1 | sed 's/^/       /'
+
+  local moved landed
+  moved="$(sqlin kumbuka_prod "SELECT coalesce(to_regclass('platform.flyway_schema_history')::text,'-')")"
+  landed="$(sqlin kumbuka_prod "SELECT coalesce(string_agg(coalesce(d.datname,'<global>'),',' ORDER BY d.datname),'-')
+                    FROM pg_db_role_setting s LEFT JOIN pg_database d ON d.oid=s.setdatabase
+                   WHERE d.datname IS NOT NULL")"
+  say "history moved in kumbuka_prod: $moved ; IN DATABASE setting landed on: $landed"
+  [[ "$moved" != "-" && "$landed" == "$DB" ]] \
+    && ok "RED: the history moved in one database and the setting landed on the other — silently" \
+    || bad "RED: the unguarded script must split the two halves" "moved=$moved landed=$landed"
+}
+
+# ===========================================================================
 main() {
   resolve_classpath
   compile_probe
   local wanted=("$@")
   [[ ${#wanted[@]} -gt 0 ]] || wanted=(fresh prod rollback window routing catalogue \
                                        revert revert-extra reforward \
+                                       fresh-ce revert-ce db-mismatch \
                                        red-halfstate red-baseline red-catalogue red-routing \
-                                       red-revert-v23 red-revert-path red-revert-window)
+                                       red-revert-v23 red-revert-path red-revert-window \
+                                       red-fresh-ce red-revert-ce red-db-mismatch)
   for c in "${wanted[@]}"; do
     case "$c" in
       fresh)          case_fresh ;;
+      fresh-ce)       case_fresh_ce ;;
+      revert-ce)      case_revert_ce ;;
+      db-mismatch)    case_db_mismatch ;;
+      red-fresh-ce)   case_red_fresh_ce ;;
+      red-revert-ce)  case_red_revert_ce ;;
+      red-db-mismatch) case_red_db_mismatch ;;
       prod)           case_prod ;;
       rollback)       case_rollback ;;
       window)         case_window ;;

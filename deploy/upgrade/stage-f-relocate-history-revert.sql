@@ -4,7 +4,9 @@
 --
 -- It undoes exactly what the relocation did: it moves `flyway_schema_history`
 -- from `platform` back to `public`, drops the two search_path settings, and
--- takes the runtime role's USAGE on `platform` away again. Afterwards the
+-- takes back the USAGE on `platform` that the relocation GRANTED the runtime
+-- role — and only a grant: a runtime role that OWNS the schema keeps its own
+-- access, because the relocation never gave it that (sprint/186.5). Afterwards the
 -- database is in the state the relocation found it in — measured, not assumed:
 -- before stage F neither the migrator nor the runtime role has a row in
 -- `pg_db_role_setting`, and the runtime role has no USAGE on `platform`
@@ -115,6 +117,19 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = db) THEN
         RAISE EXCEPTION 'stage F revert: database % does not exist. Nothing was changed.', db
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Same check, same reason as the forward file: every read and the ALTER
+    -- TABLE below act on the CONNECTED database, only `ALTER ROLE ... IN
+    -- DATABASE` uses `db`, and `db` carries the silent default `kumbuka`. A
+    -- mismatch here would move the history back in one database and reset the
+    -- search_path in another — the revert would then report the pre-stage-F
+    -- state restored while neither database is in it.
+    IF db <> current_database() THEN
+        RAISE EXCEPTION
+            'stage F revert: db=% but this session is connected to % — the history would move back in one database and the search_path reset in the other. Pass -v db=% , or connect to %. Nothing was changed.',
+            db, current_database(), current_database(), db
             USING ERRCODE = 'P0001';
     END IF;
 
@@ -240,16 +255,53 @@ BEGIN
     -- it — otherwise a database that was already in the pre-stage-F state
     -- would be told the revert had done something. One catalogue lookup is
     -- what that costs.
-    IF has_schema_privilege(runtime, 'platform', 'USAGE') THEN
+    -- Take back the GRANT, and ONLY a grant.
+    --
+    -- `has_schema_privilege` stood here until sprint/186.5, and it answers a
+    -- different question than the one this step needs: it is true for a role
+    -- that was granted USAGE, but ALSO for the schema's OWNER and for a
+    -- superuser, neither of whom got it from the forward file. In the
+    -- one-role CE shape that init-db.sh ships — migrator and runtime are the
+    -- same role, and it ran V21, so it owns `platform` — the old condition
+    -- fired and the REVOKE stripped the owner's own ACL entry.
+    --
+    -- Measured 2026-09-20 against PostgreSQL 16, that exact shape:
+    --   nspacl before : {kumbuka=UC/kumbuka,kumbuka_worklist=U/kumbuka,...}
+    --   nspacl after  : {kumbuka=C/kumbuka,kumbuka_worklist=U/kumbuka,...}
+    --   SELECT ... FROM platform.scope_access
+    --     -> ERROR: permission denied for schema platform
+    -- while the run reported "The previous image can start again." The owner
+    -- can re-grant it to itself, but nothing here tells anyone to, and the
+    -- file's whole purpose is to leave the pre-stage-F state behind.
+    --
+    -- So the condition reads the ACL instead, and skips an owner outright.
+    -- An explicit grant leaves an aclitem naming the grantee; ownership and
+    -- superuser do not. Revoking nothing where nothing was granted is also
+    -- what keeps `touched` honest, which is what decides the closing notice.
+    -- RED-ANCHOR-BEGIN owner-safe-revoke (stage-f-probe red-revert-ce replaces
+    -- everything down to RED-ANCHOR-END with the pre-186.5 condition)
+    IF pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace
+                         WHERE nspname = 'platform')) <> runtime
+       AND EXISTS (SELECT 1
+                     FROM pg_catalog.pg_namespace n
+                     CROSS JOIN LATERAL aclexplode(n.nspacl) a
+                    WHERE n.nspname = 'platform'
+                      AND a.privilege_type = 'USAGE'
+                      AND pg_get_userbyid(a.grantee) = runtime) THEN
+    -- RED-ANCHOR-END owner-safe-revoke
         EXECUTE format('REVOKE USAGE ON SCHEMA platform FROM %I', runtime);
         touched := true;
     END IF;
 
     IF touched THEN
-        RAISE NOTICE 'stage F revert: history is back in public; search_path reset for % (in database %) and for %; % no longer has USAGE on platform. The previous image can start again.',
-            migrator, db, runtime, runtime;
+        RAISE NOTICE 'stage F revert: history is back in public; search_path reset for % (in database %) and for %; USAGE on platform is back as it was (%). The previous image can start again.',
+            migrator, db, runtime,
+            CASE WHEN pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace
+                                        WHERE nspname = 'platform')) = runtime
+                 THEN format('%I owns the schema, so nothing was revoked', runtime)
+                 ELSE format('the grant to %I was revoked', runtime) END;
     ELSE
-        RAISE NOTICE 'stage F revert: the database is already in the pre-stage-F state — history in public, no search_path settings, no USAGE on platform. Nothing to do.';
+        RAISE NOTICE 'stage F revert: the database is already in the pre-stage-F state — history in public, no search_path settings, no granted USAGE on platform. Nothing to do.';
     END IF;
 END
 $stage_f_revert$;
