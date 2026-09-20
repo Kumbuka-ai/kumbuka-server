@@ -13,6 +13,43 @@ source "$HERE/substrate.sh"
 hdr() { printf '\n======================================================================\n%s\n======================================================================\n' "$*"; }
 say() { printf -- '--- %s\n' "$*"; }
 
+# ---------------------------------------------------------------------------
+# The ops-console bootstrap file M2 installs verbatim.
+#
+# It lives in a SIBLING repository, so no path out of this checkout is true
+# everywhere: the workspace holds `server/` and `ops-console/` next to each
+# other, a git worktree under `.claude/worktrees/` is next to neither, and a CI
+# checkout of this repository alone does not contain the file at all. So the
+# lookup walks up from this checkout until it finds a directory that holds both,
+# and TENANT_ROUTING_FN overrides the search outright.
+#
+# Until 2026-09-20 this was the absolute path of one developer's machine. That
+# made M2 unreproducible anywhere else — and silently so: the redirection failed
+# into a psql that measured a database which never got the definition, under a
+# heading saying it had.
+#
+# The answer goes into a variable rather than onto stdout, because `die` inside
+# a command substitution kills only the subshell: the script would carry on and
+# measure something other than what it reports.
+BOOTSTRAP_REL=ops-console/deploy/bootstrap/08-tenant-routing-fn.sql
+resolve_tenant_routing_fn() {   # sets TENANT_ROUTING_FN
+  if [[ -n "${TENANT_ROUTING_FN:-}" ]]; then
+    [[ -r "$TENANT_ROUTING_FN" ]] \
+      || die "TENANT_ROUTING_FN=$TENANT_ROUTING_FN is not a readable file"
+    return
+  fi
+  local d="$SERVER_ROOT"
+  while :; do
+    if [[ -r "$d/$BOOTSTRAP_REL" ]]; then TENANT_ROUTING_FN="$d/$BOOTSTRAP_REL"; return; fi
+    [[ "$d" == "/" ]] && break
+    d="$(dirname "$d")"
+  done
+  die "$BOOTSTRAP_REL is in no directory from $SERVER_ROOT up to /. It belongs to the sibling ops-console repository, which this checkout does not contain. Set TENANT_ROUTING_FN to the path of 08-tenant-routing-fn.sql and run again."
+}
+
+# Before the container, so a missing file costs a second rather than a chain.
+resolve_tenant_routing_fn
+
 resolve_classpath
 compile_driver
 reset_cluster
@@ -63,10 +100,12 @@ say "kumbuka_memory:"
 bound kumbuka_memory "$TENANT_A" "$ALICE" "SELECT * FROM platform.scope_access ORDER BY slug"
 
 hdr "M2 — does team_tenant_id_by_alias still resolve after V23?"
-say "installing the ops-console bootstrap definition verbatim (08-tenant-routing-fn.sql)"
+say "installing the ops-console bootstrap definition verbatim:"
+say "  $TENANT_ROUTING_FN"
 sqlq "ALTER ROLE kumbuka_ops_reader RENAME TO kumbuka_operator" >/dev/null
 docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d "$DB" -q \
-  < /Users/johannes/Work/kumbuka.ai/dev/ops-console/deploy/bootstrap/08-tenant-routing-fn.sql
+  < "$TENANT_ROUTING_FN" \
+  || die "the bootstrap definition did not install — every answer under M2 would be about a database that never received it"
 say "its pinned search_path, its owner, that owner's bypassrls:"
 sql "SELECT p.proname, p.prosecdef, p.proconfig, pg_get_userbyid(p.proowner) AS owner,
             (SELECT rolbypassrls FROM pg_roles WHERE oid=p.proowner) AS owner_bypassrls

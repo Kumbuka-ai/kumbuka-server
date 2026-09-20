@@ -213,6 +213,17 @@ class MigrationCallbackWitnessIT {
         String url = "jdbc:postgresql://" + postgres.getHost() + ":"
             + postgres.getFirstMappedPort() + "/" + name;
 
+        // V24 refuses to rename kumbuka_logbook without first reading that
+        // role's password verifier out of pg_catalog.pg_authid — a rename
+        // DELETES an MD5 verifier, and doing it unchecked leaves the dispatch
+        // service unable to authenticate after a migration that reported
+        // success. A CREATEROLE non-superuser may not read that catalogue and
+        // cannot grant itself the read, so the grant is issued here, by the
+        // admin, IN THIS DATABASE: a shared catalogue's ACL is per-database.
+        // The deployment migrates the core as the superuser and needs none of
+        // this; the stage-F shape this test is about does.
+        asAdminIn(name, "GRANT SELECT ON pg_catalog.pg_authid TO " + MIGRATOR);
+
         // The shipped chain, under the privileged shape it needs (V6 hands out
         // BYPASSRLS and only a holder may). No callback here: every DML
         // statement in the shipped chain runs against a table that is still
@@ -298,6 +309,22 @@ class MigrationCallbackWitnessIT {
 
     private static void asAdmin(String sql) throws SQLException {
         try (Connection c = DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(), postgres.getPassword());
+             Statement s = c.createStatement()) {
+            s.execute(sql);
+        }
+    }
+
+    /**
+     * As the admin, but connected to one named database rather than the
+     * container's default. A grant on a SHARED catalogue is stored per
+     * database, so {@link #asAdmin} cannot issue one that the migrating
+     * connection will see.
+     */
+    private static void asAdminIn(String database, String sql) throws SQLException {
+        String url = "jdbc:postgresql://" + postgres.getHost() + ":"
+            + postgres.getFirstMappedPort() + "/" + database;
+        try (Connection c = DriverManager.getConnection(url,
                 postgres.getUsername(), postgres.getPassword());
              Statement s = c.createStatement()) {
             s.execute(sql);

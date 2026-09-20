@@ -42,6 +42,10 @@ WORK="${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/read-contract.XXXXXX")}"
 sqla() { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d postgres -qtAc "$1" </dev/null; }
 sql()  { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d "$DB" -qtAc "$1" </dev/null; }
 sqlq() { docker exec -i "$CT" psql -U "$MIGRATOR" -d "$DB" -qtAc "$1" </dev/null 2>&1; }
+# sqld <database> <sql> — as the migrator, against a database that is not $DB.
+# A shared catalogue's ACL is per-database (measured), so a grant on pg_authid
+# has to be issued in the database that will be migrated, not in $DB.
+sqld() { docker exec -i "$CT" psql -v ON_ERROR_STOP=1 -U "$MIGRATOR" -d "$1" -qtAc "$2" </dev/null; }
 # as <role> <sql> — the only way this suite asks a question of the contract.
 as()   { docker exec -i "$CT" psql -U "$1" -d "$DB" -qtAc "$2" </dev/null 2>&1; }
 
@@ -163,6 +167,49 @@ owner_sweep() {
          END IF; END \$\$;" >/dev/null
 }
 
+# --- password authentication, for the one claim that needs it ---------------
+#
+# The container runs with POSTGRES_HOST_AUTH_METHOD=trust, so a connection that
+# carries a password proves nothing: it would be accepted with the wrong one,
+# and with none. A case that claims a role CAN or CANNOT authenticate has to
+# turn that off first.
+#
+# The file is rewritten rather than patched, because the two exemptions are the
+# point and a sed over the shipped lines loses them:
+#   * `local`  — every other helper here connects over the unix socket, and
+#                turning that into a password prompt would rewrite the suite.
+#   * `host` for the MIGRATOR — Flyway connects over TCP with an EMPTY password
+#                (`--password=` in the driver), so demanding one of it fails the
+#                migration before the case reaches its claim. Measured: "The
+#                server requested SCRAM-based authentication, but the password
+#                is an empty string."
+# What is left needing a password is exactly what the cases ask about: a service
+# role over TCP.
+#
+# The method is `md5` rather than `scram-sha-256`, and that is not laxity: `md5`
+# accepts EITHER verifier — Postgres negotiates SCRAM by itself when the role
+# carries a SCRAM one — whereas a `scram-sha-256` line refuses a role with an
+# MD5 verifier before any password is checked. A case about what a rename does
+# to an MD5 password has to be able to log that role in first, so the line has
+# to admit both.
+require_password_auth() {
+  docker exec -u postgres -i "$CT" bash -c \
+    "printf '%s\n' 'local all all trust' \
+                   'host all $MIGRATOR all trust' \
+                   'host all all all md5' \
+       > /var/lib/postgresql/data/pg_hba.conf" >/dev/null
+  sql "SELECT pg_reload_conf()" >/dev/null
+}
+
+# Can <role> log in over TCP with <password>? Answers `yes` or `no` — never the
+# raw psql error, so a case can assert on it. Requires require_password_auth.
+can_authenticate() {   # can_authenticate <role> <password>
+  local out
+  out="$(docker exec -e PGPASSWORD="$2" -i "$CT" \
+           psql -h 127.0.0.1 -U "$1" -d "$DB" -qtAc "SELECT 1" </dev/null 2>&1)"
+  [[ "$out" == "1" ]] && printf 'yes' || printf 'no'
+}
+
 # The chain as an installation at V23 carries it — used to prove V24 is the
 # only thing this dispatch adds.
 chain_dir_through() {   # chain_dir_through <max version>
@@ -177,6 +224,19 @@ chain_dir_through() {   # chain_dir_through <max version>
     v="$(basename "$f" | sed -E 's/^V([0-9]+)__.*/\1/')"
     [[ "$v" -le "$max" ]] && cp "$f" "$d"/
   done
+  printf '%s' "$d"
+}
+
+# The same chain with V24's MD5 guard cut out, for the red probe. The two
+# marker comments in the migration delimit it, so the removal is exact and a
+# later edit to the block cannot silently leave half of it standing — the
+# caller checks that the copy really lost the lines.
+chain_dir_without_md5_guard() {
+  local d="$WORK/chain-no-md5-guard" f
+  rm -rf "$d"; mkdir -p "$d"
+  for f in "$MIGRATIONS"/V*.sql; do cp "$f" "$d"/; done
+  sed -i.bak '/md5-guard-begin/,/md5-guard-end/d' "$d"/V24__*.sql
+  rm -f "$d"/*.bak
   printf '%s' "$d"
 }
 

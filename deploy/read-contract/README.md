@@ -24,11 +24,19 @@ fail-closed. Seven columns since V24: the four V21 published (`scope_id`,
 ## Running the probes
 
 ```sh
-./test/read-contract-probe.sh              # every case, ~10 containers
+./test/read-contract-probe.sh              # every case, ~14 containers
 ./test/read-contract-probe.sh resolution   # one case
 KEEP=1 ./test/read-contract-probe.sh chain # leave the container up
 ./test/measure.sh                          # step 0: the state at V23
 ```
+
+`measure.sh` installs one file from the SIBLING ops-console repository
+(`ops-console/deploy/bootstrap/08-tenant-routing-fn.sql`). It finds it by
+walking up from this checkout to the workspace that holds both, which a git
+worktree under `.claude/worktrees/` does not sit inside — so set
+`TENANT_ROUTING_FN` to the file's path when the walk cannot reach it. Either
+way the script stops and says so rather than measuring a database that never
+received the definition.
 
 Docker, `mvn` and `javac` must be on PATH — the suite resolves flyway-core in
 exactly the version `backend/server/pom.xml` resolves, so it drives the same
@@ -60,8 +68,9 @@ shape here.
 | `visibility` | kind, lock, membership and the tenant boundary, as each of the three service roles |
 | `writeright` | `can_write` against `MemberWritePolicy`'s decision, ten combinations |
 | `rolename` | `kumbuka_logbook` becomes `kumbuka_dispatch` and keeps its grants and its password — and the collision case, where the dispatch service's own chain got there first |
+| `md5guard` | the rename is refused where it would DELETE the password, and applies once it would not — and the migrator that is not allowed to look |
 | `migrator` | the whole chain under a CREATEROLE non-superuser migrator |
-| `chain` | V1..V23 unchanged; the view's first four columns keep name, type and position |
+| `chain` | V1..V23 unchanged; the view's seven columns match a form written out in the probe, not one read back out of the database |
 
 ## The red probes
 
@@ -75,6 +84,37 @@ database already at V24 and measures that the acceptance it belongs to goes red.
 | `red-tenant` | the view's tenant clause | see below |
 | `red-superuser` | a SELECT grant, asked as superuser then as the service role | green, then red |
 | `red-resolver` | the alias policy on `platform.team` | a KNOWN alias answers NULL |
+| `red-md5guard` | the MD5 guard, cut out of V24 itself | the rename applies, reports success, and the role can no longer log in |
+
+`red-md5guard` is the one probe that cannot be staged by editing the database
+afterwards: what the guard prevents is the migration's own act, so the chain is
+copied with the marked block cut out and applied from the copy.
+
+## What the MD5 guard costs a migrator that is not a superuser
+
+V24 reads the password verifier of `kumbuka_logbook` out of `pg_catalog.pg_authid`
+before renaming it, because a rename DELETES an MD5 verifier — it is salted with
+the role name — and leaves a service role that holds every privilege and cannot
+authenticate, after a migration that reported success.
+
+A CREATEROLE non-superuser may not read that catalogue, and cannot grant itself
+the read either (a predefined role's ADMIN option belongs to the superuser).
+`pg_roles` is no way around it: its `rolpassword` column is the constant
+`********` for every role, set or unset. So such a migrator is refused the
+rename rather than performing it blind, and the exception names the one grant
+that lifts it:
+
+```sql
+GRANT SELECT ON pg_catalog.pg_authid TO <migrator>;   -- in the database being migrated
+```
+
+The `IN THE DATABASE` part is not decoration: a shared catalogue's ACL is stored
+per database. Granted in one, `has_table_privilege` answers true there and false
+in the next database of the same cluster.
+
+Today's deployment is unaffected — it migrates the core as the superuser
+(`QUARKUS_FLYWAY_USERNAME` in `infra/compose.prod.yml`). The stage-F shape needs
+the grant, and `case_migrator` and `MigrationCallbackWitnessIT` now issue it.
 
 `red-tenant` took three attempts, and the two failures are the finding. The
 tenant boundary is carried by THREE things — the view's own clause, V3's

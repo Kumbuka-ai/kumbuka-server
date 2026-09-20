@@ -17,6 +17,9 @@
 #   writeright   A4 — can_write against MemberWritePolicy's decision table
 #   rolename     A5 — kumbuka_logbook becomes kumbuka_dispatch, keeps its
 #                     privileges and its password; and the collision case
+#   md5guard     A1/A2 — the rename is refused where it would DELETE the
+#                     password (an MD5 verifier), and goes through once it
+#                     would not; and the migrator that may not look
 #   migrator     the whole chain under a CREATEROLE non-superuser migrator
 #   chain        A6 — V1..V23 unchanged, V24 applies on top, the view's first
 #                     four columns keep name, type and position
@@ -28,6 +31,8 @@
 #   red-superuser     R4  the same removed grant, probed as superuser: GREEN;
 #                         then as the service role: RED
 #   red-resolver      the alias policy removed                 -> A2 red
+#   red-md5guard      R1  the MD5 guard cut out of V24: the rename applies and
+#                         the service role loses the password it logs in with
 #
 # Usage
 #   ./read-contract-probe.sh            # every case
@@ -65,14 +70,32 @@ prepare() {
   seed_population
 }
 
-# The four columns V21 published, as a name:type:position string. A1/A6 compare
-# this before and after V24 — "appended, never reshuffled" is a fact about the
-# catalogue, not a promise in a comment.
+# The columns of platform.scope_access, as a name:type:position string, read out
+# of the catalogue. A6 compares this before and after V24 — "appended, never
+# reshuffled" is a fact about the catalogue, not a promise in a comment.
 view_shape() {
   sql "SELECT string_agg(column_name||':'||data_type||':'||ordinal_position, ',' ORDER BY ordinal_position)
          FROM information_schema.columns
         WHERE table_schema='platform' AND table_name='scope_access'"
 }
+
+# BOTH shapes are written out here, and NEITHER is read back out of the database
+# first. A6 exists to catch V24 reshuffling what V21 published; an expectation
+# taken from the database that V24 just migrated cannot catch that, because a
+# reshuffle would move the expectation with it. The measured form was compared
+# against the source of both migrations, which is where these two lines come
+# from and where a reader can check them:
+#
+#   V21__platform_tenancy_directory.sql:76   scope_id, tenant_id, slug, archived
+#   V1__init.sql:39 / V2:12 / V16:258        scope.kind VARCHAR(16), slug TEXT,
+#                                            archived BOOLEAN, locked BOOLEAN
+#   V24__platform_read_contract.sql:391      kind, locked, can_write appended
+#
+# Until 2026-09-20 the second claim compared V24's form against the V23 form
+# READ FROM THE SAME DATABASE moments earlier, which is review criterion 2: the
+# expectation came out of the artefact under test.
+V23_VIEW_SHAPE='scope_id:uuid:1,tenant_id:uuid:2,slug:text:3,archived:boolean:4'
+V24_VIEW_SHAPE="$V23_VIEW_SHAPE,kind:character varying:5,locked:boolean:6,can_write:boolean:7"
 
 # ===========================================================================
 case_resolution() {
@@ -283,6 +306,150 @@ case_rolename() {
 }
 
 # ===========================================================================
+# A1/A2 — the guard in front of the rename.
+#
+# Renaming a role DELETES an MD5 password verifier: it is salted with the role
+# name. What that leaves behind is a service role that still holds every
+# privilege and can no longer authenticate, after a migration that reported
+# success — and the production window has no way back but an image swap.
+#
+# Both halves are measured on ONE database, in the order an operator would meet
+# them: the migration refuses, the operator does what the message says, the
+# migration goes through.
+case_md5guard() {
+  hdr "A1/A2 — V24 refuses to rename a role whose password is an MD5 verifier"
+
+  reset_cluster
+  require_password_auth
+  flyway --locations="filesystem:$(chain_dir_through 23)" --action=migrate | tail -1
+  owner_sweep
+
+  say "a database at V23 whose kumbuka_logbook carries an MD5 password"
+  sql "SET password_encryption='md5'; ALTER ROLE kumbuka_logbook PASSWORD 'logbook-secret'" >/dev/null
+  is "the verifier is MD5 to begin with" \
+     "$(sql "SELECT CASE WHEN rolpassword LIKE 'md5%' THEN 'MD5' ELSE 'other' END
+               FROM pg_authid WHERE rolname='kumbuka_logbook'")" "MD5"
+  is "and the role can authenticate with it" \
+     "$(can_authenticate kumbuka_logbook logbook-secret)" "yes"
+
+  local out; out="$(flyway --locations="filesystem:$MIGRATIONS" --action=migrate)"
+  case "$out" in
+    *"migrate OK"*) bad "A1: V24 refuses the rename" "it applied: $(printf '%s' "$out" | tr '\n' ' ')";;
+    *) ok "A1: V24 stops rather than renaming";;
+  esac
+  case "$out" in
+    *kumbuka_logbook*) ok "the message names the role";;
+    *) bad "the message names the role" "$(printf '%s' "$out" | tr '\n' ' ')";;
+  esac
+  case "$out" in
+    *scram-sha-256*) ok "and says what to do about it (set the password under SCRAM)";;
+    *) bad "the message says what to do" "$(printf '%s' "$out" | tr '\n' ' ')";;
+  esac
+
+  say "and the database is untouched — Postgres rolls DDL back, so V24 left no trace"
+  is "the flyway head is still 23" \
+     "$(sql "SELECT max(version::numeric) FROM flyway_schema_history WHERE success")" "23"
+  is "no failed V24 row was left behind either" \
+     "$(sql "SELECT count(*) FROM flyway_schema_history WHERE version='24'")" "0"
+  is "the role still has its old name" \
+     "$(sql "SELECT count(*) FROM pg_roles WHERE rolname='kumbuka_logbook'")" "1"
+  is "kumbuka_dispatch was not created" \
+     "$(sql "SELECT count(*) FROM pg_roles WHERE rolname='kumbuka_dispatch'")" "0"
+  is "the password is still there, and still works" \
+     "$(can_authenticate kumbuka_logbook logbook-secret)" "yes"
+  is "the view is still the V23 one" "$(view_shape)" "$V23_VIEW_SHAPE"
+
+  say "A2 — the operator does what the message said; the same migration now applies"
+  sql "SET password_encryption='scram-sha-256'; ALTER ROLE kumbuka_logbook PASSWORD 'logbook-secret'" >/dev/null
+  local out2; out2="$(flyway --locations="filesystem:$MIGRATIONS" --action=migrate)"
+  case "$out2" in
+    *"migrate OK"*) ok "A2: with a SCRAM verifier V24 applies as it always did";;
+    *) bad "A2: V24 applies once the verifier is SCRAM" "$(printf '%s' "$out2" | tr '\n' ' ')";;
+  esac
+  is "the rename happened" \
+     "$(sql "SELECT count(*) FROM pg_roles WHERE rolname='kumbuka_dispatch'")" "1"
+  is "and the password came with it" \
+     "$(can_authenticate kumbuka_dispatch logbook-secret)" "yes"
+
+  # The other half of the guard: a migrator that cannot read the catalogue is
+  # refused too, because a rename it cannot check is the same rename. The
+  # deployment migrates the core as the superuser
+  # (infra/compose.prod.yml: QUARKUS_FLYWAY_USERNAME: ${POSTGRES_USER}), so
+  # this is the stage-F shape, not today's.
+  say "a migrator that may not read pg_authid is refused as well"
+  reset_cluster
+  sql "CREATE ROLE unprivileged_migrator LOGIN CREATEROLE NOSUPERUSER BYPASSRLS" >/dev/null
+  sqla "CREATE DATABASE kumbuka_unprivileged OWNER unprivileged_migrator" >/dev/null
+  local u_url="jdbc:postgresql://localhost:$PORT/kumbuka_unprivileged"
+  local u_out
+  u_out="$(java -cp "$WORK/java:$CP" ReadContractFlyway --url="$u_url" \
+             --user=unprivileged_migrator --password= \
+             --locations="filesystem:$MIGRATIONS" --action=migrate 2>&1 \
+           | grep -vE '^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}')"
+  case "$u_out" in
+    *"cannot read pg_catalog.pg_authid"*) ok "it stops, and says which read it is missing";;
+    *) bad "an unprivileged migrator is refused the rename" "$(printf '%s' "$u_out" | tr '\n' ' ')";;
+  esac
+  case "$u_out" in
+    *"GRANT SELECT ON pg_catalog.pg_authid"*) ok "and names the grant that would let it through";;
+    *) bad "the message names the grant" "$(printf '%s' "$u_out" | tr '\n' ' ')";;
+  esac
+
+  say "with that one grant — in the database being migrated — the same migrator gets through"
+  sqld kumbuka_unprivileged "GRANT SELECT ON pg_catalog.pg_authid TO unprivileged_migrator" >/dev/null
+  local g_out
+  g_out="$(java -cp "$WORK/java:$CP" ReadContractFlyway --url="$u_url" \
+             --user=unprivileged_migrator --password= \
+             --locations="filesystem:$MIGRATIONS" --action=migrate 2>&1 \
+           | grep -vE '^[A-Z][a-z]{2} [0-9]{1,2}, [0-9]{4}')"
+  case "$g_out" in
+    *"migrate OK"*) ok "the grant is the whole of what stage F needs here";;
+    *) bad "the granted migrator applies the chain" "$(printf '%s' "$g_out" | tr '\n' ' ')";;
+  esac
+}
+
+# ===========================================================================
+# R1 — take the guard out and watch the damage happen.
+#
+# This is the one red probe that cannot be staged by editing the database
+# afterwards: the guard is IN the migration, and what it prevents is the
+# migration's own act. So the chain is copied with the marked block cut out.
+case_red_md5guard() {
+  hdr "R1 — remove the MD5 guard: the rename goes through and takes the password"
+
+  local nochain; nochain="$(chain_dir_without_md5_guard)"
+  # Both markers gone, and the guard's own statement with them. The first check
+  # alone was not enough: an earlier version of the markers ended the deleted
+  # range inside its own opening comment, so the markers went and the guard
+  # stayed — and the probe said it had been removed.
+  is "the copy lost both markers" \
+     "$(grep -c 'md5-guard' "$nochain"/V24__*.sql)" "0"
+  is "and the guard's check went with them" \
+     "$(grep -c 'has_table_privilege' "$nochain"/V24__*.sql)" "0"
+
+  reset_cluster
+  require_password_auth
+  flyway --locations="filesystem:$(chain_dir_through 23)" --action=migrate | tail -1
+  owner_sweep
+  sql "SET password_encryption='md5'; ALTER ROLE kumbuka_logbook PASSWORD 'logbook-secret'" >/dev/null
+  is "green first: the role authenticates with its MD5 password" \
+     "$(can_authenticate kumbuka_logbook logbook-secret)" "yes"
+
+  local out; out="$(flyway --locations="filesystem:$nochain" --action=migrate)"
+  case "$out" in
+    *"migrate OK"*) ok "RED: without the guard the migration reports success";;
+    *) bad "RED: without the guard the migration applies" "$(printf '%s' "$out" | tr '\n' ' ')";;
+  esac
+  is "RED: the verifier is gone" \
+     "$(sql "SELECT coalesce(rolpassword,'<NULL>') FROM pg_authid WHERE rolname='kumbuka_dispatch'")" \
+     "<NULL>"
+  is "RED: and the dispatch service can no longer authenticate" \
+     "$(can_authenticate kumbuka_dispatch logbook-secret)" "no"
+  say "a clean migration log, every privilege intact, and a service that cannot log in."
+  say "that silence is what the guard in V24 exists to prevent."
+}
+
+# ===========================================================================
 # The case this suite was missing, and the reason it was missing it.
 #
 # Every other case here migrates as `postgres`. A superuser is exempt from the
@@ -302,6 +469,14 @@ case_migrator() {
   sql "CREATE ROLE stage_f_migrator LOGIN CREATEROLE NOSUPERUSER BYPASSRLS" >/dev/null
   sqla "CREATE DATABASE $DB'_stagef' OWNER stage_f_migrator" >/dev/null 2>&1 || \
     sqla "CREATE DATABASE kumbuka_stagef OWNER stage_f_migrator" >/dev/null
+  # V24's MD5 guard reads pg_catalog.pg_authid, and a CREATEROLE non-superuser
+  # may not — measured, and it cannot grant itself the read either (a predefined
+  # role's ADMIN option belongs to the superuser). So a stage-F migrator needs
+  # this one grant, which is what the guard's own message asks for;
+  # `case_md5guard` witnesses both halves of that. It is issued HERE, in the
+  # database about to be migrated, because a shared catalogue's ACL is
+  # per-database. Today's deployment is unaffected: it migrates as the superuser.
+  sqld kumbuka_stagef "GRANT SELECT ON pg_catalog.pg_authid TO stage_f_migrator" >/dev/null
 
   # BYPASSRLS only while the chain applies (V6 hands it out and only a holder
   # may); the ownership question this case is about is unaffected by it.
@@ -377,16 +552,14 @@ case_chain() {
   local before; before="$(view_shape)"
   printf '     %s\n' "$before"
   is "at V23 the view has exactly the four published columns" "$before" \
-     "scope_id:uuid:1,tenant_id:uuid:2,slug:text:3,archived:boolean:4"
+     "$V23_VIEW_SHAPE"
 
   say "V24 on top of it"
   flyway --locations="filesystem:$MIGRATIONS" --action=migrate | tail -1
   local after; after="$(view_shape)"
   printf '     %s\n' "$after"
-  case "$after" in
-    "$before",*) ok "the four are unchanged in name, type and position; the new ones are appended";;
-    *) bad "the four are unchanged and the new ones appended" "$after";;
-  esac
+  is "the four hold their name, type and position, and the three are appended" \
+     "$after" "$V24_VIEW_SHAPE"
   is "the three new columns are the ones V24 names" \
      "$(sql "SELECT string_agg(column_name,',' ORDER BY ordinal_position)
                FROM information_schema.columns
@@ -584,8 +757,8 @@ case_red_resolver() {
 resolve_classpath
 compile_driver
 
-ALL=(resolution visibility writeright rolename migrator chain
-     red-memory-grant red-author red-tenant red-superuser red-resolver)
+ALL=(resolution visibility writeright rolename md5guard migrator chain
+     red-memory-grant red-author red-tenant red-superuser red-resolver red-md5guard)
 SELECTED=("${@:-}")
 [[ -z "${SELECTED[0]:-}" ]] && SELECTED=("${ALL[@]}")
 
@@ -595,6 +768,7 @@ for c in "${SELECTED[@]}"; do
     visibility)       case_visibility;;
     writeright)       case_writeright;;
     rolename)         case_rolename;;
+    md5guard)         case_md5guard;;
     migrator)         case_migrator;;
     chain)            case_chain;;
     red-memory-grant) case_red_memory_grant;;
@@ -602,6 +776,7 @@ for c in "${SELECTED[@]}"; do
     red-tenant)       case_red_tenant;;
     red-superuser)    case_red_superuser;;
     red-resolver)     case_red_resolver;;
+    red-md5guard)     case_red_md5guard;;
     *) die "unknown case: $c";;
   esac
 done

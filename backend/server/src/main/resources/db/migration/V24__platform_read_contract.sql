@@ -126,10 +126,52 @@
 -- a later log:// service must not inherit the confusion. A RENAME is the right
 -- shape because privileges hang off the role's OID and follow it: measured on a
 -- database at V23, the SELECT on `platform.scope_access` was still held under
--- the new name immediately after the rename, and the SCRAM verifier survived it
--- (an MD5 verifier would NOT have — it is salted with the role name. Measured:
--- every role in this chain is SCRAM-SHA-256 under a cluster whose
--- `password_encryption` is `scram-sha-256`, so that hazard does not apply).
+-- the new name immediately after the rename, and the SCRAM verifier survived it.
+--
+-- AN MD5 VERIFIER DOES NOT SURVIVE IT, AND THAT IS WHAT THE GUARD BELOW IS FOR.
+-- It is salted with the ROLE NAME, so a rename cannot carry it across; Postgres
+-- drops it and says so in passing. Measured on postgres:16.13, 2026-09-20:
+--
+--     ALTER ROLE kumbuka_logbook RENAME TO kumbuka_dispatch
+--     NOTICE:  MD5 password cleared because of role rename
+--     rolpassword afterwards  ->  NULL
+--
+-- A NOTICE in a migration log is not a gate. What it leaves behind is a service
+-- role that exists, holds every privilege it used to hold, and can no longer
+-- authenticate — and the deployment reports a clean migration. That this chain's
+-- own roles are SCRAM was measured in a TEST substrate, which says nothing about
+-- a cluster whose `password_encryption` was `md5` when the password was last
+-- set. A measurement taken somewhere else is not a guard, so the check is here.
+--
+-- THE CHECK NEEDS TO READ `pg_catalog.pg_authid`, AND NOT EVERY MIGRATOR MAY.
+-- Measured the same day, as a CREATEROLE non-superuser (the migrator stage F
+-- intends):
+--
+--     SELECT rolpassword FROM pg_authid   ->  ERROR: permission denied for table pg_authid
+--     SELECT passwd FROM pg_shadow        ->  ERROR: permission denied for view pg_shadow
+--     SELECT rolpassword FROM pg_roles    ->  '********'
+--
+-- The third is the one that rules out a workaround: `pg_roles.rolpassword` is a
+-- CONSTANT in the view definition, and it reads '********' for a role with no
+-- password at all — so it cannot even witness that a verifier EXISTS, let alone
+-- which kind it is. Nor can the migrator borrow the read the way the resolver
+-- block below borrows CREATE: `GRANT pg_read_all_data TO current_user` is
+-- refused ("Only roles with the ADMIN option on role pg_read_all_data may grant
+-- this role"), because a predefined role's ADMIN option is the superuser's.
+--
+-- So a migrator that cannot read the verifier is refused the rename rather than
+-- performing it blind. The deployment is unaffected: it migrates the core as
+-- the superuser (`QUARKUS_FLYWAY_USERNAME` is set to the POSTGRES_USER of the
+-- cluster in `infra/compose.prod.yml`, where the comment states the reason —
+-- the RLS backfills in V7 need it). The variable is named without its shell
+-- braces on purpose: Flyway reads a dollar sign followed by a braced name as a
+-- PLACEHOLDER everywhere in the file, comments included, and then refuses to
+-- parse the migration at all — "No value provided for placeholder" — so the
+-- whole chain stops on a sentence in a comment. Measured here first, twice. A stage-F migrator needs one grant to pass this
+-- check, and the exception below names it — issued IN THE DATABASE BEING
+-- MIGRATED, because a shared catalogue's ACL is per-database. Measured the same
+-- day: granted in one database, the privilege check on `pg_authid` answers
+-- true there and false in the next database of the same cluster.
 --
 -- THE CASE THIS BLOCK EXISTS FOR: `kumbuka_dispatch` may already be there. The
 -- dispatch service's own chain creates its runtime role, and a cluster where
@@ -148,14 +190,65 @@
 -- ---------------------------------------------------------------------------
 DO $do$
 DECLARE
-    has_old boolean;
-    has_new boolean;
+    has_old   boolean;
+    has_new   boolean;
+    verifier  text;
 BEGIN
     SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kumbuka_logbook'),
            EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'kumbuka_dispatch')
       INTO has_old, has_new;
 
     IF has_old AND NOT has_new THEN
+        -- md5-guard-begin — case `red-md5guard` deletes this block, marker line
+        -- to marker line, and measures that the rename then goes through and
+        -- takes the password with it. The markers make that removal exact
+        -- rather than a regex over shifting line numbers, and neither marker
+        -- word appears anywhere else in this file: naming the closing one here
+        -- would end the deleted range on THIS line and leave the guard standing
+        -- while the probe reported it gone. (Measured: it did, once.)
+        IF NOT pg_catalog.has_table_privilege('pg_catalog.pg_authid', 'SELECT') THEN
+            RAISE EXCEPTION
+                'V24: cannot read pg_catalog.pg_authid as "%", so whether role '
+                '"kumbuka_logbook" carries an MD5 password verifier is unknown — '
+                'and renaming a role DELETES an MD5 verifier, because it is '
+                'salted with the role name. Refusing to rename blind: it would '
+                'leave the dispatch service holding a role it can no longer '
+                'authenticate as, with a clean migration log and no error to '
+                'show for it.', current_user
+                USING ERRCODE = 'P0001',
+                      HINT = 'Migrate as a superuser (what the deployment does '
+                             'today), or let the migrator read the catalogue, '
+                             'CONNECTED TO THIS DATABASE — the ACL of a shared '
+                             'catalogue is per-database (measured): '
+                             'GRANT SELECT ON pg_catalog.pg_authid TO "'
+                             || current_user || '"; — then migrate again. '
+                             'pg_roles is no substitute: its rolpassword column '
+                             'is the constant ''********'' for every role.';
+        END IF;
+
+        SELECT a.rolpassword INTO verifier
+          FROM pg_catalog.pg_authid a
+         WHERE a.rolname = 'kumbuka_logbook';
+
+        IF verifier LIKE 'md5%' THEN
+            RAISE EXCEPTION
+                'V24: role "kumbuka_logbook" carries an MD5 password verifier, '
+                'and renaming it to "kumbuka_dispatch" would DELETE that '
+                'password — an MD5 verifier is salted with the role name, so '
+                'Postgres cannot carry it across and clears it with a NOTICE '
+                'the migration log will not stop for. The rename is refused '
+                'rather than leaving the dispatch service unable to '
+                'authenticate.'
+                USING ERRCODE = 'P0001',
+                      HINT = 'Set the password again under SCRAM, as the same '
+                             'secret the dispatch service already uses: '
+                             'SET password_encryption = ''scram-sha-256''; '
+                             'ALTER ROLE kumbuka_logbook PASSWORD ''<the '
+                             'existing password>''; — then migrate again. A '
+                             'SCRAM verifier survives the rename (measured).';
+        END IF;
+        -- md5-guard-end
+
         ALTER ROLE kumbuka_logbook RENAME TO kumbuka_dispatch;
     ELSIF has_old AND has_new THEN
         RAISE WARNING 'V24: both kumbuka_logbook and kumbuka_dispatch exist — '
