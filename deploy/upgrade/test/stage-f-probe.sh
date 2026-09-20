@@ -21,7 +21,7 @@
 #   reforward    step, revert, step — the second move is green
 #
 #   The CE shape (sprint/186.5) — ONE role, migrator and runtime at once, as
-#   ops/postgres/init-db.sh creates it. The cases above all migrate as a
+#   postgres/init-db.sh creates it. The cases above all migrate as a
 #   SUPERUSER with a separate runtime role, which is the ops-console shape;
 #   that is why neither B1 nor B2 was visible here before.
 #   fresh-ce     a fresh CE installation, the finishing step, three starts
@@ -215,7 +215,7 @@ reset_cluster() {
 # Read from init-db.sh rather than retyped, so the probe cannot drift away
 # from the artefact it is supposed to witness.
 # ---------------------------------------------------------------------------
-INIT_DB_SH="${INIT_DB_SH:-$SERVER_ROOT/ops/postgres/init-db.sh}"
+INIT_DB_SH="${INIT_DB_SH:-$SERVER_ROOT/postgres/init-db.sh}"
 
 reset_cluster_ce() {   # reset_cluster_ce [dbname]
   local db="${1:-$DB}"
