@@ -264,7 +264,8 @@ class PlatformScopeAccessIT {
 
     /**
      * The alias lookup a service needs BEFORE it has a tenant to bind — the
-     * chicken-and-egg D-OPS-26 creates by ruling the tenant id out of the token.
+     * chicken-and-egg the platform's tenancy rule creates by ruling the tenant
+     * id out of the token and leaving only the alias.
      *
      * <p>The subtlety this test exists for is that the lookup reads
      * {@code platform.team}, which is under FORCE ROW LEVEL SECURITY with a
