@@ -192,13 +192,27 @@ owner_sweep() {
 # MD5 verifier before any password is checked. A case about what a rename does
 # to an MD5 password has to be able to log that role in first, so the line has
 # to admit both.
+# The file's location is ASKED FOR, never assumed: postgres:16 keeps it in
+# /var/lib/postgresql/data and postgres:18 does not, so a hardcoded path writes
+# a file the server never reads — and the suite then runs under trust while
+# reporting on passwords. Measured on postgres:18.6, where exactly one claim
+# went red and the rest stayed green for the wrong reason.
+#
+# And the result is verified rather than trusted: a rewrite that does not take
+# leaves every authentication claim vacuously true, which is the failure this
+# helper exists to remove.
 require_password_auth() {
+  local hba; hba="$(sql 'SHOW hba_file')"
+  [[ -n "$hba" ]] || die "could not ask the server where pg_hba.conf is"
   docker exec -u postgres -i "$CT" bash -c \
     "printf '%s\n' 'local all all trust' \
                    'host all $MIGRATOR all trust' \
                    'host all all all md5' \
-       > /var/lib/postgresql/data/pg_hba.conf" >/dev/null
+       > '$hba'" \
+    || die "could not rewrite $hba in the probe container"
   sql "SELECT pg_reload_conf()" >/dev/null
+  [[ "$(sql "SELECT count(*) FROM pg_hba_file_rules WHERE auth_method='md5'")" == "1" ]] \
+    || die "the reloaded $hba does not carry the md5 rule — every password claim below it would be vacuous"
 }
 
 # Can <role> log in over TCP with <password>? Answers `yes` or `no` — never the
