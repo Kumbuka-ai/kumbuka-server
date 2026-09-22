@@ -25,7 +25,9 @@ import jakarta.ws.rs.core.MediaType;
  * was configured, because the core served that path itself. It does not any
  * more: the memory engine left, and with it the only tool surface a connector
  * could reach here. The fallback is therefore {@code null} rather than an
- * address that answers 404 — see {@link #resolveMcpUrl}. Which address a CE
+ * address that answers 404 — see {@link #resolveMcpUrl}, which no longer even
+ * receives this service's base URL, so there is nothing left to derive one
+ * from. Which address a CE
  * install should show instead is a composition question (which participant
  * serves the connector, and under which host), and inventing a config key for
  * it here would answer it by accident.
@@ -64,7 +66,7 @@ public class AdminConnectorResource {
         String template = config.mcpPublicUrlTemplate().orElse("");
         // Null on CE: this service no longer serves a connector endpoint and
         // will not name one it cannot answer on.
-        String mcpUrl = resolveMcpUrl(template, config.publicBaseUrl());
+        String mcpUrl = resolveMcpUrl(template);
         String clientId = resolveClientId(config.connectorClientId());
         // SaaS: the connector secret is provider-managed (rendered into the
         // realm config), so it is never exposed from the team console. CE keeps
@@ -97,14 +99,15 @@ public class AdminConnectorResource {
      * serves, with no per-tenant {@code <alias>} placeholder (tenant resolution
      * is token-derived). CE (empty template): {@code null}.
      *
-     * <p>The CE branch returned {@code publicBaseUrl} plus the tool path while
+     * <p>The CE branch returned the public base URL plus the tool path while
      * the core served that path. Since it does not, the honest answer is no
      * answer: a string built from this service's own base URL would name a
      * route that 404s, and a team copying it into a client would get a failure
-     * with no explanation. Pure — package-private + static so it unit-tests
-     * without CDI/DB.
+     * with no explanation. The base URL is not a parameter any more, so the old
+     * fallback cannot return by accident. Pure — package-private + static so it
+     * unit-tests without CDI/DB.
      */
-    static String resolveMcpUrl(String template, String publicBaseUrl) {
+    static String resolveMcpUrl(String template) {
         if (template == null || template.isBlank()) {
             return null;
         }
