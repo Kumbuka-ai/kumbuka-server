@@ -1,5 +1,6 @@
 package ai.kumbuka.boundary;
 
+import ai.kumbuka.testsupport.RepositoryRoot;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -29,39 +30,121 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * reading. So the search that was run once by hand when the cut was made runs
  * here on every build instead.
  *
- * <h2>What is searched, and what is deliberately not</h2>
+ * <h2>What is searched</h2>
  *
- * <p><b>Code, not prose.</b> Comments and javadoc are stripped before the
- * search. A sentence recording that {@code /mcp} was removed is exactly the
+ * <p>Everything this repository ships, and not the sources alone: the engine
+ * does not come back through Java only. A line in a compose file, a route in a
+ * Caddy block, an extension re-added to a POM, a different jar copied in the
+ * image — each of those puts the surface back without a single import being
+ * written. The list below is the search space, spelled out so a reader need not
+ * derive it from {@link #SEARCHED}:
+ *
+ * <ul>
+ *   <li>{@code backend/server/src/main/java},
+ *       {@code backend/server/src/main/resources},
+ *       {@code backend/spi/src/main/java} — the core's own shipped sources
+ *       and configuration.</li>
+ *   <li>{@code backend/pom.xml}, {@code backend/server/pom.xml},
+ *       {@code backend/spi/pom.xml} — the build, where an extension returns as
+ *       one dependency element.</li>
+ *   <li>{@code backend/Dockerfile}, {@code backend/.dockerignore} — the image
+ *       recipe, which decides what actually ships.</li>
+ *   <li>{@code deploy}, {@code ops}, {@code postgres} — the operational half:
+ *       compose files, Caddy blocks, upgrade SQL, shell.</li>
+ *   <li>{@code .github/workflows} — the pipeline that builds and publishes.</li>
+ *   <li>{@code Caddyfile}, {@code docker-compose.yml},
+ *       {@code docker-compose.prod.yml}, {@code .env.example},
+ *       {@code .env.prod.example}, {@code justfile},
+ *       {@code sonar-project.properties}, {@code server.json} — the root.</li>
+ * </ul>
+ *
+ * <h2>What is deliberately not searched, and why</h2>
+ *
+ * <p><b>Code, not prose.</b> Comments are stripped before the search, in every
+ * language the space now contains: line and block comments in Java, XML
+ * comments, a leading {@code --} in SQL, and a leading {@code #} everywhere
+ * else. A sentence recording that the tool route was removed is exactly the
  * kind of thing this file wants people to write; a probe that reddened on it
  * would teach the opposite lesson, and would redden on its own documentation.
  *
- * <p><b>Migrations are excluded.</b> This was a code cut. {@code public.memory}
- * and its siblings stay in the chain as dead tables — V1 through V25 are
- * byte-identical — and fall later under their own migration. A probe that
- * refused the word there would demand a schema change nobody sanctioned.
+ * <p><b>Markdown is not searched at all</b>, because a Markdown file is prose
+ * end to end and has no comment syntax to strip. This is what keeps
+ * {@code README.md}, {@code ops/README.md}, the {@code README.md} files under
+ * {@code deploy/} and the whole of {@code docs/} out of the space: they
+ * describe the product, including the MCP surface the product still has —
+ * served by another service. Reddening there would forbid writing down what
+ * happened.
+ *
+ * <p><b>Three paths inside the space are exempt by name</b>, each with its
+ * reason recorded beside it in {@link #EXCLUDED}: the migration chain, the
+ * operational Caddy block, and {@code server.json}. The latter two are listed
+ * in the search space rather than quietly left out of it, so a reader meets the
+ * exemption and its reason instead of a gap.
+ *
+ * <p><b>Test sources are not searched.</b> They do not ship, and they must be
+ * free to name what they assert about — {@code AdminConnectorResourceTest} pins
+ * the resolution of the connector URL, which is an MCP address.
+ * {@code assets/} and {@code design/} are brand and design material rather than
+ * a shipped artifact of this service, and {@code LICENSE} is a licence text.
  *
  * <p><b>This test excludes itself</b>, since it must name what it forbids.
  */
 class MemoryEngineIsOutOfTheCoreTest {
 
-    /**
-     * The repository root, found by walking up from the working directory
-     * until the {@code backend} module sits beside {@code deploy}.
-     */
-    private static final Path REPO_ROOT = repoRoot();
+    /** The repository root — see {@link RepositoryRoot}. */
+    private static final Path REPO_ROOT = RepositoryRoot.find();
 
-    /** Everything the core ships: main sources, main resources, build files. */
+    /**
+     * Everything this repository ships. The class comment above says in prose
+     * what each entry is for and what is left out; this is the list itself.
+     */
     private static final List<String> SEARCHED = List.of(
         "backend/server/src/main/java",
         "backend/server/src/main/resources",
         "backend/spi/src/main/java",
+        "backend/pom.xml",
         "backend/server/pom.xml",
         "backend/spi/pom.xml",
-        "backend/pom.xml");
+        "backend/Dockerfile",
+        "backend/.dockerignore",
+        "deploy",
+        "ops",
+        "postgres",
+        ".github/workflows",
+        "Caddyfile",
+        "docker-compose.yml",
+        "docker-compose.prod.yml",
+        ".env.example",
+        ".env.prod.example",
+        "justfile",
+        "sonar-project.properties",
+        "server.json");
 
-    /** Dead tables, untouched chain — see the class comment. */
-    private static final String EXCLUDED_DIR = "db/migration";
+    /**
+     * Paths inside {@link #SEARCHED} that are exempt, each with the reason it
+     * is exempt. A reason here is not decoration: it is what distinguishes an
+     * exemption somebody took from a blind spot nobody noticed.
+     */
+    private static final Map<String, String> EXCLUDED = excluded();
+
+    private static Map<String, String> excluded() {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("backend/server/src/main/resources/db/migration",
+            "Dead tables, untouched chain. This was a code cut: public.memory and its "
+            + "siblings stay in the chain — V1 through V25 are byte-identical — and fall "
+            + "later under their own migration. A probe that refused the word here would "
+            + "demand a schema change nobody sanctioned.");
+        m.put("ops/caddy/kumbuka.caddy",
+            "The operational edge still routes the tool path, and the cut left it "
+            + "standing on purpose: at the edge that route names the memory service's "
+            + "surface, not a surface of this core. Where it points is a deployment "
+            + "decision, taken where the topology is decided.");
+        m.put("server.json",
+            "The MCP registry manifest of the product. It names the connector URL an AI "
+            + "client dials — again the memory service's surface — and the cut left it "
+            + "standing for the same reason as the Caddy block.");
+        return m;
+    }
 
     /**
      * What may not appear in the core's code. Key: the name a failure should
@@ -151,6 +234,43 @@ class MemoryEngineIsOutOfTheCoreTest {
             .allSatisfy(rel -> assertThat(REPO_ROOT.resolve(rel))
                 .as("searched path must exist — a typo here would silently guard nothing")
                 .exists());
+        assertThat(EXCLUDED.keySet())
+            .allSatisfy(rel -> assertThat(REPO_ROOT.resolve(rel))
+                .as("exempt path must exist — a typo here would exempt nothing, and the "
+                  + "reason recorded beside it would describe a path that is not there")
+                .exists());
+    }
+
+    /**
+     * The second half of the red run, for the half of the search space the
+     * widening added. Outside Java and XML the comment marker is a leading
+     * {@code --} in SQL and a leading {@code #} everywhere else; if that
+     * stripping were wrong in either direction the widened space would either
+     * redden on prose or stop seeing live configuration, and both failures are
+     * silent.
+     */
+    @Test
+    void theProbeReadsOperationalFilesAsCodeAndTheirCommentsAsProse() {
+        assertThat(scanText("ops/demo.caddy", "@mcp path /mcp /mcp/*\n"))
+            .as("a live route in a Caddy block must be caught")
+            .isNotEmpty();
+        assertThat(scanText("ops/demo.caddy", "#   the backend served /mcp here once\n"))
+            .as("a hash comment recording the removal must NOT be caught")
+            .isEmpty();
+
+        assertThat(scanText("demo.yml", "  - \"quarkus-mcp-server-http\"\n"))
+            .as("a live extension in a compose or workflow file must be caught")
+            .isNotEmpty();
+        assertThat(scanText("demo.yml", "# quarkus-mcp-server-http was dropped in the cut\n"))
+            .as("a hash comment in YAML must NOT be caught")
+            .isEmpty();
+
+        assertThat(scanText("deploy/demo.sql", "-- memory_recall used to read this table\n"))
+            .as("a SQL comment must NOT be caught")
+            .isEmpty();
+        assertThat(scanText("deploy/demo.sql", "SELECT source FROM memory_recall_log;\n"))
+            .as("live SQL must be caught")
+            .isNotEmpty();
     }
 
     // ------------------------------------------------------------------ scan
@@ -164,9 +284,9 @@ class MemoryEngineIsOutOfTheCoreTest {
             }
             try (Stream<Path> walk = Files.walk(base)) {
                 walk.filter(Files::isRegularFile)
+                    .map(MemoryEngineIsOutOfTheCoreTest::relative)
                     .filter(MemoryEngineIsOutOfTheCoreTest::isSearchable)
-                    .forEach(f -> hits.addAll(
-                        scanText(REPO_ROOT.relativize(f).toString(), read(f))));
+                    .forEach(p -> hits.addAll(scanText(p, read(REPO_ROOT.resolve(p)))));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -174,16 +294,43 @@ class MemoryEngineIsOutOfTheCoreTest {
         return hits;
     }
 
-    private static boolean isSearchable(Path f) {
-        String p = f.toString().replace('\\', '/');
-        if (p.contains(EXCLUDED_DIR)) {
+    private static String relative(Path f) {
+        return REPO_ROOT.relativize(f).toString().replace('\\', '/');
+    }
+
+    /**
+     * Whether a file inside the search space is read. Exemptions are matched on
+     * the whole relative path, not by substring, so an entry naming
+     * {@code server.json} cannot silently exempt some other {@code server.json}
+     * deeper in the tree.
+     */
+    private static boolean isSearchable(String rel) {
+        for (String exempt : EXCLUDED.keySet()) {
+            if (rel.equals(exempt) || rel.startsWith(exempt + "/")) {
+                return false;
+            }
+        }
+        if (rel.endsWith("MemoryEngineIsOutOfTheCoreTest.java")) {
             return false;
         }
-        if (p.endsWith("MemoryEngineIsOutOfTheCoreTest.java")) {
-            return false;
-        }
-        return p.endsWith(".java") || p.endsWith(".properties")
-            || p.endsWith(".xml") || p.endsWith(".json");
+        return isCodeOrConfig(rel);
+    }
+
+    /** The kinds this probe can read as code. Markdown is absent on purpose. */
+    private static boolean isCodeOrConfig(String rel) {
+        String name = fileName(rel);
+        return rel.endsWith(".java") || rel.endsWith(".properties")
+            || rel.endsWith(".xml") || rel.endsWith(".json")
+            || rel.endsWith(".yml") || rel.endsWith(".yaml")
+            || rel.endsWith(".sh") || rel.endsWith(".sql")
+            || rel.endsWith(".caddy") || rel.endsWith(".example")
+            || name.equals("Caddyfile") || name.equals("Dockerfile")
+            || name.equals("justfile") || name.equals(".dockerignore");
+    }
+
+    private static String fileName(String rel) {
+        int slash = rel.lastIndexOf('/');
+        return slash < 0 ? rel : rel.substring(slash + 1);
     }
 
     private static String read(Path f) {
@@ -219,21 +366,31 @@ class MemoryEngineIsOutOfTheCoreTest {
     /**
      * Blank out comments while keeping line numbering intact, so a hit still
      * points at the line a reader will open. Crude on purpose: it does not
-     * parse strings, so a {@code "/mcp"} inside a Java string literal is still
+     * parse strings, so a quoted route inside a Java string literal is still
      * seen — which is what we want, since that is how a route comes back.
+     *
+     * <p>Outside Java and XML only a whole comment LINE is blanked, never a
+     * trailing marker on a line that also carries code. The asymmetry is
+     * deliberate: a {@code #} inside a shell string or a Caddy matcher is not a
+     * comment, and erring towards reading too much as code costs a false red
+     * that a reader can see, while erring the other way costs a blind spot
+     * nobody sees.
      */
     private static String stripComments(String path, String content) {
-        if (path.endsWith(".properties")) {
-            return blankMatching(content, Pattern.compile("(?m)^\\s*#.*$"));
-        }
-        if (path.endsWith(".xml")) {
-            return blankMatching(content, Pattern.compile("(?s)<!--.*?-->"));
-        }
         if (path.endsWith(".java")) {
             String out = blankMatching(content, Pattern.compile("(?s)/\\*.*?\\*/"));
             return blankMatching(out, Pattern.compile("(?m)//.*$"));
         }
-        return content;
+        if (path.endsWith(".xml")) {
+            return blankMatching(content, Pattern.compile("(?s)<!--.*?-->"));
+        }
+        if (path.endsWith(".sql")) {
+            return blankMatching(content, Pattern.compile("(?m)^\\s*--.*$"));
+        }
+        if (path.endsWith(".json")) {
+            return content;
+        }
+        return blankMatching(content, Pattern.compile("(?m)^\\s*#.*$"));
     }
 
     /** Replace every match with spaces, preserving newlines and offsets. */
@@ -248,17 +405,5 @@ class MemoryEngineIsOutOfTheCoreTest {
             }
         }
         return out.toString();
-    }
-
-    private static Path repoRoot() {
-        Path p = Path.of("").toAbsolutePath();
-        while (p != null) {
-            if (Files.isDirectory(p.resolve("backend")) && Files.isDirectory(p.resolve("deploy"))) {
-                return p;
-            }
-            p = p.getParent();
-        }
-        throw new IllegalStateException(
-            "repository root not found above " + Path.of("").toAbsolutePath());
     }
 }
