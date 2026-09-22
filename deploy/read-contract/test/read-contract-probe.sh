@@ -21,6 +21,8 @@
 #                     password (an MD5 verifier), and goes through once it
 #                     would not; and the migrator that may not look
 #   migrator     the whole chain under a CREATEROLE non-superuser migrator
+#   coregrant    K1 — V25: the core's runtime role `kumbuka` holds the lookup
+#                     by name, on a database where nothing owner-normalised it
 #   chain        A6 — V1..V23 unchanged, V24 applies on top, the view's first
 #                     four columns keep name, type and position
 #
@@ -33,6 +35,11 @@
 #   red-resolver      the alias policy removed                 -> A2 red
 #   red-md5guard      R1  the MD5 guard cut out of V24: the rename applies and
 #                         the service role loses the password it logs in with
+#   red-core-grant    K1  V25's grant block cut out: the core is refused the
+#                         alias lookup — the state the finding recorded
+#   red-core-verify   K1  V25's grant cut but its read-back kept: the migration
+#                         refuses to finish rather than reporting a grant it
+#                         did not issue
 #
 # Usage
 #   ./read-contract-probe.sh            # every case
@@ -509,23 +516,24 @@ case_migrator() {
   # --- the finding this case also carries -----------------------------------
   #
   # On a FRESH database the migrator owns the inventory while the chain runs, so
-  # every grant the chain addresses to "whoever owns the inventory" lands on the
-  # MIGRATOR rather than on the runtime role. V23 does it for USAGE on the
-  # schema; V24 does it for EXECUTE on the lookup, because it reads the core's
-  # role the same way and there is no other way to name a role whose name
-  # differs by installation.
+  # every grant the chain addresses to "whoever owns the inventory" is addressed
+  # to the MIGRATOR rather than to the runtime role. V23 does it for USAGE on
+  # the schema; V24 did it for EXECUTE on the lookup, because it read the core's
+  # role the same way and the chain had no other way to name a role whose name
+  # differed by installation.
   #
-  # An installation that was owner-normalised BEFORE the chain ran is unaffected
-  # — the owner is already the runtime role. A fresh one is not, and the
-  # owner-normalisation step has to carry both grants along with the ownership
-  # it moves. Nothing in `deploy/bootstrap` does today:
-  # 10-owner-normalization.sql issues no grant at all, and
-  # 14-platform-search-path.sql issues the USAGE for `kumbuka_operator` only.
+  # V25 closes the EXECUTE half AT THE CHAIN: the core's runtime role is called
+  # `kumbuka` in every installation, so the grant is issued to that name and
+  # does not depend on who owns anything. The USAGE half of V23 is still the
+  # deployment's, and still unclosed — 10-owner-normalization.sql issues no
+  # grant at all, and 14-platform-search-path.sql issues USAGE for
+  # `kumbuka_operator` only. V25 grants USAGE to `kumbuka` beside its EXECUTE,
+  # which covers the one role the core connects as and nothing else.
   #
-  # This is measured here rather than repaired, because repairing it means
-  # touching V23 or ops-console, and this dispatch's Grenze rules out both.
-  say "the fresh-install gap, witnessed BEFORE the deployment step closes it"
-  sql "CREATE ROLE fresh_runtime_probe LOGIN NOSUPERUSER NOBYPASSRLS" >/dev/null 2>&1 || true
+  # The ownership state itself stays what it is, and is measured rather than
+  # repaired: an owner sweep is the deployment's act, and this sprint's Grenze
+  # rules out touching V23 and ops-console.
+  say "the fresh-install ownership state, which V25 no longer depends on"
   local who
   who="$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
            "SELECT pg_get_userbyid(c.relowner) FROM pg_class c
@@ -533,12 +541,57 @@ case_migrator() {
              WHERE n.nspname='platform' AND c.relname='scope'" </dev/null 2>&1)"
   is "on a fresh chain the inventory is owned by the MIGRATOR, not the runtime role" \
      "$who" "stage_f_migrator"
-  local has_exec
-  has_exec="$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
-                "SELECT has_function_privilege('stage_f_migrator',
-                          'platform.tenant_id_by_alias(text)','EXECUTE')::text" </dev/null 2>&1)"
-  is "so V24's EXECUTE grant landed there — the owner-normalisation step must carry it on" \
-     "$has_exec" "true"
+  # --- and the second finding, which only this migrator can show --------------
+  #
+  # V24 hands the function to `kumbuka_alias_resolver` BEFORE it grants EXECUTE
+  # on it, so under a migrator that is not a superuser the grant — and the
+  # REVOKE FROM PUBLIC above it — are issued by a role that does not own the
+  # object. Postgres does not refuse that. It warns and does nothing:
+  #
+  #     GRANT EXECUTE ON FUNCTION platform.tenant_id_by_alias(text) TO kumbuka
+  #     WARNING:  no privileges were granted for "tenant_id_by_alias"
+  #
+  # Measured 2026-09-22 on the chain at V24 under this very shape: the access
+  # list reads {=X/resolver, resolver=X/resolver} — the owner's entry and
+  # PUBLIC's default, and NOT ONE of the four grantees V24 names. Every one of
+  # them can still call the lookup, which is why the defect is invisible to a
+  # probe that asks has_function_privilege: that answers true for all of them,
+  # and would answer true for any role in the cluster holding USAGE on the
+  # schema.
+  #
+  # Until 2026-09-22 this case asserted exactly that has_function_privilege was
+  # true and read it as "V24's grant landed on the migrator". It did not; PUBLIC
+  # did. Reported as a finding against V24, which this sprint may not edit.
+  say "V24's grants on the lookup, issued by a migrator that no longer owns it"
+  is "V24's EXECUTE grant landed on NO named role — not even on the inventory's owner" \
+     "$(execute_acl_in kumbuka_stagef stage_f_migrator stage_f_migrator)" "f"
+  is "nor on the service roles V24 names literally" \
+     "$(execute_acl_in kumbuka_stagef stage_f_migrator kumbuka_memory)" "f"
+  is "and V24's REVOKE FROM PUBLIC did not take either — every role still holds EXECUTE" \
+     "$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
+          "SELECT has_function_privilege('public','platform.tenant_id_by_alias(text)','EXECUTE')" \
+        </dev/null 2>&1)" "t"
+
+  # V25 is issued under the function's OWNER for exactly this reason, and reads
+  # the ACL back rather than trusting a migration that reported success.
+  say "V25, under the same migrator"
+  is "the core's runtime role was created by the chain" \
+     "$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
+          "SELECT rolsuper||'/'||rolbypassrls||'/'||rolcanlogin FROM pg_roles WHERE rolname='kumbuka'" \
+        </dev/null 2>&1)" "false/false/true"
+  is "and ITS grant landed, by name, where V24's did not" \
+     "$(execute_acl_in kumbuka_stagef stage_f_migrator kumbuka)" "t"
+  is "issued under the function's owner, which is what makes it land" \
+     "$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
+          "SELECT pg_get_userbyid(a.grantor) FROM pg_proc p
+             JOIN pg_namespace n ON n.oid=p.pronamespace
+             CROSS JOIN LATERAL aclexplode(p.proacl) a
+            WHERE n.nspname='platform' AND p.proname='tenant_id_by_alias'
+              AND a.grantee='kumbuka'::regrole AND a.privilege_type='EXECUTE'" \
+        </dev/null 2>&1)" "kumbuka_alias_resolver"
+  is "and the migrator's own session came back out of that role" \
+     "$(docker exec -i "$CT" psql -U stage_f_migrator -d kumbuka_stagef -qtAc \
+          "SELECT current_user" </dev/null 2>&1)" "stage_f_migrator"
 }
 
 # ===========================================================================
@@ -754,11 +807,170 @@ case_red_resolver() {
 }
 
 # ===========================================================================
+# V25 — the core's runtime role is `kumbuka`, and it holds the lookup because
+# the chain says so.
+#
+# THE SUBSTRATE OF THIS CASE DELIBERATELY OMITS `owner_sweep`. Every other case
+# here calls it through `prepare`, and the sweep issues USAGE and EXECUTE to
+# the runtime role itself — the two grants a correct deployment has to carry
+# along with the ownership it moves. A case that ran after it would be green
+# whether or not V25 existed, because the helper would have done V25's work.
+#
+# What is left standing instead is the exact shape the defect was measured in: the
+# chain applied by a superuser, `platform.scope` owned by that superuser, and
+# `kumbuka` a plain login role that owns nothing. V24's EXECUTE grant goes to
+# the owner of the inventory and therefore misses it; V25's goes to `kumbuka`
+# by name and does not.
+# Does the lookup's access list carry an EXECUTE entry naming <role>?
+#
+#   execute_acl_in <database> <as user> <role>
+#
+# Asked of the ACL and never of has_function_privilege, which answers true for
+# every role while PUBLIC still holds EXECUTE and therefore cannot witness a
+# grant to a PARTICULAR one. That is not hypothetical: under the stage-F
+# migrator V24's own `REVOKE ALL … FROM PUBLIC` is a silent no-op, and
+# `case_migrator` below measures what has_function_privilege reports there.
+execute_acl_in() {
+  docker exec -i "$CT" psql -U "$2" -d "$1" -qtAc \
+    "SELECT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_proc p
+         JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         CROSS JOIN LATERAL aclexplode(p.proacl) a
+        WHERE n.nspname='platform' AND p.proname='tenant_id_by_alias'
+          AND p.pronargs = 1
+          AND a.grantee = '$3'::regrole
+          AND a.privilege_type = 'EXECUTE')" </dev/null 2>&1
+}
+
+core_holds_execute() { execute_acl_in "$DB" "$MIGRATOR" kumbuka; }
+
+case_coregrant() {
+  hdr "K1 — the core's runtime role holds the alias lookup BY NAME, with no deployment step"
+  reset_cluster
+  flyway --locations="filesystem:$MIGRATIONS" --action=migrate | tail -1
+  seed_population
+
+  say "the shape the defect was measured in: the migrator owns the inventory"
+  is "platform.scope is owned by the migrator, not by the runtime role" \
+     "$(sql "SELECT pg_get_userbyid(c.relowner) FROM pg_class c
+               JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='platform' AND c.relname='scope'")" "postgres"
+
+  # The expectation here is this sprint's sentence — `kumbuka` holds EXECUTE —
+  # and NOT "whoever owns platform.scope holds EXECUTE", which is the catalogue
+  # indirection V25 exists to remove. Read out of the ACL rather than out of
+  # has_function_privilege: that function answers true for any role while
+  # PUBLIC still holds EXECUTE, so it cannot witness a grant to THIS one.
+  is "the function's access list names kumbuka" "$(core_holds_execute)" "t"
+  is "and kumbuka may use the schema the function lives in" \
+     "$(sql "SELECT has_schema_privilege('kumbuka','platform','USAGE')")" "t"
+
+  say "and the lookup answers, as the role the deployment connects as"
+  is "kumbuka resolves the known alias 'alpha'" \
+     "$(as kumbuka "SELECT platform.tenant_id_by_alias('alpha')")" "$TENANT_A"
+  is "kumbuka resolves the known alias 'beta'" \
+     "$(as kumbuka "SELECT platform.tenant_id_by_alias('beta')")" "$TENANT_B"
+  is "kumbuka gets NULL for an unknown alias" \
+     "$(as kumbuka "SELECT coalesce(platform.tenant_id_by_alias('nosuch')::text,'<NULL>')")" "<NULL>"
+  is "and the same answer with a tenant and a subject bound, as the core binds them" \
+     "$(bound kumbuka "$TENANT_A" "$ALICE" "SELECT platform.tenant_id_by_alias('alpha')")" "$TENANT_A"
+
+  say "a cluster that has no kumbuka yet: V25 creates it, owning nothing"
+  reset_cluster
+  sql "DROP ROLE kumbuka" >/dev/null
+  is "the role really is absent before the chain runs" \
+     "$(sql "SELECT count(*) FROM pg_roles WHERE rolname='kumbuka'")" "0"
+  flyway --locations="filesystem:$MIGRATIONS" --action=migrate | tail -1
+  is "afterwards it exists, and it is neither a superuser nor BYPASSRLS (super/bypassrls/login)" \
+     "$(sql "SELECT rolsuper||'/'||rolbypassrls||'/'||rolcanlogin FROM pg_roles WHERE rolname='kumbuka'")" \
+     "false/false/true"
+  is "and it holds the lookup" "$(core_holds_execute)" "t"
+
+  # The half that a create-if-absent block gets wrong by being one line too
+  # eager: an installation already connecting as `kumbuka` must keep
+  # authenticating with the secret it has. V25 touches no attribute of an
+  # existing role — no password, no rename, no ALTER at all.
+  say "a cluster that already has kumbuka, with a password the deployment knows"
+  reset_cluster
+  sql "ALTER ROLE kumbuka PASSWORD 'known-secret-of-this-installation'" >/dev/null
+  require_password_auth
+  is "green first: the role authenticates with the installation's secret" \
+     "$(can_authenticate kumbuka known-secret-of-this-installation)" "yes"
+  flyway --locations="filesystem:$MIGRATIONS" --action=migrate | tail -1
+  is "it still does after V25" \
+     "$(can_authenticate kumbuka known-secret-of-this-installation)" "yes"
+  is "and V25's placeholder password was NOT written over it" \
+     "$(can_authenticate kumbuka change-me-kumbuka)" "no"
+  is "and the grant landed all the same" "$(core_holds_execute)" "t"
+}
+
+# ===========================================================================
+case_red_core_grant() {
+  hdr "RED — cut V25's grant block out: the core is refused the lookup it needs"
+
+  local nogrant; nogrant="$(chain_dir_without_block core-execute 'V25__*.sql')"
+  is "the copy lost both markers" \
+     "$(grep -c 'core-execute' "$nogrant"/V25__*.sql)" "0"
+  is "and the grant statement went with them" \
+     "$(grep -c '^ *GRANT EXECUTE ON FUNCTION' "$nogrant"/V25__*.sql)" "0"
+
+  reset_cluster
+  flyway --locations="filesystem:$nogrant" --action=migrate | tail -1
+  seed_population
+
+  is "RED: the function's access list no longer names kumbuka" "$(core_holds_execute)" "f"
+  is "RED: and the role V25 created still cannot execute it" \
+     "$(sql "SELECT has_function_privilege('kumbuka','platform.tenant_id_by_alias(text)','EXECUTE')")" "f"
+  local out; out="$(as kumbuka "SELECT platform.tenant_id_by_alias('alpha')")"
+  case "$out" in
+    *"permission denied for function"*) ok "RED: the call is refused (42501)";;
+    *) bad "RED: the call is refused" "$out";;
+  esac
+  say "that refusal is the defect itself: the resolver answers, and the core may not ask."
+  say "the section-2 grant is untouched by the cut, so the schema is still reachable —"
+  is "which is how this probe shows the EXECUTE grant alone is what went missing" \
+     "$(sql "SELECT has_schema_privilege('kumbuka','platform','USAGE')")" "t"
+}
+
+# ===========================================================================
+# The other half of V25's own safety, and the reason it has one.
+#
+# A GRANT issued by a role that does not own the object does not raise. It
+# WARNS and changes nothing (measured 2026-09-22 under a CREATEROLE migrator:
+# `WARNING: no privileges were granted for "tenant_id_by_alias"`), and the
+# migration reports success. A chain that reported success while its grant went
+# nowhere is exactly how this defect reached a release, so V25 reads the ACL back and
+# refuses to finish when the grant is not there.
+#
+# Cutting the grant branch alone leaves that read-back standing, which is what
+# this probe is: not the state of a database, but whether the migration stops.
+case_red_core_verify() {
+  hdr "RED — cut V25's grant but keep its read-back: the migration must refuse to finish"
+
+  local noissue; noissue="$(chain_dir_without_block core-grant 'V25__*.sql')"
+  is "the copy lost the grant branch" \
+     "$(grep -c '^ *GRANT EXECUTE ON FUNCTION' "$noissue"/V25__*.sql)" "0"
+  is "and kept the read-back that follows it" \
+     "$(grep -c 'aclexplode' "$noissue"/V25__*.sql)" "1"
+
+  reset_cluster
+  local out; out="$(flyway --locations="filesystem:$noissue" --action=migrate)"
+  case "$out" in
+    *"did not land"*) ok "RED: V25 stops the chain and says the grant did not land";;
+    *) bad "RED: V25 stops the chain" "$(printf '%s' "$out" | tr '\n' ' ')";;
+  esac
+  is "RED: and the database is left without the grant, not with a false one" \
+     "$(core_holds_execute)" "f"
+  say "a warning in a log is not a gate. the read-back is."
+}
+
+# ===========================================================================
 resolve_classpath
 compile_driver
 
-ALL=(resolution visibility writeright rolename md5guard migrator chain
-     red-memory-grant red-author red-tenant red-superuser red-resolver red-md5guard)
+ALL=(resolution visibility writeright rolename md5guard migrator coregrant chain
+     red-memory-grant red-author red-tenant red-superuser red-resolver red-md5guard
+     red-core-grant red-core-verify)
 SELECTED=("${@:-}")
 [[ -z "${SELECTED[0]:-}" ]] && SELECTED=("${ALL[@]}")
 
@@ -770,6 +982,7 @@ for c in "${SELECTED[@]}"; do
     rolename)         case_rolename;;
     md5guard)         case_md5guard;;
     migrator)         case_migrator;;
+    coregrant)        case_coregrant;;
     chain)            case_chain;;
     red-memory-grant) case_red_memory_grant;;
     red-author)       case_red_author;;
@@ -777,6 +990,8 @@ for c in "${SELECTED[@]}"; do
     red-superuser)    case_red_superuser;;
     red-resolver)     case_red_resolver;;
     red-md5guard)     case_red_md5guard;;
+    red-core-grant)   case_red_core_grant;;
+    red-core-verify)  case_red_core_verify;;
     *) die "unknown case: $c";;
   esac
 done

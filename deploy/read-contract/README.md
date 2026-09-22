@@ -1,4 +1,4 @@
-# The platform read contract — what `V24` publishes, and how it is witnessed
+# The platform read contract — what `V24` publishes and `V25` completes, and how it is witnessed
 
 `platform.scope_access` and `platform.tenant_id_by_alias` are the two questions
 every service behind this platform asks of the core's database, and the only two
@@ -6,8 +6,10 @@ it may ask. This directory holds the probes that witness them, and the
 measurements that decided their shape.
 
 Nothing here runs in a deployment. The contract itself is
-`backend/server/src/main/resources/db/migration/V24__platform_read_contract.sql`;
-what lives here drives that file against throwaway Postgres containers.
+`backend/server/src/main/resources/db/migration/V24__platform_read_contract.sql`,
+with `V25__core_runtime_role_executes_alias_resolution.sql` adding the one
+grantee V24 could not name; what lives here drives those files against throwaway
+Postgres containers.
 
 ## The two questions
 
@@ -24,7 +26,7 @@ fail-closed. Seven columns since V24: the four V21 published (`scope_id`,
 ## Running the probes
 
 ```sh
-./test/read-contract-probe.sh              # every case, ~14 containers
+./test/read-contract-probe.sh              # every case, ~19 containers
 ./test/read-contract-probe.sh resolution   # one case
 KEEP=1 ./test/read-contract-probe.sh chain # leave the container up
 ./test/measure.sh                          # step 0: the state at V23
@@ -70,6 +72,7 @@ shape here.
 | `rolename` | `kumbuka_logbook` becomes `kumbuka_dispatch` and keeps its grants and its password — and the collision case, where the dispatch service's own chain got there first |
 | `md5guard` | the rename is refused where it would DELETE the password, and applies once it would not — and the migrator that is not allowed to look |
 | `migrator` | the whole chain under a CREATEROLE non-superuser migrator |
+| `coregrant` | V25 — the core's runtime role `kumbuka` holds the lookup by name, created where absent and never altered where present |
 | `chain` | V1..V23 unchanged; the view's seven columns match a form written out in the probe, not one read back out of the database |
 
 ## The red probes
@@ -85,10 +88,13 @@ database already at V24 and measures that the acceptance it belongs to goes red.
 | `red-superuser` | a SELECT grant, asked as superuser then as the service role | green, then red |
 | `red-resolver` | the alias policy on `platform.team` | a KNOWN alias answers NULL |
 | `red-md5guard` | the MD5 guard, cut out of V24 itself | the rename applies, reports success, and the role can no longer log in |
+| `red-core-grant` | V25's grant block, cut out of V25 itself | the core is refused the lookup — the state the finding recorded |
+| `red-core-verify` | V25's grant alone, its read-back left standing | the migration refuses to finish instead of reporting a grant it did not issue |
 
-`red-md5guard` is the one probe that cannot be staged by editing the database
-afterwards: what the guard prevents is the migration's own act, so the chain is
-copied with the marked block cut out and applied from the copy.
+`red-md5guard`, `red-core-grant` and `red-core-verify` are the probes that
+cannot be staged by editing the database afterwards: what they are about is the
+migration's own act, so the chain is copied with the marked block cut out and
+applied from the copy.
 
 ## What the MD5 guard costs a migrator that is not a superuser
 
@@ -124,25 +130,64 @@ measures nothing. The case now lifts them one at a time, against a subject that
 is an active member of BOTH tenants, which is the shape the view's own clause is
 actually for.
 
+## What V25 adds, and why the chain had to say the name out loud
+
+V24 grants EXECUTE on the lookup to four roles. Three it names literally; the
+fourth — the core's own runtime role — it read out of the catalogue, as the
+owner of `platform.scope`, because the chain never created that role and its
+name differed by installation. Measured against the real chain (2026-09-22,
+and once before that against the chain as released): on a database migrated by a superuser that
+owns the inventory, `has_function_privilege('kumbuka', …)` answers `f` and the
+core is refused its own contract.
+
+The operator's decision of 2026-09-21 removes the indirection rather than
+patching it: the core's runtime role is called `kumbuka` in every installation.
+V25 creates it where it is absent — `LOGIN`, explicitly `NOSUPERUSER
+NOBYPASSRLS`, placeholder password — leaves it untouched where it is present,
+and grants it USAGE on `platform` and EXECUTE on the lookup BY NAME. V24 is
+unchanged, its own grant included: an applied migration is never edited.
+
+`case_coregrant` is the witness, and it deliberately does not call
+`owner_sweep()` — the helper issues those same two grants, so a case running
+after it would be green whether or not V25 existed.
+
 ## Findings this directory records and does not repair
 
-Both are properties of V23 and the deployment path, and this sprint's Grenze
-rules out changing either.
+All three are properties of V23, V24 and the deployment path, and this sprint's
+Grenze rules out changing any of them.
 
-1. **A fresh installation's grants land on the migrator.** V23 grants USAGE on
-   `platform` to whoever owns `platform.scope` AT MIGRATION TIME, and V24 reads
-   the core's role the same way — it is the only way to name a role whose name
-   differs by installation. On a database that was owner-normalised BEFORE the
-   chain ran, that is the runtime role and both grants are correct. On a fresh
-   one the migrator owns everything while the chain runs, the sweep re-owns the
-   tables afterwards, and the runtime role is left holding tables it cannot
-   reach and a function it may not execute. The owner-normalisation step has to
-   carry both grants along with the ownership it moves;
-   `10-owner-normalization.sql` issues no grant at all today. `case_migrator`
-   asserts the gap; `owner_sweep()` in `substrate.sh` closes it the way a
-   correct deployment would.
+1. **A fresh installation's USAGE grant lands on the migrator.** V23 grants
+   USAGE on `platform` to whoever owns `platform.scope` AT MIGRATION TIME. On a
+   database that was owner-normalised BEFORE the chain ran, that is the runtime
+   role and the grant is correct. On a fresh one the migrator owns everything
+   while the chain runs, the sweep re-owns the tables afterwards, and the
+   runtime role is left holding tables it cannot reach through a name. The
+   owner-normalisation step has to carry the grant along with the ownership it
+   moves; `10-owner-normalization.sql` issues no grant at all today. V25 closes
+   this for the one role the core connects as, and for nothing else:
+   `kumbuka_operator` and any other consumer are still the deployment's.
 
-2. **`public.team_tenant_id_by_alias` stops resolving after V23 without one
+2. **Under a non-superuser migrator, NONE of V24's grants on the lookup take,
+   and its `REVOKE … FROM PUBLIC` does not either.** V24 hands the function to
+   `kumbuka_alias_resolver` before granting on it, so every later GRANT and
+   REVOKE in that file is issued by a role that no longer owns the object.
+   Postgres does not refuse that — it warns and does nothing:
+
+   ```
+   GRANT EXECUTE ON FUNCTION platform.tenant_id_by_alias(text) TO kumbuka
+   WARNING:  no privileges were granted for "tenant_id_by_alias"
+   ```
+
+   Measured 2026-09-22 on the chain at V24 under a CREATEROLE non-superuser: the
+   access list reads `{=X/resolver,resolver=X/resolver}` — the owner's entry and
+   PUBLIC's default, and not one of the four grantees V24 names. Every role
+   holding USAGE on `platform` can call the lookup, and none of them holds a
+   grant. `case_migrator` asserts all of it. It is invisible to
+   `has_function_privilege`, which answers true for every role while PUBLIC
+   holds the privilege — which is why `execute_acl_in()` asks the ACL instead,
+   and why V25 issues its grant under the function's owner and reads it back.
+
+3. **`public.team_tenant_id_by_alias` stops resolving after V23 without one
    grant.** Its owner holds SELECT on `platform.team` and no USAGE on the
    schema, so the name resolves to nothing and every tenant-scoped request
    answers 401 — a failed lookup is indistinguishable from an unknown tenant by
