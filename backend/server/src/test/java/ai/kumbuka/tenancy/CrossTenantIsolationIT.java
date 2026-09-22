@@ -1,14 +1,11 @@
 package ai.kumbuka.tenancy;
 
-import ai.kumbuka.domain.Memory;
-import ai.kumbuka.domain.MemoryType;
-import ai.kumbuka.domain.ScopeKind;
-import ai.kumbuka.domain.SourceChannel;
-import ai.kumbuka.repo.MemoryRepository;
+import ai.kumbuka.domain.Scope;
+import ai.kumbuka.repo.ScopeRepository;
 import io.agroal.api.AgroalDataSource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -25,20 +22,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Acceptance gate for ADR-0011: cross-tenant isolation under the two
  * structural enforcement layers (Hibernate {@code @TenantId} + Postgres
- * RLS), and the within-tenant private invariant still holds.
+ * RLS).
  *
  * <p>Runs against a real Postgres (Quarkus DevServices container — no
  * Hibernate auto-mocking) so the RLS policies are actually exercised.
- * The four subtests below align with ADR-0011 §Verification:
+ * The three subtests below align with ADR-0011 §Verification:
  *
  * <ul>
  *   <li><b>Hibernate path.</b> {@link #hibernate_filter_isolates_tenants()}</li>
  *   <li><b>RLS path.</b> {@link #rls_isolates_tenants_via_session_guc()}</li>
- *   <li><b>Private invariant under tenancy.</b>
- *       {@link #private_invariant_holds_under_tenancy()}</li>
  *   <li><b>Write isolation.</b>
  *       {@link #write_with_cross_tenant_id_fails_closed_via_rls()}</li>
  * </ul>
+ *
+ * <p><b>The carrier is the scope table.</b> This gate rode on {@code memory}
+ * rows until the memory engine left the core — the table was simply the
+ * handiest tenant-scoped, RLS'd thing to plant. What it asserts has never been
+ * about entries: it is that the tenant axis holds on both layers, and
+ * {@code scope} carries {@code @TenantId} and the same V3 policy. A fourth
+ * subtest asserted the within-tenant private-content invariant; that one was
+ * about content, and it went with the content.
  *
  * <p>Tagged {@code integration}; the {@code integration} Maven profile
  * runs {@code *IT.java} via failsafe.
@@ -52,9 +55,11 @@ class CrossTenantIsolationIT {
     /** Second tenant seeded directly by {@link #seedTenantB}. */
     static final UUID TENANT_B = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
-    static final String CALLER_X = "user-x";
+    /** Slugs planted by this test, self-quarantined against the shared DevServices DB. */
+    static final String SLUG_A = "xtenant-it-a";
+    static final String SLUG_B = "xtenant-it-b";
 
-    @Inject MemoryRepository memories;
+    @Inject ScopeRepository scopes;
     @Inject TenantContext tenantContext;
     @Inject AgroalDataSource dataSource;
 
@@ -85,8 +90,13 @@ class CrossTenantIsolationIT {
                   + "    CREATE ROLE " + RLS_TEST_ROLE + " NOSUPERUSER NOBYPASSRLS NOINHERIT;"
                   + "  END IF; "
                   + "END $$;");
-                s.execute("GRANT USAGE ON SCHEMA public TO " + RLS_TEST_ROLE);
+                // Since V23 the tenancy inventory lives in `platform`, so the
+                // role needs it too. Without USAGE on the schema Postgres
+                // reports the table as "does not exist", which would look like
+                // a missing migration rather than a missing grant.
+                s.execute("GRANT USAGE ON SCHEMA public, platform TO " + RLS_TEST_ROLE);
                 s.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO " + RLS_TEST_ROLE);
+                s.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA platform TO " + RLS_TEST_ROLE);
 
                 s.execute("SELECT set_config('app.tenant_id', '" + TENANT_B + "', false)");
                 s.execute("INSERT INTO team (id, tenant_id, name, alias) VALUES "
@@ -104,34 +114,32 @@ class CrossTenantIsolationIT {
         }
     }
 
+    /** Remove only what this test planted — the shared DevServices DB is reused. */
+    @AfterEach
+    void dropPlantedScopes() throws SQLException {
+        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
+            s.execute("DELETE FROM platform.scope WHERE slug IN ('" + SLUG_A + "','" + SLUG_B + "')");
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Subtest (a) — Hibernate path.
     // -----------------------------------------------------------------------
     @Test
     void hibernate_filter_isolates_tenants() {
-        plantMemories();
+        plantScopes();
 
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            // A global recall also carries the tenant-agnostic built-in guidance
-            // (bundled public content, no tenant_id); the tenant-isolation
-            // assertion is over the tenant-owned rows only.
-            List<Memory> rowsA = tenantOwned(memories.recall(CALLER_X, "global", null, null, false));
-            // Tenant A planted exactly one row in global.
-            assertThat(rowsA).hasSize(1);
-            assertThat(rowsA).allMatch(m -> TENANT_A.toString().equals(m.tenantId));
-            assertThat(rowsA).noneMatch(m -> TENANT_B.toString().equals(m.tenantId));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        List<String> slugsA = slugsUnder(TENANT_A);
+        assertThat(slugsA).contains(SLUG_A);
+        assertThat(slugsA)
+            .as("tenant A's ORM read must never reach a row tenant B planted")
+            .doesNotContain(SLUG_B);
 
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_B)) {
-            List<Memory> rowsB = tenantOwned(memories.recall(CALLER_X, "global", null, null, false));
-            assertThat(rowsB).hasSize(1);
-            assertThat(rowsB).allMatch(m -> TENANT_B.toString().equals(m.tenantId));
-            assertThat(rowsB).noneMatch(m -> TENANT_A.toString().equals(m.tenantId));
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        List<String> slugsB = slugsUnder(TENANT_B);
+        assertThat(slugsB).contains(SLUG_B);
+        assertThat(slugsB)
+            .as("tenant B's ORM read must never reach a row tenant A planted")
+            .doesNotContain(SLUG_A);
     }
 
     // -----------------------------------------------------------------------
@@ -139,7 +147,7 @@ class CrossTenantIsolationIT {
     // -----------------------------------------------------------------------
     @Test
     void rls_isolates_tenants_via_session_guc() throws SQLException {
-        plantMemories();
+        plantScopes();
 
         // Hibernate is the first layer of defence; this subtest goes
         // around it via raw JDBC and proves Layer 2 (RLS) holds.
@@ -150,59 +158,21 @@ class CrossTenantIsolationIT {
                 s.execute("SET LOCAL SESSION AUTHORIZATION " + RLS_TEST_ROLE);
             }
 
-            assertThat(countMemoriesUnderGuc(c, TENANT_A.toString())).isEqualTo(1L);
-            assertThat(countMemoriesUnderGuc(c, TENANT_B.toString())).isEqualTo(1L);
+            assertThat(countPlantedUnderGuc(c, TENANT_A.toString())).isEqualTo(1L);
+            assertThat(countPlantedUnderGuc(c, TENANT_B.toString())).isEqualTo(1L);
             // Unset GUC → policy fails closed (NULL = anything is FALSE).
-            assertThat(countMemoriesUnderGuc(c, null)).isZero();
+            assertThat(countPlantedUnderGuc(c, null)).isZero();
 
             c.rollback();
         }
     }
 
     // -----------------------------------------------------------------------
-    // Subtest (c) — Private invariant under tenancy (M2).
-    // The same subject string under both tenants must NOT cross over.
-    // We exercise the real recall path used by /mcp.
-    // -----------------------------------------------------------------------
-    @Test
-    void private_invariant_holds_under_tenancy() {
-        plantPrivateUnderBothTenants();
-
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            List<Memory> aPriv = memories.recall(CALLER_X, "private", null, null, false);
-            assertThat(aPriv).hasSize(1);
-            assertThat(aPriv.get(0).content).isEqualTo("secret in A");
-            assertThat(aPriv.get(0).tenantId).isEqualTo(TENANT_A.toString());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_B)) {
-            List<Memory> bPriv = memories.recall(CALLER_X, "private", null, null, false);
-            assertThat(bPriv).hasSize(1);
-            assertThat(bPriv.get(0).content).isEqualTo("secret in B");
-            assertThat(bPriv.get(0).tenantId).isEqualTo(TENANT_B.toString());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Subtest (d) — Write isolation: an INSERT trying to set tenant_id
+    // Subtest (c) — Write isolation: an INSERT trying to set tenant_id
     // to a foreign tenant fails closed via RLS WITH CHECK.
     // -----------------------------------------------------------------------
     @Test
     void write_with_cross_tenant_id_fails_closed_via_rls() throws SQLException {
-        UUID scopeIdA;
-        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-            // Look up scope id as superuser (RLS bypassed for this read).
-            try (var rs = s.executeQuery(
-                "SELECT id FROM scope WHERE slug='global' AND tenant_id='" + TENANT_A + "'")) {
-                rs.next();
-                scopeIdA = UUID.fromString(rs.getString(1));
-            }
-        }
-
         try (Connection c = dataSource.getConnection()) {
             c.setAutoCommit(false);
             try (Statement s = c.createStatement()) {
@@ -213,15 +183,12 @@ class CrossTenantIsolationIT {
 
             assertThatThrownBy(() -> {
                 try (Statement bad = c.createStatement()) {
-                    // V16: row_id has a default (gen_random_uuid()), so it is
-                    // omitted; logical_id + is_private are NOT NULL with no
-                    // default, so they are supplied — otherwise a NOT-NULL
-                    // violation could mask the RLS rejection this asserts.
+                    // Every NOT NULL column without a default is supplied, so a
+                    // NOT-NULL violation cannot mask the RLS rejection asserted here.
                     bad.execute(
-                        "INSERT INTO memory (tenant_id, owner_subject, scope_id, type, content, source, logical_id, is_private) "
-                      + "VALUES ('" + TENANT_B + "', "
-                      + "'" + CALLER_X + "', '" + scopeIdA + "', 'decision', "
-                      + "'cross-tenant write attempt', 'mcp', gen_random_uuid(), false)");
+                        "INSERT INTO platform.scope (tenant_id, slug, name, kind, fixed, archived) "
+                      + "VALUES ('" + TENANT_B + "', 'xtenant-write-attempt', "
+                      + "'cross-tenant write attempt', 'project', false, false)");
                 }
             })
             .isInstanceOf(SQLException.class)
@@ -235,68 +202,48 @@ class CrossTenantIsolationIT {
     // helpers
     // -----------------------------------------------------------------------
 
-    /** Plant one memory under each tenant in the global scope. NOT
-     *  {@code @Transactional}: each {@code memories.remember} call opens
-     *  its own TX via the repository method, so the {@code @TenantBound}
-     *  interceptor sees the bind() that's active at TX-open time. */
-    void plantMemories() {
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            memories.remember(CALLER_X, "global", MemoryType.DECISION,
-                "shared.key.a", "row in tenant A", SourceChannel.MCP);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_B)) {
-            memories.remember(CALLER_X, "global", MemoryType.DECISION,
-                "shared.key.b", "row in tenant B", SourceChannel.MCP);
+    /** Plant one project scope under each tenant. NOT {@code @Transactional}:
+     *  {@code createProject} opens its own TX via the repository method, so the
+     *  {@code @TenantBound} interceptor sees the bind() active at TX-open time. */
+    void plantScopes() {
+        plantScope(TENANT_A, SLUG_A);
+        plantScope(TENANT_B, SLUG_B);
+    }
+
+    private void plantScope(UUID tenant, String slug) {
+        try (AutoCloseable ignored = tenantContext.bind(tenant)) {
+            scopes.createProject(slug, slug, null, "xtenant-it-seed");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    /** Plant a private memory for the SAME subject string under both
-     *  tenants — the subtest (c) scenario the brief calls out. */
-    void plantPrivateUnderBothTenants() {
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_A)) {
-            memories.remember(CALLER_X, "private", MemoryType.DECISION,
-                "priv.a", "secret in A", SourceChannel.MCP);
-            memories.remember(CALLER_X, "global", MemoryType.DECISION,
-                "shared.a", "non-secret in A", SourceChannel.MCP);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        try (AutoCloseable ignored = tenantContext.bind(TENANT_B)) {
-            memories.remember(CALLER_X, "private", MemoryType.DECISION,
-                "priv.b", "secret in B", SourceChannel.MCP);
-            memories.remember(CALLER_X, "global", MemoryType.DECISION,
-                "shared.b", "non-secret in B", SourceChannel.MCP);
+    /** Every scope slug the ORM hands out while bound to {@code tenant}. */
+    private List<String> slugsUnder(UUID tenant) {
+        try (AutoCloseable ignored = tenantContext.bind(tenant)) {
+            return scopes.listAll().stream().map(s -> s.slug).toList();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    /** The stored, tenant-owned rows of a recall — filtering out the bundled
-     *  built-in guidance, which is public global content with no tenant_id. */
-    private static List<Memory> tenantOwned(List<Memory> recalled) {
-        return recalled.stream().filter(m -> m.tenantId != null).toList();
-    }
-
-    private long countMemoriesUnderGuc(Connection c, String tenant) throws SQLException {
+    private long countPlantedUnderGuc(Connection c, String tenant) throws SQLException {
         try (Statement s = c.createStatement()) {
             if (tenant == null) {
                 s.execute("RESET app.tenant_id");
             } else {
                 s.execute("SELECT set_config('app.tenant_id', '" + tenant + "', false)");
             }
-            try (var rs = s.executeQuery("SELECT COUNT(*) FROM memory")) {
+            try (var rs = s.executeQuery(
+                    "SELECT COUNT(*) FROM platform.scope "
+                  + "WHERE slug IN ('" + SLUG_A + "','" + SLUG_B + "')")) {
                 rs.next();
                 return rs.getLong(1);
             }
         }
     }
 
-    // Silences `unused-import` warnings during incremental refactors —
-    // we may use the ScopeKind enum directly in a later subtest.
+    /** Referenced so the tenant-scoped entity type stays pinned to this gate. */
     @SuppressWarnings("unused")
-    private static final ScopeKind UNUSED = ScopeKind.GLOBAL;
+    private static final Class<Scope> CARRIER = Scope.class;
 }

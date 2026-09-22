@@ -21,7 +21,7 @@
 #     (see docker-compose.prod.yml).
 #
 #   - The two public hostnames resolve to the host:
-#       $KUMBUKA_DOMAIN  →   the console + /api + /mcp + /.well-known
+#       $KUMBUKA_DOMAIN  →   the console + /api
 #       $KC_HOSTNAME     →   Keycloak
 #
 # TLS: this snippet assumes the existing Caddy already handles cert
@@ -33,22 +33,11 @@
 {$KUMBUKA_DOMAIN} {
     encode zstd gzip
 
-    # MCP endpoint + the OAuth Protected Resource Metadata.
-    @mcp path /mcp /mcp/*
-    handle @mcp {
-        reverse_proxy kumbuka-backend:8080 {
-            header_up X-Forwarded-Host {host}
-            header_up X-Forwarded-Proto https
-        }
-    }
-
-    @wellknown path /.well-known/*
-    handle @wellknown {
-        reverse_proxy kumbuka-backend:8080 {
-            header_up X-Forwarded-Host {host}
-            header_up X-Forwarded-Proto https
-        }
-    }
+    # The MCP endpoint and the OAuth protected-resource metadata that
+    # advertised it were proxied to kumbuka-backend here. Both left the backend
+    # with the memory engine, so routing them at it would send a connector to a
+    # 404; which service answers them in a composed install is the
+    # composition's question, not this snippet's.
 
     # Admin BFF API.
     @api path /api /api/*

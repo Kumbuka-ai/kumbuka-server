@@ -7,14 +7,16 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Pins the boot-guard across the guarded tenants ({@code mcp},
- * {@code admin}). Exercised as a {@link QuarkusTest} so the branch coverage
+ * Pins the boot-guard across the guarded tenants — {@code admin} alone, since
+ * the {@code mcp} bearer tenant left with the memory engine. Exercised as a
+ * {@link QuarkusTest} so the branch coverage
  * lands in jacoco-quarkus.exec (a plain JUnit test would run outside the
  * Quarkus classloader and contribute zero coverage).
  *
@@ -43,21 +45,9 @@ class OidcPrincipalClaimGuardTest {
         return c;
     }
 
-    /** Mock for the mcp-audience assertion: mcp tenant enablement + audience value. */
-    private Config audienceConfig(Boolean mcpEnabled, String audience) {
-        Config c = mock(Config.class);
-        when(c.getOptionalValue("quarkus.oidc.mcp.tenant-enabled", Boolean.class))
-            .thenReturn(Optional.ofNullable(mcpEnabled));
-        when(c.getOptionalValue("quarkus.oidc.mcp.token.audience", String.class))
-            .thenReturn(Optional.ofNullable(audience));
-        return c;
-    }
-
     @Test
     void passesWhenCorrectKeyIsSub() {
         assertThatCode(() -> OidcPrincipalClaimGuard.verifyTenant(configFor("admin", null, "sub"), "admin"))
-            .doesNotThrowAnyException();
-        assertThatCode(() -> OidcPrincipalClaimGuard.verifyTenant(configFor("mcp", null, "sub"), "mcp"))
             .doesNotThrowAnyException();
     }
 
@@ -71,7 +61,7 @@ class OidcPrincipalClaimGuardTest {
 
     @Test
     void abortsWhenCorrectKeyMissing() {
-        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyTenant(configFor("mcp", null, null), "mcp"))
+        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyTenant(configFor("admin", null, null), "admin"))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("ADR-0008");
     }
@@ -95,43 +85,11 @@ class OidcPrincipalClaimGuardTest {
     }
 
     @Test
-    void mcpAudiencePassesWhenKumbukaConnector() {
-        assertThatCode(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
-                audienceConfig(true, "kumbuka-connector")))
-            .doesNotThrowAnyException();
-    }
-
-    @Test
-    void mcpAudienceAbortsWhenAny() {
-        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
-                audienceConfig(true, "any")))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("MCP-audience")
-            .hasMessageContaining("quarkus.oidc.mcp.token.audience");
-    }
-
-    @Test
-    void mcpAudienceAbortsWhenMissing() {
-        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
-                audienceConfig(true, null)))
-            .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("MCP-audience");
-    }
-
-    @Test
-    void mcpAudienceAbortsOnMultiValueList() {
-        // A comma-joined audience does not string-equal the single expected value.
-        assertThatThrownBy(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
-                audienceConfig(true, "kumbuka-connector,other-client")))
-            .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void mcpAudienceNoOpWhenMcpTenantDisabled() {
-        // Disabled mcp tenant → audience is moot, even at a forbidden value.
-        assertThatCode(() -> OidcPrincipalClaimGuard.verifyMcpAudience(
-                audienceConfig(false, "any")))
-            .doesNotThrowAnyException();
+    void guardedTenantsAreTheAdminTenantAlone() {
+        // The `mcp` bearer tenant was the second guarded tenant until the memory
+        // engine left the core. Pinned here so re-adding a tenant is a decision
+        // taken in the open rather than a config line nobody guards.
+        assertThat(OidcPrincipalClaimGuard.GUARDED_TENANTS).containsExactly("admin");
     }
 
     @Test

@@ -1,10 +1,7 @@
 package ai.kumbuka.erasure;
 
-import ai.kumbuka.domain.Memory;
-import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
-import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -13,7 +10,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.RecordComponent;
+import java.util.Arrays;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Real-behaviour tests for {@link TenantDataPurgeService} against the
@@ -21,13 +22,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * discharges the OSS-side cleanup at the end of a 30-day tenant purge.
  *
  * <p>Invariants enforced:
- *   • memory must be deleted before scope (FK RESTRICT) — the service
- *     does this in order, so a tenant with memory rows in scope still
- *     purges cleanly (no constraint violation)
  *   • scope_stats is cascaded by Postgres (ON DELETE CASCADE on
  *     scope_stats.scope_id), so we don't need a separate step
- *   • all five counts reflect what was actually removed
+ *   • all four counts reflect what was actually removed
  *   • idempotent: re-running on an empty tenant returns all zeros
+ *   • <strong>the entry step is gone</strong>, and gone in the only way that
+ *     can be observed from outside: with an entry row still on disk, the
+ *     {@code scope} delete is REFUSED by {@code memory.scope_id … ON DELETE
+ *     RESTRICT}. That refusal is the witness. Put {@code Memory.deleteAll()}
+ *     back at the top of the service and this test goes green-by-accident —
+ *     which is exactly what it is here to catch.
  */
 @QuarkusTest
 class TenantDataPurgeServiceTest {
@@ -48,7 +52,7 @@ class TenantDataPurgeServiceTest {
         em.createNativeQuery("DELETE FROM scope WHERE kind = 'project'").executeUpdate();
 
         // Seed: one project scope created_by an arbitrary subject, one
-        // memory row in private + one in shared, one user_account.
+        // user_account. No entry rows — the core does not own that table.
         Scope projectScope = new Scope();
         projectScope.slug = "purge-test-project";
         projectScope.name = "purge-test-project";
@@ -63,11 +67,6 @@ class TenantDataPurgeServiceTest {
         assertThat(privateScope).isNotNull();
         assertThat(globalScope).isNotNull();
 
-        persistMemory(privateScope, "p-1", "secret 1");
-        persistMemory(privateScope, "p-2", "secret 2");
-        persistMemory(globalScope,  "g-1", "team rule");
-        persistMemory(projectScope, "j-1", "project rule");
-
         // Seed a user_account row (table not mapped as a JPA entity in
         // this module — use native SQL).
         em.createNativeQuery(
@@ -78,16 +77,22 @@ class TenantDataPurgeServiceTest {
             .executeUpdate();
     }
 
+    /**
+     * Plant one row in the dead {@code memory} table, against the global scope,
+     * by native SQL. The core has no entity for it any more — that is the point
+     * — so the statement names the columns the chain leaves NOT NULL without a
+     * default.
+     */
     @Transactional
-    void persistMemory(Scope scope, String key, String content) {
-        Memory m = new Memory();
-        m.ownerSubject = "purge-test-author";
-        m.scope = scope;
-        m.type = MemoryType.DECISION;
-        m.key = key;
-        m.content = content;
-        m.source = SourceChannel.CONSOLE;
-        m.persist();
+    void plantEntryRowOnGlobalScope() {
+        em.createNativeQuery(
+            "INSERT INTO memory (tenant_id, owner_subject, scope_id, type, content, "
+          + "                    logical_id, is_private, source) "
+          + "SELECT CAST(?1 AS uuid), 'purge-test-author', s.id, 'decision', 'still here', "
+          + "       gen_random_uuid(), false, 'console' "
+          + "  FROM scope s WHERE s.tenant_id = CAST(?1 AS uuid) AND s.kind = 'global'")
+            .setParameter(1, TENANT_LITERAL)
+            .executeUpdate();
     }
 
     @AfterEach
@@ -124,12 +129,9 @@ class TenantDataPurgeServiceTest {
 
     @Test
     @Transactional
-    void purgeRemovesEverythingForTheTenant() {
+    void purgeRemovesEverythingTheCoreOwnsForTheTenant() {
         TenantDataPurgeService.PurgeResult out = service.purgeTenant(TENANT_LITERAL);
 
-        assertThat(out.memoryDeleted())
-            .as("4 seeded memory rows must be deleted")
-            .isEqualTo(4);
         assertThat(out.userAccountsDeleted())
             .as("our seeded user_account must be deleted")
             .isGreaterThanOrEqualTo(1);
@@ -144,7 +146,6 @@ class TenantDataPurgeServiceTest {
             .isEqualTo(1);
 
         // Post-conditions: zero rows in every table for this tenant.
-        assertThat(Memory.count()).isZero();
         assertThat(Scope.count()).isZero();
         Number remainingUsers = (Number) em.createNativeQuery(
             "SELECT COUNT(*) FROM user_account WHERE tenant_id = CAST(?1 AS uuid)")
@@ -155,40 +156,48 @@ class TenantDataPurgeServiceTest {
 
     @Test
     @Transactional
-    void purgeDeletesSystemLockedRows() {
-        // Promote one seeded row to a system-locked row. A full-tenant teardown
-        // must remove such a row like any other — both the scheduled purge and
-        // the emergency hard-delete depend on it. There is no delete-block below
-        // the application layer, so the ordinary delete-all in the service removes
-        // it.
-        int promoted = em.createNativeQuery(
-            "UPDATE memory SET lock = 'system' WHERE tenant_id = CAST(?1 AS uuid) AND key = 'p-1'")
-            .setParameter(1, TENANT_LITERAL)
-            .executeUpdate();
-        assertThat(promoted).as("one seeded row promoted to a system-locked seed").isEqualTo(1);
-
-        TenantDataPurgeService.PurgeResult out = service.purgeTenant(TENANT_LITERAL);
-
-        assertThat(out.memoryDeleted())
-            .as("all 4 rows including the locked seed are removed")
-            .isEqualTo(4);
-        assertThat(Memory.count()).as("no memory left, locked seed included").isZero();
-        Number lockedLeft = (Number) em.createNativeQuery(
-            "SELECT COUNT(*) FROM memory WHERE tenant_id = CAST(?1 AS uuid) AND lock = 'system'")
-            .setParameter(1, TENANT_LITERAL)
-            .getSingleResult();
-        assertThat(lockedLeft.intValue()).as("the locked seed is gone").isZero();
-    }
-
-    @Test
-    @Transactional
     void isIdempotent_secondCallReturnsAllZeros() {
         service.purgeTenant(TENANT_LITERAL);
         TenantDataPurgeService.PurgeResult second = service.purgeTenant(TENANT_LITERAL);
-        assertThat(second.memoryDeleted()).isZero();
         assertThat(second.userAccountsDeleted()).isZero();
         assertThat(second.teamSettingsDeleted()).isZero();
         assertThat(second.scopesDeleted()).isZero();
         assertThat(second.teamDeleted()).isZero();
+    }
+
+    /**
+     * The witness for the removed entry step. Not annotated {@code @Transactional}:
+     * the constraint violation must land inside the service's own transaction,
+     * the way it would in production, instead of poisoning the test's.
+     */
+    @Test
+    void refusesToDropScopesWhileEntriesStillReferenceThem() {
+        plantEntryRowOnGlobalScope();
+
+        assertThatThrownBy(() -> service.purgeTenant(TENANT_LITERAL))
+            .as("with an entry row on disk the scope delete must hit "
+              + "memory.scope_id ON DELETE RESTRICT — the core no longer clears it first")
+            .hasRootCauseInstanceOf(java.sql.SQLException.class);
+
+        Number left = (Number) em.createNativeQuery(
+            "SELECT COUNT(*) FROM memory WHERE tenant_id = CAST(?1 AS uuid)")
+            .setParameter(1, TENANT_LITERAL)
+            .getSingleResult();
+        assertThat(left.intValue())
+            .as("the planted entry is untouched: this service does not speak for that table")
+            .isEqualTo(1);
+    }
+
+    /**
+     * The entry count left with the memory engine. A {@code memoryDeleted}
+     * reporting {@code 0} would assert an empty store; absence says only that
+     * this service does not count it, which is the true statement.
+     */
+    @Test
+    void resultCarriesNoEntryCount() {
+        assertThat(Arrays.stream(TenantDataPurgeService.PurgeResult.class.getRecordComponents())
+                .map(RecordComponent::getName))
+            .containsExactly(
+                "userAccountsDeleted", "teamSettingsDeleted", "scopesDeleted", "teamDeleted");
     }
 }

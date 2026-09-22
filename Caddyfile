@@ -6,8 +6,13 @@
 #   {$KUMBUKA_DOMAIN}         (e.g. dev.kumbuka.ai)
 #     /                       -> kumbuka-console (Next.js admin UI)
 #     /api/*                  -> kumbuka-backend (admin BFF API)
-#     /mcp, /mcp/*            -> kumbuka-backend (MCP Streamable HTTP)
-#     /.well-known/*          -> kumbuka-backend (OAuth resource metadata)
+#
+#   The backend served two more paths here — /mcp and the OAuth
+#   protected-resource metadata that advertised it — until the memory engine
+#   moved into a service of its own. Proxying them to kumbuka-backend would now
+#   route a connector to a 404, so the routes are gone rather than left pointing
+#   at nothing. Which service answers them in a composed install is a question
+#   for the composition, not for this file.
 #
 #   {$KC_HOSTNAME}            (e.g. auth.dev.kumbuka.ai)
 #     /*                      -> keycloak        (login, token endpoint, account console)
@@ -24,26 +29,10 @@
 	# once until the local CA root is trusted.
 }
 
-# ----- Console / API / MCP -----------------------------------------------
+# ----- Console / API -----------------------------------------------------
 {$KUMBUKA_DOMAIN} {
 	tls internal
 	encode zstd gzip
-
-	@mcp path /mcp /mcp/*
-	handle @mcp {
-		reverse_proxy kumbuka-backend:8080 {
-			header_up X-Forwarded-Host {host}
-			header_up X-Forwarded-Proto https
-		}
-	}
-
-	@wellknown path /.well-known/*
-	handle @wellknown {
-		reverse_proxy kumbuka-backend:8080 {
-			header_up X-Forwarded-Host {host}
-			header_up X-Forwarded-Proto https
-		}
-	}
 
 	@api path /api /api/*
 	handle @api {
@@ -56,7 +45,7 @@
 	# Everything else -> the admin console (separate repo:
 	# github.com/kumbuka-ai/kumbuka-console). When the console isn't
 	# deployed alongside the server, this returns 502 — the server is
-	# still fully usable through /api and /mcp.
+	# still fully usable through /api.
 	handle {
 		reverse_proxy kumbuka-console:3000
 	}

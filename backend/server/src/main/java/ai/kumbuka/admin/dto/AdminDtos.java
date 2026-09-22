@@ -1,21 +1,23 @@
 package ai.kumbuka.admin.dto;
 
-import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.Scope;
-import ai.kumbuka.domain.SourceChannel;
 import ai.kumbuka.domain.TeamSettings;
 import ai.kumbuka.domain.UiSettings;
 import ai.kumbuka.service.WritePolicyResolver;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
  * Response + request shapes for the admin REST API.
- * Never surfaces private rows (ADR-0003); per-scope endpoints reject the
- * private slug entirely.
+ *
+ * <p>Entry shapes ({@code EntryView}, {@code RecentActivity} and the entry
+ * requests) left with the memory engine. What remains describes scopes, team
+ * settings, members and sessions — the administrative surface. Counts taken
+ * from the entry tables are gone from the views that carried them rather than
+ * reported as {@code 0}: a zero would assert an empty store, and the true
+ * statement is that this service no longer counts it.
  */
 public final class AdminDtos {
 
@@ -31,46 +33,16 @@ public final class AdminDtos {
         boolean archived,
         boolean locked,   // content read-only flag (lock icon)
         String description,
-        long entryCount,
         Instant createdAt
     ) {
-        public static ScopeView from(Scope s, long entryCount) {
+        public static ScopeView from(Scope s) {
             return new ScopeView(
                 s.slug, s.name, s.kind.dbValue(),
                 Boolean.TRUE.equals(s.fixed),
                 Boolean.TRUE.equals(s.archived),
                 Boolean.TRUE.equals(s.locked),
                 s.description,
-                entryCount,
                 s.createdAt
-            );
-        }
-    }
-
-    public record EntryView(
-        UUID logicalId,       // the entry's reference identity
-        String type,
-        String key,
-        String content,
-        String reference,     // optional external provenance URL
-        String authorSubject, // first-author (v1 creator) — immutable
-        String source,        // create channel
-        String updatedBy,     // last-editor subject (null if never edited)
-        String updatedSource, // last-edit channel (null if never edited)
-        boolean readOnly,     // built-in guidance: not editable/deletable via the console
-        Instant createdAt,
-        Instant updatedAt
-    ) {
-        public static EntryView from(Memory m) {
-            return new EntryView(
-                m.logicalId, m.type.dbValue(), m.key, m.content, m.reference,
-                m.ownerSubject, m.source.dbValue(),
-                m.updatedBy, m.updatedSource == null ? null : m.updatedSource.dbValue(),
-                // Built-in guidance (the read overlay's entries and the bundled
-                // rows that shadow them) carries the system channel and is
-                // read-only on the console — no edit or delete is offered.
-                m.source == SourceChannel.SYSTEM,
-                m.createdAt, m.updatedAt
             );
         }
     }
@@ -96,28 +68,8 @@ public final class AdminDtos {
     public record OverviewView(
         long scopesTotal,
         long scopesArchived,
-        long entriesTotal,
-        Map<String, Long> entriesByType,
-        List<RecentActivity> recent,
         List<MemberSummary> members
     ) {}
-
-    public record RecentActivity(
-        UUID entryId,
-        String scopeSlug,
-        String type,
-        String key,
-        String authorSubject,
-        String source,
-        Instant updatedAt
-    ) {
-        public static RecentActivity from(Memory m) {
-            return new RecentActivity(
-                m.logicalId, m.scope.slug, m.type.dbValue(), m.key,
-                m.ownerSubject, m.source.dbValue(), m.updatedAt
-            );
-        }
-    }
 
     public record MemberSummary(
         UUID id,
@@ -209,12 +161,6 @@ public final class AdminDtos {
 
     public record CreateScopeRequest(String slug, String name, String description) {}
     public record UpdateScopeRequest(String name, String description) {}
-
-    public record CreateEntryRequest(String type, String key, String content, String reference) {}
-    public record UpdateEntryRequest(String type, String content, String reference) {}
-    /** scope-remap: target shared scope + an optional key override to
-     *  dodge a target key-collision (rename instead of overwrite). */
-    public record RemapEntryRequest(String targetScope, String key) {}
 
     public record UpdateSettingsRequest(
         String writePolicy,      // ask | project | global

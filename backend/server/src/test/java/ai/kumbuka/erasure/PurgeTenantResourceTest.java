@@ -9,6 +9,8 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.hasKey;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -89,7 +91,7 @@ class PurgeTenantResourceTest {
     @Test
     void happyPath_returnsCountsAndCallsService() {
         when(purger.purgeTenant(SINGLETON_TENANT.toString())).thenReturn(
-            new TenantDataPurgeService.PurgeResult(7, 2, 1, 3, 1));
+            new TenantDataPurgeService.PurgeResult(2, 1, 3, 1));
 
         given()
             .header("Authorization", "Bearer " + TOKEN)
@@ -98,11 +100,14 @@ class PurgeTenantResourceTest {
             .when().post("/api/internal/purge-tenant")
             .then()
                 .statusCode(200)
-                .body("memoryDeleted", equalTo(7))
                 .body("userAccountsDeleted", equalTo(2))
                 .body("teamSettingsDeleted", equalTo(1))
                 .body("scopesDeleted", equalTo(3))
-                .body("teamDeleted", equalTo(1));
+                .body("teamDeleted", equalTo(1))
+                // Absent, not zero: the core does not drop the entry tables any
+                // more, and a `memoryDeleted: 0` would report a teardown it did
+                // not perform.
+                .body("$", not(hasKey("memoryDeleted")));
 
         verify(purger).purgeTenant(SINGLETON_TENANT.toString());
     }

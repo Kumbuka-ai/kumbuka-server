@@ -166,8 +166,10 @@ sql "SELECT slug, kind, coalesce(created_by,'<NULL>') FROM platform.scope
 say "where privacy actually sits — the memory table's owner column:"
 sql "SELECT column_name FROM information_schema.columns
       WHERE table_schema='public' AND table_name='memory' AND column_name IN ('owner_subject','scope_id')"
-say "and the core's rule for it:"
-grep -n "private row is invisible\|PRIVATE && !m.ownerSubject" "$SERVER_ROOT/backend/server/src/main/java/ai/kumbuka/repo/MemoryRepository.java" || true
+# The rule over that column used to be read out of the core's repository here.
+# It is not the core's any more (sprint 188.8): the memory engine ships in
+# kumbuka-memory, and this measurement stops at what the CHAIN says, which is
+# the only half it can read from this repository anyway.
 
 hdr "M5 — the password verb of kumbuka_logbook (a RENAME drops an MD5 password)"
 sql "SELECT rolname,

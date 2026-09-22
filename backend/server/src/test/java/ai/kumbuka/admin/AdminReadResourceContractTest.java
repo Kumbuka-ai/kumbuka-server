@@ -22,7 +22,6 @@ class AdminReadResourceContractTest {
 
     private static final List<Class<?>> TENANT_SCOPED_RESOURCES = List.of(
         AdminScopesResource.class,
-        AdminEntriesResource.class,
         AdminSettingsResource.class,
         // S018: me()/updateMe read+write the caller's user_account; without a tx
         // the app.tenant_id GUC is unset and RLS hides the row (rendered the sub).

@@ -24,11 +24,14 @@ public interface MemoryConfig {
     String publicBaseUrl();
 
     /**
-     * Template for the public MCP endpoint URL shown to the team.
-     * Empty (the CE default) means "{@link #publicBaseUrl()} + /mcp" — the
-     * single-tenant behaviour. The SaaS image sets this to
-     * {@code https://<alias>.kumbuka.ai/mcp}; the {@code <alias>} placeholder
-     * is resolved from the request-bound tenant's {@code team.alias}.
+     * Template for the public connector endpoint URL shown to the team, and —
+     * by its presence alone — the signal that this deployment is the hosted
+     * platform rather than a CE install.
+     *
+     * <p>Empty (the CE default) now means the console shows no endpoint: the
+     * core stopped serving a connector surface when the memory engine left it,
+     * so there is no address it can derive from its own base URL that would
+     * answer. The hosted image sets this to the generic platform endpoint.
      */
     @WithName("mcp.public-url-template")
     Optional<String> mcpPublicUrlTemplate();
@@ -67,22 +70,4 @@ public interface MemoryConfig {
     @WithName("connector-client-id")
     @WithDefault("kumbuka-connector")
     String connectorClientId();
-
-    /** Per-type entry cap in memory_load_context. */
-    @WithName("load-context.per-type-limit")
-    @WithDefault("20")
-    int loadContextPerTypeLimit();
-
-    /**
-     * Filesystem path of the operator-editable external system-guidance file
-     * (see {@code ai.kumbuka.overlay.GuidanceOverlay}). When the file exists it
-     * is the SOLE source of the built-in guidance entries; when it is absent the
-     * bundled default is used. Runtime, not build-time: settable in a container
-     * via {@code KUMBUKA_SYSTEM_GUIDANCE_PATH} without a rebuild. Read once at
-     * startup — changing the file requires a container restart. The default
-     * lives here so a downstream runtime consuming this module inherits it.
-     */
-    @WithName("system-guidance.path")
-    @WithDefault("/etc/kumbuka/system-conventions.json")
-    String systemGuidancePath();
 }

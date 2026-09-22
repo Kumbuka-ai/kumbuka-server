@@ -11,9 +11,10 @@ import static org.hamcrest.Matchers.notNullValue;
  * outside the JAX-RS pipeline — carries the X-Kumbuka-Version header.
  *
  * <p>The JAX-RS {@link VersionHeaderFilter} only fires on RESTEasy
- * responses; routes like {@code /mcp} (served by quarkus-mcp-server-http
- * via raw Vert.x) skip it entirely. This test exercises a non-JAX-RS
- * surface to prove the Vert.x route filter covers it.
+ * responses; a route served from raw Vert.x skips it entirely. The bearer
+ * tool surface was the original such route and left with the memory engine —
+ * the management endpoints remain, and this test exercises one of them to
+ * prove the Vert.x route filter covers a non-JAX-RS surface.
  *
  * <p>{@code /q/health/live} is the smallrye-health endpoint — served by
  * its own Vert.x handler, NOT through RESTEasy. Perfect smoke target.
