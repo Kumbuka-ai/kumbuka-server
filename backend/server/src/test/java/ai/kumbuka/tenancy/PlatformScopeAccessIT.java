@@ -54,6 +54,10 @@ class PlatformScopeAccessIT {
     private static final String OPS_READER = "kumbuka_ops_reader"; // V6, LOGIN BYPASSRLS
     /** V24. NOLOGIN, NOINHERIT, not BYPASSRLS — it exists to own one function. */
     private static final String RESOLVER   = "kumbuka_alias_resolver";
+    /** V25. The core's own runtime role, named the same in every installation:
+     *  V24 could only reach it through the catalogue, as the owner of the
+     *  inventory, and on a database whose owner is somebody else that missed. */
+    private static final String CORE       = "kumbuka";
     /** A kumbuka-like base-table owner: non-super, non-BYPASSRLS, as the deploy
      *  path's owner-normalisation leaves it. */
     private static final String OWNER = "tenancy_dir_owner_probe";
@@ -354,6 +358,112 @@ class PlatformScopeAccessIT {
                 .containsExactly(
                     "team_alias_resolution={" + RESOLVER + "}",
                     "team_tenant_isolation={public}");
+        }
+    }
+
+    // ---- V25: the core's runtime role holds the lookup BY NAME -------------
+
+    /**
+     * V24 grants EXECUTE on the lookup to four roles. Three it names literally.
+     * The fourth — the core's own runtime role — it read out of the catalogue,
+     * as the owner of {@code platform.scope}, because the chain never created
+     * that role and its name differed by installation.
+     *
+     * <p>That indirection is only correct where the inventory already belongs to
+     * the runtime role. The deployment migrates the core as the superuser and
+     * connects at runtime as {@code kumbuka}, so on a database that was not
+     * owner-normalised first the grant goes to the migrator and the core is
+     * refused its own contract, and answers a 500 on every tenant-scoped
+     * request the moment a service asks. Measured on the chain at V24,
+     * migrated by a superuser that owns the inventory:
+     * {@code has_function_privilege('kumbuka', …)} answers {@code f}.
+     *
+     * <p>V25 removes the indirection instead of patching it: the core's runtime
+     * role is called {@code kumbuka} everywhere, the chain creates it where it
+     * is absent, and the grant is issued to that name.
+     *
+     * <p>The grant is read out of the ACCESS LIST rather than through
+     * {@code has_function_privilege}, which answers true for every role while
+     * PUBLIC still holds EXECUTE and therefore cannot witness a grant to THIS
+     * one. That is not hypothetical — under a non-superuser migrator V24's own
+     * {@code REVOKE ALL … FROM PUBLIC} is a silent no-op (measured 2026-09-22,
+     * reported as a finding), and this assertion would pass there for the wrong
+     * reason.
+     */
+    @Test
+    void v25_theCoreRuntimeRoleHoldsTheAliasLookupByName() throws Exception {
+        try (Connection c = ds.getConnection();
+             Statement s = c.createStatement()) {
+            try (ResultSet rs = s.executeQuery(
+                     "SELECT rolcanlogin, rolsuper, rolbypassrls "
+                   + "FROM pg_roles WHERE rolname = '" + CORE + "'")) {
+                assertThat(rs.next()).as("V25 creates %s where it is absent", CORE).isTrue();
+                assertThat(rs.getBoolean("rolcanlogin")).as("LOGIN — the core connects as it").isTrue();
+                assertThat(rs.getBoolean("rolsuper"))
+                    .as("not a superuser: a runtime role owns nothing and holds "
+                        + "enumerated privilege")
+                    .isFalse();
+                assertThat(rs.getBoolean("rolbypassrls"))
+                    .as("not BYPASSRLS — tenant isolation is carried by policies this "
+                        + "role must remain subject to")
+                    .isFalse();
+            }
+
+            try (ResultSet rs = s.executeQuery(
+                     "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p "
+                   + "  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace "
+                   + "  CROSS JOIN LATERAL aclexplode(p.proacl) a "
+                   + " WHERE n.nspname='platform' AND p.proname='tenant_id_by_alias' "
+                   + "   AND p.pronargs = 1 AND a.grantee = '" + CORE + "'::regrole "
+                   + "   AND a.privilege_type = 'EXECUTE') AS granted,"
+                   + "       has_schema_privilege('" + CORE + "','platform','USAGE') AS usable")) {
+                rs.next();
+                assertThat(rs.getBoolean("granted"))
+                    .as("the function's access list names %s — the expectation is the "
+                        + "role's NAME and not 'whoever owns platform.scope', which is "
+                        + "the catalogue lookup V25 exists to remove", CORE)
+                    .isTrue();
+                assertThat(rs.getBoolean("usable"))
+                    .as("and it may use the schema: without USAGE the call is refused "
+                        + "before the function is ever reached (\"permission denied for "
+                        + "schema platform\"), so the EXECUTE grant alone proves nothing")
+                    .isTrue();
+            }
+        }
+    }
+
+    /**
+     * And the lookup answers as that role, which is the only claim a grant is
+     * actually for. Asked under {@code SET LOCAL SESSION AUTHORIZATION}, never
+     * as the migrating superuser: a superuser is exempt from every privilege
+     * check, so the same query answers yes whether or not the grant exists.
+     */
+    @Test
+    void v25_theCoreResolvesAnAliasAsItsOwnRole() throws Exception {
+        try (Connection c = ds.getConnection()) {
+            c.setAutoCommit(false);
+            try (Statement s = c.createStatement()) {
+                setupOwnerShapeAndSeed(s);
+                s.execute("INSERT INTO team (tenant_id, name, alias) VALUES "
+                        + "('" + TENANT_A + "','Alpha','alpha-core-it')");
+
+                s.execute("SET LOCAL SESSION AUTHORIZATION " + CORE);
+                try (ResultSet rs = s.executeQuery(
+                         "SELECT platform.tenant_id_by_alias('alpha-core-it')::text AS known,"
+                       + "       platform.tenant_id_by_alias('no-such-alias')::text AS unknown")) {
+                    rs.next();
+                    assertThat(rs.getString("known"))
+                        .as("the core resolves a known alias — without V25's grant this "
+                            + "is 'permission denied for function tenant_id_by_alias', "
+                            + "which the core turns into a 500 on every tenant-scoped "
+                            + "request")
+                        .isEqualTo(TENANT_A);
+                    assertThat(rs.getString("unknown"))
+                        .as("and an unknown alias answers NULL, disclosing nothing else")
+                        .isNull();
+                }
+            }
+            c.rollback();
         }
     }
 

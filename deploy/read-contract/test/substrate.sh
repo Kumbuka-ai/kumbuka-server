@@ -139,17 +139,22 @@ reset_cluster() {
 # to repair (the dispatch's Grenze rules out changing V1..V23 and ops-console),
 # so the substrate does here what a correct deployment has to do, and the defect
 # is reported rather than silently absorbed.
-# THE SAME ORDERING CATCHES V24's EXECUTE GRANT, for the same reason. V24 reads
+# THE SAME ORDERING CAUGHT V24's EXECUTE GRANT, for the same reason. V24 reads
 # the core's role out of the catalogue exactly as V23 does — the core's role IS
-# the owner of the inventory — so on a fresh database that grant, too, lands on
+# the owner of the inventory — so on a fresh database that grant, too, went to
 # the migrator. Measured 2026-09-20, as the runtime role on a fresh chain:
 #
 #     ERROR: permission denied for function tenant_id_by_alias
 #
-# Both lines below are the deployment's job, not the chain's, and both are
-# reported as findings. `case_migrator` asserts the fresh-install state BEFORE
-# they run, so the gap is witnessed rather than papered over by the helper that
-# closes it.
+# V25 closes that half in the chain itself: it grants USAGE and EXECUTE to
+# `kumbuka` by name. So on a substrate at V25 the last two statements below are
+# no-ops, and they are kept for the substrates that stop earlier — `case_chain`
+# migrates to V23 and calls this helper there. `case_coregrant` deliberately
+# does NOT call it, because a case that ran after this helper would be green
+# whether or not V25 existed.
+#
+# What remains a finding is the USAGE grant V23 addresses to the owner and the
+# ownership move itself: both are the deployment's job, not the chain's.
 owner_sweep() {
   sql "DO \$\$ DECLARE o record; BEGIN
          FOR o IN SELECT n.nspname s, c.relname r, c.relkind k FROM pg_class c
@@ -241,18 +246,27 @@ chain_dir_through() {   # chain_dir_through <max version>
   printf '%s' "$d"
 }
 
-# The same chain with V24's MD5 guard cut out, for the red probe. The two
-# marker comments in the migration delimit it, so the removal is exact and a
-# later edit to the block cannot silently leave half of it standing — the
-# caller checks that the copy really lost the lines.
-chain_dir_without_md5_guard() {
-  local d="$WORK/chain-no-md5-guard" f
+# The whole chain, copied, with ONE marked block cut out of ONE migration — the
+# shape every red probe needs whose subject is the migration's own act rather
+# than a state that could be staged in the database afterwards.
+#
+# A pair of marker comments in the migration delimits the block, so the removal
+# is exact and a later edit to it cannot silently leave half of it standing.
+# The caller checks that the copy really lost the lines: an earlier version of
+# V24's markers ended the deleted range inside its own opening comment, so the
+# markers went and the guard stayed — and the probe reported it removed.
+#
+#   chain_dir_without_block <marker base> <migration glob>
+chain_dir_without_block() {
+  local d="$WORK/chain-no-$1" f
   rm -rf "$d"; mkdir -p "$d"
   for f in "$MIGRATIONS"/V*.sql; do cp "$f" "$d"/; done
-  sed -i.bak '/md5-guard-begin/,/md5-guard-end/d' "$d"/V24__*.sql
+  sed -i.bak "/$1-begin/,/$1-end/d" "$d"/$2
   rm -f "$d"/*.bak
   printf '%s' "$d"
 }
+
+chain_dir_without_md5_guard() { chain_dir_without_block md5-guard 'V24__*.sql'; }
 
 # --- the test population ---------------------------------------------------
 #
