@@ -23,11 +23,6 @@
         <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
         <quarkus.platform.version>3.33.2</quarkus.platform.version>
 
-        <!-- Quarkiverse MCP server. The `quarkus-mcp-server-http` artifact
-             includes both legacy HTTP/SSE and modern Streamable HTTP
-             transports (see ADR-0004). 1.13.0 targets Quarkus 3.33.2. -->
-        <quarkus-mcp.version>1.13.0</quarkus-mcp.version>
-
         <surefire-plugin.version>3.5.0</surefire-plugin.version>
         <failsafe-plugin.version>3.5.0</failsafe-plugin.version>
         <jacoco-plugin.version>0.8.12</jacoco-plugin.version>
@@ -67,7 +62,7 @@
             <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
 
-        <!-- OIDC: two tenants (mcp = bearer, admin = web-app BFF) -->
+        <!-- OIDC: the admin tenant (web-app BFF) -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-oidc</artifactId>
@@ -91,18 +86,11 @@
             <artifactId>quarkus-flyway</artifactId>
         </dependency>
 
-        <!-- MCP server (Streamable HTTP) -->
-        <dependency>
-            <groupId>io.quarkiverse.mcp</groupId>
-            <artifactId>quarkus-mcp-server-http</artifactId>
-            <version>${quarkus-mcp.version}</version>
-        </dependency>
-
-        <!-- Vert.x route filters — needed for the X-Kumbuka-Version header
-             on non-JAX-RS surfaces (/mcp, served by quarkus-mcp-server-http
-             via raw Vert.x routes; the JAX-RS Provider filter doesn't see them).
-             Artifact `quarkus-reactive-routes` (formerly quarkus-vertx-web)
-             ships the @io.quarkus.vertx.web.RouteFilter annotation. -->
+        <!-- Vert.x route filters — needed for the X-Kumbuka-Version header on
+             non-JAX-RS surfaces (raw Vert.x routes; the JAX-RS Provider filter
+             doesn't see them). Artifact `quarkus-reactive-routes` (formerly
+             quarkus-vertx-web) ships the @io.quarkus.vertx.web.RouteFilter
+             annotation. -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-reactive-routes</artifactId>
@@ -367,19 +355,19 @@
                                 target class, then list it here.
                                 Baseline 2026-06-22: 7 mutations, 5 killed (71%),
                                 test strength 100% (2 survivors are uncovered lines,
-                                not weak assertions).
+                                not weak assertions). Two of the four targets were
+                                the entry-key validator and the protected-entry
+                                mapper; both left with the memory engine, so the
+                                island is down to the two below and the baseline
+                                above no longer describes it.
                             -->
                             <targetClasses>
-                                <param>ai.kumbuka.util.MemoryKeyValidator</param>
                                 <param>ai.kumbuka.tenancy.TenantBindingInterceptor</param>
                                 <param>ai.kumbuka.keycloak.DefaultTenantUserScope</param>
-                                <param>ai.kumbuka.admin.ProtectedEntryExceptionMapper</param>
                             </targetClasses>
                             <targetTests>
-                                <param>ai.kumbuka.util.MemoryKeyValidatorTest</param>
                                 <param>ai.kumbuka.tenancy.TenantBindingInterceptorTest</param>
                                 <param>ai.kumbuka.keycloak.DefaultTenantUserScopeTest</param>
-                                <param>ai.kumbuka.repo.ProtectedEntryExceptionMapperTest</param>
                             </targetTests>
                             <outputFormats>
                                 <param>XML</param>

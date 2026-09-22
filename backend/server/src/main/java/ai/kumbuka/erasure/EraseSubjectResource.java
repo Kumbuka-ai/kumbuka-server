@@ -50,6 +50,15 @@ import java.util.UUID;
  * <p>The provider holds the audit trail (ADR-0015 §C: the provider writes
  * the {@code member.erase} row). The OSS side returns counts only — no
  * content, no subjects — and the provider records the outcome.
+ *
+ * <h3>What this endpoint discharges today</h3>
+ *
+ * <p>The core's own share of the policy, which is the scope-provenance
+ * tombstone. The content half moved out with the memory engine; the response
+ * therefore carries {@code scopesTombstoned} alone. It does not report the
+ * content counts as {@code 0} — a zero would assert that nothing was there to
+ * erase, and the truthful statement is that this service no longer speaks for
+ * that data at all.
  */
 @Path("/api/internal/erase-subject")
 @PermitAll
@@ -66,7 +75,7 @@ public class EraseSubjectResource {
 
     public record EraseRequest(UUID tenantId, String subject) {}
 
-    public record EraseResponse(int privatePurged, int sharedTombstoned, int scopesTombstoned) {}
+    public record EraseResponse(int scopesTombstoned) {}
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
@@ -109,8 +118,6 @@ public class EraseSubjectResource {
         }
 
         final MemberErasureService.EraseResult out = erasure.eraseSubject(req.subject());
-        return Response.ok(new EraseResponse(
-            out.privatePurged(), out.sharedTombstoned(), out.scopesTombstoned()))
-            .build();
+        return Response.ok(new EraseResponse(out.scopesTombstoned())).build();
     }
 }

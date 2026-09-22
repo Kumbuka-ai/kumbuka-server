@@ -15,10 +15,10 @@ import java.util.UUID;
  * Pins the per-request tenant for the duration of the request and
  * unbinds it after the response, even on exception (M6).
  *
- * <p>Both pipelines flow through this filter: the BFF {@code /api/*}
- * routes and the bearer-protected {@code /mcp} route. In OSS the
- * resolver always returns the singleton tenant; the commercial edition
- * supplies a request-aware resolver.
+ * <p>Every JAX-RS request flows through this filter — today that is the BFF
+ * {@code /api/*} surface, which is all the core serves since the memory engine
+ * took the bearer surface with it. In OSS the resolver always returns the
+ * singleton tenant; the commercial edition supplies a request-aware resolver.
  *
  * <p>Runs at {@link Priorities#AUTHENTICATION} + 100 so authentication
  * filters establish the security identity first; the tenant is then

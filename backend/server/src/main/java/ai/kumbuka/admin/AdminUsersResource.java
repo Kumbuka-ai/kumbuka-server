@@ -76,8 +76,6 @@ public class AdminUsersResource {
     public record EraseResult(
         String id,
         String email,
-        int privatePurged,
-        int sharedTombstoned,
         int scopesTombstoned,
         boolean keycloakRemoved
     ) {}
@@ -201,14 +199,19 @@ public class AdminUsersResource {
     // ---------- member erasure (rev., team-admin primary path) -------
 
     /**
-     * Permanently erase a member (GDPR Art. 17): purge their private memory,
-     * tombstone their shared/global authorship to {@code __former-member__},
-     * delete the Keycloak user, and write a governance-audit row under the
-     * acting admin. Distinct from the reversible disable (PATCH enabled=false).
+     * Permanently erase a member (GDPR Art. 17): tombstone the provenance of
+     * the scopes they created to {@code __former-member__}, delete the Keycloak
+     * user, and write a governance-audit row under the acting admin. Distinct
+     * from the reversible disable (PATCH enabled=false).
      *
      * <p>Friction + safety: a typed-confirm matching the member's email, plus
-     * guards against erasing yourself or the last remaining admin. The console
-     * never sees private content — the purge is by subject (purge ≠ read, P1).
+     * guards against erasing yourself or the last remaining admin.
+     *
+     * <p><strong>This no longer erases the member's entries.</strong> That half
+     * of the policy went with the memory engine, and the conductor that asks
+     * every participant for its share is the next commission. The response and
+     * the audit row therefore carry the scope tombstone alone — not the content
+     * counts as {@code 0}, which would claim an erasure that did not happen.
      */
     @POST
     @Path("/{id}/erase")
@@ -228,12 +231,12 @@ public class AdminUsersResource {
             throw new BadRequestException("typedConfirm must match the member's email");
         }
 
-        // Content purge first (the lawful basis). The engine is idempotent and
-        // strict-equality-matches on the KC sub.
+        // The core's share of the policy. Idempotent, and strict-equality
+        // matches on the KC sub.
         final MemberErasureService.EraseResult purged = erasure.eraseSubject(id);
 
-        // Keycloak delete is best-effort: if it fails the content is already
-        // gone, so we report keycloakRemoved=false rather than undo the purge.
+        // Keycloak delete is best-effort: if it fails the tombstone is already
+        // written, so we report keycloakRemoved=false rather than undo it.
         boolean keycloakRemoved = true;
         try {
             keycloak.deleteUser(id);
@@ -244,14 +247,11 @@ public class AdminUsersResource {
 
         audit.append(actor, "member.erase", id, Map.of(
             "email", safe(target.email()),
-            "privatePurged", purged.privatePurged(),
-            "sharedTombstoned", purged.sharedTombstoned(),
             "scopesTombstoned", purged.scopesTombstoned(),
             "keycloakRemoved", keycloakRemoved));
 
         return new EraseResult(id, target.email(),
-            purged.privatePurged(), purged.sharedTombstoned(), purged.scopesTombstoned(),
-            keycloakRemoved);
+            purged.scopesTombstoned(), keycloakRemoved);
     }
 
     // ---------- invite lifecycle (re-invite / cancel pending) ----------------

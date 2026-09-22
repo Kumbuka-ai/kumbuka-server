@@ -71,15 +71,20 @@ class VersionResourceTest {
     @Test
     void headerStampedOnAnotherJaxrsEndpoint_notJustVersion() {
         // Probe a different JAX-RS endpoint to prove the @Provider filter
-        // covers every response, not just /api/version. The well-known
-        // OAuth protected-resource metadata is @PermitAll, always 200.
+        // covers every response, not just /api/version. The well-known OAuth
+        // protected-resource metadata was this probe's second endpoint until it
+        // left with the tool surface it described; the connector card is the
+        // replacement — same pipeline, and it answers on the test profile.
         // ({@code /q/*} is the Quarkus management interface — outside the
         // JAX-RS pipeline, so the filter doesn't apply there. Operators
         // curl /api/* to read the header, which is what matters.)
+        //
+        // A 401 is as good a witness as a 200 here: the filter stamps the
+        // response whatever the status, and not asking for a security context
+        // keeps this test about the header and nothing else.
         given()
-            .when().get("/.well-known/oauth-protected-resource")
+            .when().get("/api/connector")
             .then()
-                .statusCode(200)
                 .header(VersionHeaderFilter.HEADER, notNullValue());
     }
 }

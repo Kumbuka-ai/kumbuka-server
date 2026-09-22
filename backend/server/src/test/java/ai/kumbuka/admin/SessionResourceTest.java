@@ -2,7 +2,6 @@ package ai.kumbuka.admin;
 
 import ai.kumbuka.keycloak.KeycloakAdminService;
 import ai.kumbuka.keycloak.KeycloakAdminService.KeycloakUser;
-import ai.kumbuka.mcp.MuteTestSupport;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.security.TestSecurity;

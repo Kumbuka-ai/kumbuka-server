@@ -1,6 +1,5 @@
 package ai.kumbuka.tenancy;
 
-import ai.kumbuka.domain.Memory;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.Team;
 import ai.kumbuka.domain.TeamSettings;
@@ -26,9 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TenantIdCompletenessTest {
 
-    /** The tenant-scoped entities. All five must remain @TenantId-tagged. */
+    /** The tenant-scoped entities. All four must remain @TenantId-tagged. */
     private static final List<Class<?>> TENANT_ENTITIES = List.of(
-        Memory.class, Scope.class, Team.class, TeamSettings.class, UserAccount.class);
+        Scope.class, Team.class, TeamSettings.class, UserAccount.class);
 
     @Test
     void every_tenant_scoped_entity_has_a_tenant_id_field() {

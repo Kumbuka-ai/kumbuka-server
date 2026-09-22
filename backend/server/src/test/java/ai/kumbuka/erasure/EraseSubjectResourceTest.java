@@ -10,6 +10,8 @@ import java.util.UUID;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.hasKey;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -117,7 +119,7 @@ class EraseSubjectResourceTest {
     @Test
     void happyPath_returnsCountsAndCallsServiceWithSubject() {
         when(erasure.eraseSubject("alice-kc-sub"))
-            .thenReturn(new MemberErasureService.EraseResult(7, 3, 1));
+            .thenReturn(new MemberErasureService.EraseResult(1));
 
         given()
             .header("Authorization", "Bearer " + TOKEN)
@@ -126,9 +128,12 @@ class EraseSubjectResourceTest {
             .when().post("/api/internal/erase-subject")
             .then()
                 .statusCode(200)
-                .body("privatePurged", equalTo(7))
-                .body("sharedTombstoned", equalTo(3))
-                .body("scopesTombstoned", equalTo(1));
+                .body("scopesTombstoned", equalTo(1))
+                // The content counts left with the memory engine. The body must
+                // not carry them at all: a `privatePurged: 0` would tell the
+                // caller an erasure happened that did not.
+                .body("$", not(hasKey("privatePurged")))
+                .body("$", not(hasKey("sharedTombstoned")));
 
         verify(erasure).eraseSubject("alice-kc-sub");
     }

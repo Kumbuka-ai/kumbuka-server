@@ -7,12 +7,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 /**
  * Selects the OIDC tenant based on request path.
  *
- *   /mcp/**                 → tenant "mcp"    (bearer / resource server)
  *   /api/auth/**, /api/**   → tenant "admin"  (web-app / BFF)
- *   everything else         → null (no auth; /.well-known and /q/health
- *                                   are public)
+ *   everything else         → null (no auth; /q/health is public)
  *
- * See ADR-0002 for why these are split into two tenants instead of one.
+ * <p>ADR-0002 split the OIDC configuration into two named tenants because the
+ * core served both a bearer resource server and the console BFF. The bearer
+ * half left with the memory engine, so only {@code admin} remains; the named
+ * tenant is kept rather than folded into the default one, so the console's
+ * configuration keys stay where every deployment already sets them.
  */
 @ApplicationScoped
 public class PathBasedTenantResolver implements TenantResolver {
@@ -20,9 +22,6 @@ public class PathBasedTenantResolver implements TenantResolver {
     @Override
     public String resolve(RoutingContext context) {
         String path = context.normalizedPath();
-        if (path.startsWith("/mcp")) {
-            return "mcp";
-        }
         if (path.startsWith("/api/")) {
             return "admin";
         }

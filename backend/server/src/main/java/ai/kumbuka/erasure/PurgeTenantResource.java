@@ -30,10 +30,11 @@ import java.util.UUID;
  * <h3>When to call</h3>
  *
  * <p>After all members of the tenant have been erased via
- * {@code /api/internal/erase-subject}. The OSS-side erase removes
- * private memory + tombstones shared authorship; this endpoint
- * subsequently drops the tombstoned-shared rows + scopes + team_settings
- * + the team row itself, so the tenant leaves no orphans on disk.
+ * {@code /api/internal/erase-subject}. This endpoint drops the tenant's
+ * scopes + team_settings + the team row itself, so the tenant leaves no
+ * orphans in the core's schema. The memory tables are not this service's to
+ * drop any more (see {@link TenantDataPurgeService}); the response therefore
+ * carries no entry count rather than a misleading {@code 0}.
  *
  * <p>Safe to invoke against a tenant that still has members — counts
  * surface what was actually removed so the operator can spot a partial
@@ -55,7 +56,6 @@ public class PurgeTenantResource {
     public record PurgeRequest(UUID tenantId) {}
 
     public record PurgeResponse(
-        int memoryDeleted,
         int userAccountsDeleted,
         int teamSettingsDeleted,
         int scopesDeleted,
@@ -100,7 +100,6 @@ public class PurgeTenantResource {
         final TenantDataPurgeService.PurgeResult out =
             purger.purgeTenant(req.tenantId().toString());
         return Response.ok(new PurgeResponse(
-            out.memoryDeleted(),
             out.userAccountsDeleted(),
             out.teamSettingsDeleted(),
             out.scopesDeleted(),

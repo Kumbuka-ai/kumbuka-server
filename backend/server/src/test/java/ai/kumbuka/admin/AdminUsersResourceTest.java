@@ -16,7 +16,9 @@ import java.util.List;
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -342,11 +344,11 @@ class AdminUsersResourceTest {
 
     @Test
     @TestSecurity(user = "admin-sub", roles = {"admin"})
-    void erase_happyPath_purgesDeletesAndReturnsCounts() {
+    void erase_happyPath_tombstonesDeletesAndReturnsCounts() {
         when(keycloak.findById("erase-1"))
             .thenReturn(user("erase-1", "victim@kumbuka.ai", "member", "active"));
         when(erasure.eraseSubject("erase-1"))
-            .thenReturn(new MemberErasureService.EraseResult(2, 1, 0));
+            .thenReturn(new MemberErasureService.EraseResult(1));
 
         given()
             .contentType(ContentType.JSON)
@@ -356,9 +358,13 @@ class AdminUsersResourceTest {
             .when().post("/api/users/erase-1/erase")
             .then()
                 .statusCode(200)
-                .body("privatePurged", equalTo(2))
-                .body("sharedTombstoned", equalTo(1))
-                .body("keycloakRemoved", equalTo(true));
+                .body("scopesTombstoned", equalTo(1))
+                .body("keycloakRemoved", equalTo(true))
+                // The content counts went with the memory engine. Absent from
+                // the body, never zero — an admin reading `privatePurged: 0`
+                // would believe the member had nothing left to erase.
+                .body("$", not(hasKey("privatePurged")))
+                .body("$", not(hasKey("sharedTombstoned")));
 
         verify(erasure).eraseSubject("erase-1");
         verify(keycloak).deleteUser("erase-1");
@@ -370,7 +376,7 @@ class AdminUsersResourceTest {
         when(keycloak.findById("erase-kc"))
             .thenReturn(user("erase-kc", "victim@kumbuka.ai", "member", "active"));
         when(erasure.eraseSubject("erase-kc"))
-            .thenReturn(new MemberErasureService.EraseResult(3, 0, 0));
+            .thenReturn(new MemberErasureService.EraseResult(3));
         org.mockito.Mockito.doThrow(new RuntimeException("kc down"))
             .when(keycloak).deleteUser("erase-kc");
 
@@ -382,9 +388,9 @@ class AdminUsersResourceTest {
             .when().post("/api/users/erase-kc/erase")
             .then()
                 .statusCode(200)
-                // Content is already purged (lawful basis) — we report the KC
+                // The tombstone is already written — we report the KC
                 // failure rather than roll back the erase.
-                .body("privatePurged", equalTo(3))
+                .body("scopesTombstoned", equalTo(3))
                 .body("keycloakRemoved", equalTo(false));
 
         verify(erasure).eraseSubject("erase-kc");

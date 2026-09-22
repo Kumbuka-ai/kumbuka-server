@@ -10,6 +10,7 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,7 +22,7 @@ class AdminConnectorResourceTest {
 
     @Test
     @TestSecurity(user = "admin-sub", roles = {"admin"})
-    void get_returnsEndpointAndMaskedSecret() {
+    void get_returnsClientAndMaskedSecret_andNamesNoEndpointOnCE() {
         when(keycloak.getConnectorSecretMasked(anyString()))
             .thenReturn("•••••••••••••••••••••••••••••cret");
 
@@ -29,11 +30,15 @@ class AdminConnectorResourceTest {
             .when().get("/api/connector")
             .then()
                 .statusCode(200)
-                .body("endpoint", endsWith("/mcp"))
-                .body("mcpUrl", endsWith("/mcp"))
+                // The client and its secret are the core's to administer and stay.
                 .body("clientId", equalTo("kumbuka-connector"))
                 .body("clientSecretMasked", endsWith("cret"))
-                .body("idpName", equalTo("Keycloak"));
+                .body("idpName", equalTo("Keycloak"))
+                // The endpoint is not. With no template configured (the CE
+                // default of this test profile) the card names none, rather than
+                // a path this service stopped serving.
+                .body("endpoint", nullValue())
+                .body("mcpUrl", nullValue());
     }
 
     @Test

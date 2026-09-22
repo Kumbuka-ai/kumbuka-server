@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
  * Enforces the scope {@code slug} format contract server-side: scope slugs
  * are lowercase kebab identifiers (see {@link SlugPatterns#SLUG}).
  *
- * <p>Mirrors {@link MemoryKeyValidator}: a clean 400 with a plain message
+ * <p>A clean 400 with a plain message
  * naming the accepted shape, instead of letting an off-shape slug fall
  * through to the DB CHECK constraint as an unmapped 500. The DB CHECK
  * remains the defence-in-depth backstop.

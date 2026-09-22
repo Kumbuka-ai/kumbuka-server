@@ -5,7 +5,6 @@ import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.TeamSettings;
 import ai.kumbuka.domain.TeamSettings.CreateScopes;
 import ai.kumbuka.repo.ScopeRepository;
-import ai.kumbuka.repo.SharedMemoryRepository;
 import ai.kumbuka.repo.TeamSettingsRepository;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -19,7 +18,9 @@ import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -41,7 +42,6 @@ import static org.mockito.Mockito.when;
 class AdminScopesResourceTest {
 
     @InjectMock ScopeRepository scopes;
-    @InjectMock SharedMemoryRepository sharedMemories;
     @InjectMock TeamSettingsRepository settings;
 
     private Scope scope(String slug, ScopeKind kind, boolean archived) {
@@ -66,12 +66,10 @@ class AdminScopesResourceTest {
 
     @Test
     @TestSecurity(user = "u", roles = {"member"})
-    void list_member_returnsSharedScopesWithEntryCounts() {
+    void list_member_returnsSharedScopes() {
         Scope alpha = scope("alpha", ScopeKind.PROJECT, false);
         Scope global = scope("global", ScopeKind.GLOBAL, false);
         when(scopes.listShared()).thenReturn(List.of(global, alpha));
-        when(sharedMemories.listShared("alpha", null)).thenReturn(List.of(/* placeholder */));
-        when(sharedMemories.listShared("global", null)).thenReturn(List.of());
 
         given()
             .when().get("/api/scopes")
@@ -80,7 +78,10 @@ class AdminScopesResourceTest {
                 .body("$", hasSize(2))
                 .body("[0].slug", equalTo("global"))
                 .body("[1].slug", equalTo("alpha"))
-                .body("[1].entryCount", equalTo(0));
+                // The entry count left with the memory engine. Absent, not zero:
+                // a zero would claim the scope is empty, which this service no
+                // longer knows.
+                .body("[1]", not(hasKey("entryCount")));
     }
 
     @Test
@@ -213,7 +214,6 @@ class AdminScopesResourceTest {
     void rename_existingShared_succeeds() {
         Scope alpha = scope("alpha", ScopeKind.PROJECT, false);
         when(scopes.requireBySlug("alpha")).thenReturn(alpha);
-        when(sharedMemories.listShared("alpha", null)).thenReturn(List.of());
 
         given()
             .contentType(ContentType.JSON)

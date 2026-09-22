@@ -8,7 +8,6 @@ import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
 import ai.kumbuka.domain.TeamSettings.CreateScopes;
 import ai.kumbuka.repo.ScopeRepository;
-import ai.kumbuka.repo.SharedMemoryRepository;
 import ai.kumbuka.repo.TeamSettingsRepository;
 import ai.kumbuka.util.ScopeSlugValidator;
 import io.quarkus.security.identity.SecurityIdentity;
@@ -43,7 +42,6 @@ import java.util.List;
 public class AdminScopesResource {
 
     @Inject ScopeRepository scopes;
-    @Inject SharedMemoryRepository sharedMemories;
     @Inject TeamSettingsRepository settings;
     @Inject SecurityIdentity identity;
     @Inject ai.kumbuka.audit.TeamAuditService audit;   // lock/unlock governance event
@@ -52,7 +50,7 @@ public class AdminScopesResource {
     @RolesAllowed({"admin", "member"})
     public List<ScopeView> list() {
         return scopes.listShared().stream()
-            .map(s -> ScopeView.from(s, sharedMemories.listShared(s.slug, null).size()))
+            .map(ScopeView::from)
             .toList();
     }
 
@@ -81,7 +79,7 @@ public class AdminScopesResource {
             identity.getPrincipal().getName()
         );
         return Response.status(Response.Status.CREATED)
-            .entity(ScopeView.from(s, 0L))
+            .entity(ScopeView.from(s))
             .build();
     }
 
@@ -93,7 +91,7 @@ public class AdminScopesResource {
         requireSharedSlug(slug);
         scopes.rename(slug, req.name(), req.description());
         Scope s = scopes.requireBySlug(slug);
-        return ScopeView.from(s, sharedMemories.listShared(slug, null).size());
+        return ScopeView.from(s);
     }
 
     @POST

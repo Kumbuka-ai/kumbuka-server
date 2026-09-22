@@ -1,10 +1,7 @@
 package ai.kumbuka.erasure;
 
-import ai.kumbuka.domain.Memory;
-import ai.kumbuka.domain.MemoryType;
 import ai.kumbuka.domain.Scope;
 import ai.kumbuka.domain.ScopeKind;
-import ai.kumbuka.domain.SourceChannel;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -12,28 +9,28 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
+import java.lang.reflect.RecordComponent;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Real-behaviour tests for {@link MemberErasureService} against the
- * DevServices Postgres container. The service runs the JPQL DELETE +
- * two UPDATEs that ADR-0015 specifies; this test seeds a scenario,
- * triggers it, and verifies what survives.
+ * DevServices Postgres container. The service runs the one JPQL UPDATE the
+ * core still owns out of ADR-0015; this test seeds a scenario, triggers it,
+ * and verifies what survives.
  *
  * Invariants the test enforces:
- *   • private entries owned by the erased member are deleted in full
- *   • shared entries authored by the member are kept; only ownerSubject
- *     is rewritten to the tombstone sentinel (content unchanged)
  *   • scopes created_by the erased member keep their content; only
  *     createdBy is rewritten to the tombstone
- *   • another member's private entries are NOT touched (cross-subject
+ *   • another member's scope provenance is NOT touched (cross-subject
  *     isolation — the destructive scope is "this subject within this tenant")
- *   • idempotency — a second erase of the same subject returns zeros
+ *   • idempotency — a second erase of the same subject returns zero
  *   • blank subject + sentinel subject are refused with IllegalArgumentException
  *     (defence-in-depth so a misrouted call can't mass-strip)
+ *   • the result carries the scope tombstone ALONE — the content counts left
+ *     with the memory engine and are absent rather than reported as zero
  */
 @QuarkusTest
 class MemberErasureServiceTest {
@@ -45,111 +42,72 @@ class MemberErasureServiceTest {
     private static final String BOB   = "erasure-bob-kc-sub";
 
     /**
-     * Slug/name chosen so it cannot collide with other tests' fixtures
+     * Slugs chosen so they cannot collide with other tests' fixtures
      * (notably {@code WritePolicyResolverTest} which uses {@code alpha}).
      * The DevServices Postgres is shared across the test run, so test
      * scopes must be self-quarantined.
      */
-    private static final String PROJECT_SLUG = "erasure-test-project";
+    private static final String ALICE_SLUG = "erasure-test-project";
+    private static final String BOB_SLUG   = "erasure-test-project-bob";
 
     /**
-     * The V1 seed gives us a singleton private + global scope already.
-     * The test additionally creates a self-quarantined 'project' scope
-     * created_by Alice so the scope-tombstone branch has a row to act on.
+     * Two self-quarantined 'project' scopes, one created_by Alice and one
+     * created_by Bob, so the tombstone branch has a row to act on and the
+     * cross-subject isolation has a witness.
      */
     @BeforeEach
     @Transactional
     void cleanAndSeed() {
         // Remove our own fixtures only, never other tests' scopes.
-        Memory.delete("ownerSubject in ?1", java.util.List.of(ALICE, BOB));
-        Scope.delete("slug = ?1", PROJECT_SLUG);
+        Scope.delete("slug in ?1", java.util.List.of(ALICE_SLUG, BOB_SLUG));
 
-        Scope alphaProject = new Scope();
-        alphaProject.slug = PROJECT_SLUG;
-        alphaProject.name = PROJECT_SLUG;
-        alphaProject.kind = ScopeKind.PROJECT;
-        alphaProject.fixed = false;
-        alphaProject.archived = false;
-        alphaProject.createdBy = ALICE;
-        alphaProject.persist();
-
-        final Scope privateScope = Scope.find("kind = ?1", ScopeKind.PRIVATE).firstResult();
-        final Scope globalScope  = Scope.find("kind = ?1", ScopeKind.GLOBAL).firstResult();
-        assertThat(privateScope).as("V1 seed must include the private scope").isNotNull();
-        assertThat(globalScope).as("V1 seed must include the global scope").isNotNull();
-
-        persistMemory(ALICE, privateScope, "erasure-alice-private-1", MemoryType.DECISION, "alice secret 1");
-        persistMemory(ALICE, privateScope, "erasure-alice-private-2", MemoryType.STATUS,   "alice secret 2");
-        persistMemory(BOB,   privateScope, "bob-private",     MemoryType.DECISION, "bob secret");
-        persistMemory(ALICE, globalScope,  "alice-global",    MemoryType.CONVENTION, "ship daily");
-        persistMemory(ALICE, alphaProject, "alice-project",   MemoryType.CONSTRAINT, "no force pushes");
-        persistMemory(BOB,   globalScope,  "bob-global",      MemoryType.GLOSSARY,   "RLS = Row-Level Security");
+        persistScope(ALICE_SLUG, ALICE);
+        persistScope(BOB_SLUG, BOB);
     }
 
     /** Remove our own fixtures so we don't leak state to downstream tests. */
     @AfterEach
     @Transactional
     void cleanup() {
-        final String tombstone = config.tombstoneSubject();
-        Memory.delete(
-            "ownerSubject in ?1",
-            java.util.List.of(ALICE, BOB, tombstone));
-        Scope.delete("slug = ?1", PROJECT_SLUG);
+        Scope.delete("slug in ?1", java.util.List.of(ALICE_SLUG, BOB_SLUG));
     }
 
-    @Transactional
-    void persistMemory(String owner, Scope scope, String key, MemoryType type, String content) {
-        Memory m = new Memory();
-        m.ownerSubject = owner;
-        m.scope = scope;
-        m.type = type;
-        m.key = key;
-        m.content = content;
-        m.source = SourceChannel.CONSOLE;
-        m.persist();
+    private void persistScope(String slug, String createdBy) {
+        Scope s = new Scope();
+        s.slug = slug;
+        s.name = slug;
+        s.kind = ScopeKind.PROJECT;
+        s.fixed = false;
+        s.archived = false;
+        s.createdBy = createdBy;
+        s.persist();
     }
 
     @Test
     @Transactional
-    void erasesPrivateOnly_keepsAndTombstonesShared() {
+    void tombstonesScopeProvenance_ofTheErasedSubjectOnly() {
         MemberErasureService.EraseResult out = service.eraseSubject(ALICE);
 
-        assertThat(out.privatePurged())
-            .as("Alice's two private rows must be deleted in full")
-            .isEqualTo(2);
-        assertThat(out.sharedTombstoned())
-            .as("Alice's two shared rows (global + project) keep their content but lose authorship")
-            .isEqualTo(2);
         assertThat(out.scopesTombstoned())
             .as("The project scope Alice created must have its created_by tombstoned")
             .isEqualTo(1);
 
-        // Alice's private rows are gone
-        assertThat(Memory.find("ownerSubject = ?1 and scope.kind = ?2",
-                ALICE, ScopeKind.PRIVATE).count()).isZero();
-
-        // Bob's private row is untouched
-        assertThat(Memory.find("ownerSubject = ?1 and scope.kind = ?2",
-                BOB, ScopeKind.PRIVATE).count())
-            .as("cross-subject isolation: Bob's data must NEVER be touched")
-            .isEqualTo(1);
-
-        // Alice's shared rows are kept with content; only owner_subject flipped
         final String tombstone = config.tombstoneSubject();
-        assertThat(Memory.<Memory>list("ownerSubject = ?1", ALICE))
-            .as("no shared row should still reference Alice's KC sub")
-            .isEmpty();
-        assertThat(Memory.<Memory>list(
-                "ownerSubject = ?1 and content = ?2", tombstone, "ship daily"))
-            .hasSize(1);
-        assertThat(Memory.<Memory>list(
-                "ownerSubject = ?1 and content = ?2", tombstone, "no force pushes"))
-            .hasSize(1);
 
-        // Project scope content stays; only createdBy is tombstoned
-        Scope projectScope = Scope.find("slug = ?1", PROJECT_SLUG).firstResult();
-        assertThat(projectScope).isNotNull();
-        assertThat(projectScope.createdBy).isEqualTo(tombstone);
+        Scope aliceScope = Scope.find("slug = ?1", ALICE_SLUG).firstResult();
+        assertThat(aliceScope).isNotNull();
+        assertThat(aliceScope.createdBy)
+            .as("the scope survives; only its authorship metadata is severed")
+            .isEqualTo(tombstone);
+        assertThat(aliceScope.name)
+            .as("scope content is untouched — this is anonymisation, not deletion")
+            .isEqualTo(ALICE_SLUG);
+
+        Scope bobScope = Scope.find("slug = ?1", BOB_SLUG).firstResult();
+        assertThat(bobScope).isNotNull();
+        assertThat(bobScope.createdBy)
+            .as("cross-subject isolation: Bob's provenance must NEVER be touched")
+            .isEqualTo(BOB);
     }
 
     @Test
@@ -158,8 +116,6 @@ class MemberErasureServiceTest {
         service.eraseSubject(ALICE);
         MemberErasureService.EraseResult second = service.eraseSubject(ALICE);
 
-        assertThat(second.privatePurged()).isZero();
-        assertThat(second.sharedTombstoned()).isZero();
         assertThat(second.scopesTombstoned()).isZero();
     }
 
@@ -183,5 +139,20 @@ class MemberErasureServiceTest {
         assertThatThrownBy(() -> service.eraseSubject(config.tombstoneSubject()))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("tombstone");
+    }
+
+    /**
+     * The content half of ADR-0015 — deleting private entries and tombstoning
+     * shared authorship — left the core with the memory engine. The result
+     * shape must say so by omission: a {@code privatePurged} field reporting
+     * {@code 0} would assert that the member had nothing to erase, which this
+     * service can no longer know. Absence is the only true statement available
+     * to it, and it stays true only if something holds it in place.
+     */
+    @Test
+    void resultReportsTheScopeTombstoneAloneAndNeverAZeroContentCount() {
+        assertThat(Arrays.stream(MemberErasureService.EraseResult.class.getRecordComponents())
+                .map(RecordComponent::getName))
+            .containsExactly("scopesTombstoned");
     }
 }
