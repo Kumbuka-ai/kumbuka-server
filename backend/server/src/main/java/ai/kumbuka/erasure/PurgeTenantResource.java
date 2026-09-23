@@ -16,9 +16,12 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Internal server-to-server endpoint that drops every OSS-side row for
- * a fully-purged tenant. Called by the ops-console's 30-day purge cron
- * after each member has been erased and the tenant connector dropped.
+ * Internal server-to-server endpoint for dropping every OSS-side row of a
+ * fully-purged tenant. Called by the ops-console's 30-day purge cron after
+ * each member has been erased and the tenant connector dropped.
+ *
+ * <p><strong>It refuses every call while the erasure path across the service
+ * boundary is missing</strong> — see "What this endpoint does today" below.
  *
  * <h3>Contract</h3>
  *
@@ -27,18 +30,19 @@ import java.util.UUID;
  * guard against the resolver's current tenant. Returns per-table
  * delete counts only — never content.
  *
- * <h3>When to call</h3>
+ * <h3>What this endpoint does today: it refuses</h3>
  *
- * <p>After all members of the tenant have been erased via
- * {@code /api/internal/erase-subject}. This endpoint drops the tenant's
- * scopes + team_settings + the team row itself, so the tenant leaves no
- * orphans in the core's schema. The memory tables are not this service's to
- * drop any more (see {@link TenantDataPurgeService}); the response therefore
- * carries no entry count rather than a misleading {@code 0}.
+ * <p>Every call that gets past the checks below is refused with
+ * {@link ErasurePathIncomplete}, before anything changes. The reason is that
+ * the purge this endpoint is asked for cannot be carried out: the memory
+ * tables are not this service's to drop any more, the path that would ask the
+ * memory service for its share does not exist yet, and dropping the core's
+ * own rows alone would strip a tenant of the scopes its entries still hang
+ * from while the provider reads the answer as a completed purge.
  *
- * <p>Safe to invoke against a tenant that still has members — counts
- * surface what was actually removed so the operator can spot a partial
- * purge.
+ * <p>{@link TenantDataPurgeService} is that share, and it keeps its tests. In
+ * this state it has no caller: the conductor of the erasure path is what will
+ * call it, and the same commission is what removes the refusal.
  */
 @Path("/api/internal/purge-tenant")
 @PermitAll
@@ -97,13 +101,12 @@ public class PurgeTenantResource {
                 .build();
         }
 
-        final TenantDataPurgeService.PurgeResult out =
-            purger.purgeTenant(req.tenantId().toString());
-        return Response.ok(new PurgeResponse(
-            out.userAccountsDeleted(),
-            out.teamSettingsDeleted(),
-            out.scopesDeleted(),
-            out.teamDeleted()))
-            .build();
+        // Last, and after every check that was here before it: the erasure
+        // path across the service boundary does not exist, so this call is
+        // refused before the core's own share runs. Placed here so a caller
+        // who does not hold the shared secret still learns nothing new — the
+        // 401 and the two 400s answer first, exactly as they did.
+        return ErasurePathIncomplete.refuse(
+            "/api/internal/purge-tenant", resolvedTenant, ErasurePathIncomplete.PURGE_MESSAGE);
     }
 }
