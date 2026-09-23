@@ -5,13 +5,16 @@ import jakarta.persistence.Converter;
 
 /**
  * Where a memory came from. Server-derived from the request channel
- * (see ADR-0008): MCP tools mark their writes MCP, admin endpoints mark theirs
- * CONSOLE. {@code SYSTEM} is the server-derived identity the guidance overlay
+ * (see ADR-0008): admin endpoints mark their writes CONSOLE.
+ * {@code SYSTEM} is the server-derived identity the guidance overlay
  * stamps on its transient (never-persisted) entries — no caller-facing writer
  * emits it, and a persisting write carrying it is refused at the repository seam.
  * Callers do not get to choose — the channel is stamped by whichever handler
- * invokes {@code MemoryRepository.remember}, never carried in a tool argument or
- * DTO field.
+ * performs the write, never carried in a tool argument or DTO field.
+ *
+ * <p>Since the memory engine left this service, no handler here stamps
+ * {@code MCP} and no entity here binds {@link JpaConverter}. Why the member
+ * nevertheless stays is recorded on the member itself.
  */
 public enum SourceChannel {
     CONSOLE("console"),
@@ -21,6 +24,23 @@ public enum SourceChannel {
      * cleanly here; no write path in this build emits it yet.
      */
     IMPORT("import"),
+    /**
+     * The service channel. Nothing in this service writes it any more, and
+     * nothing here reads a row that could carry it: the tool surface that
+     * stamped it left with the memory engine, no entity binds
+     * {@link JpaConverter}, and the two columns whose CHECKs admit
+     * {@code 'mcp'} — {@code memory.source} and {@code memory.updated_source},
+     * widened in V12 and V19 — belong to a table this binary no longer reads.
+     *
+     * <p>It stays because this enum is part of the library surface the composed
+     * stack consumes, not because the core still uses it. Measured in sprint
+     * 188.17: {@code platform-app}'s {@code ScopeDirectoryFromCore.notLocked}
+     * passes this member to {@code MemberWritePolicy.assertScopeWritable} to
+     * make the per-scope check on the channel that surface is — deliberately,
+     * to reproduce what {@code platform.scope_access} publishes as
+     * {@code can_write}. Dropping the member here would not remove dead code;
+     * it would break that build. So the decision is not this service's alone.
+     */
     MCP("mcp"),
     /**
      * Server-derived system identity. The guidance overlay stamps it on its

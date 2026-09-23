@@ -1,11 +1,19 @@
 package ai.kumbuka.config;
 
+import ai.kumbuka.testsupport.RepositoryRoot;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -26,6 +34,9 @@ import static org.mockito.Mockito.when;
  *   • legacy un-segmented key present → aborts (the regression tripwire)
  *   • correct key missing or != sub → aborts (pin not effective)
  *   • the real test-profile config boots the observer without throwing
+ *   • the SHIPPED application.properties pins token.principal-claim=sub for
+ *     every guarded tenant and carries no un-segmented key — the one case that
+ *     reads the file this service ships rather than one the test wrote
  */
 @QuarkusTest
 class OidcPrincipalClaimGuardTest {
@@ -97,5 +108,88 @@ class OidcPrincipalClaimGuardTest {
         // The test profile disables both guarded tenants, so onStart exercises
         // the observer wiring + the disabled-branch no-op against the real config.
         assertThatCode(() -> guard.onStart(null)).doesNotThrowAnyException();
+    }
+
+    /**
+     * The one case that reads the file this service actually ships.
+     *
+     * <p>Every case above hands the guard a configuration the test itself
+     * wrote, which pins the guard's behaviour and nothing else: they would all
+     * stay green with the shipped pin deleted, mis-pathed, or set to the very
+     * claim ADR-0008 forbids. {@code observerRunsAgainstRealConfigWithoutThrowing}
+     * does touch the real config, but under the test profile, which disables the
+     * {@code admin} tenant — so it exercises the disabled-branch no-op and
+     * asserts nothing about the pin either.
+     *
+     * <p>The expectation {@code sub} is written out here as a literal, on the
+     * authority of ADR-0008 and the sprint that commissioned this case. Reading
+     * it from {@code application.properties} and comparing it to itself would
+     * pass whatever the file said, and reading it from
+     * {@code OidcPrincipalClaimGuard.EXPECTED} would only move the same
+     * circularity one file along: the guard is the artifact under test.
+     *
+     * <p>The file is read from disk rather than the classpath because the test
+     * classpath shadows it — {@code src/test/resources/application.properties}
+     * comes first, and asserting against that would certify the test profile
+     * instead of the shipped one.
+     */
+    @Test
+    void shippedConfigPinsPrincipalClaimToSubForEveryGuardedTenant() {
+        Properties shipped = shippedApplicationProperties();
+
+        assertThat(OidcPrincipalClaimGuard.GUARDED_TENANTS)
+            .as("a guarded tenant with no pin in the shipped file would make this case vacuous")
+            .isNotEmpty();
+
+        for (String tenant : OidcPrincipalClaimGuard.GUARDED_TENANTS) {
+            String correctKey = "quarkus.oidc." + tenant + ".token.principal-claim";
+            String legacyKey = "quarkus.oidc." + tenant + ".principal-claim";
+
+            assertThat(shipped.getProperty(correctKey))
+                .as("%s must be 'sub' in the shipped application.properties: authorship is "
+                  + "the Keycloak sub (ADR-0008), and sub-keyed erasure matches on strict "
+                  + "equality. Anything else stamps preferred_username as the acting subject.",
+                  correctKey)
+                .isEqualTo("sub");
+
+            assertThat(shipped.getProperty(legacyKey))
+                .as("%s must be absent: Quarkus ignores the un-segmented key for a named "
+                  + "tenant, and the guard aborts startup when it is present", legacyKey)
+                .isNull();
+
+            assertProfileOverridesAlsoPinSub(shipped, correctKey);
+        }
+    }
+
+    /**
+     * A profile-scoped key (for example {@code %prod.} + the key) wins over the
+     * unprofiled one in the profile it names, so a pin that reads correctly at
+     * the top of the file can still ship unpinned for the profile that matters.
+     */
+    private void assertProfileOverridesAlsoPinSub(Properties shipped, String correctKey) {
+        for (String key : shipped.stringPropertyNames()) {
+            if (key.startsWith("%") && key.endsWith("." + correctKey)) {
+                assertThat(shipped.getProperty(key))
+                    .as("profile override %s must pin 'sub' as well", key)
+                    .isEqualTo("sub");
+            }
+        }
+    }
+
+    /** The shipped file, located from the repository root the way the module is laid out. */
+    private Properties shippedApplicationProperties() {
+        Path file = RepositoryRoot.find()
+            .resolve("backend/server/src/main/resources/application.properties");
+        assertThat(file)
+            .as("the shipped configuration must be where this case looks for it — "
+              + "a moved file would make the case guard nothing")
+            .exists();
+        Properties p = new Properties();
+        try (Reader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            p.load(r);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return p;
     }
 }
