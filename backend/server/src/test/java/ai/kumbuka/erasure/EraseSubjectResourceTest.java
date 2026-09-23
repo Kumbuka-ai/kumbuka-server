@@ -27,8 +27,8 @@ import static org.mockito.Mockito.when;
  *   • body missing tenantId / subject → 400, service NOT called
  *   • body's tenantId does not equal the resolver's tenant → 400,
  *     service NOT called (misroute guard)
- *   • happy path → 200 + counts pass-through; service called with the
- *     subject from the body
+ *   • a call that passes every check → 503 erasure_path_incomplete,
+ *     service NOT called
  *
  * The 503 case (token unset on the host) lives in
  * {@link EraseSubjectResourceUnconfiguredTest}, which runs under a
@@ -116,25 +116,34 @@ class EraseSubjectResourceTest {
         verify(erasure, never()).eraseSubject(any());
     }
 
+    /**
+     * A call that passes every check is refused, and the erasure service is
+     * never reached. This is the resource-level half of the statement; the
+     * half that counts rows lives in {@link ErasureEndpointsRefuseIT}.
+     * Both are needed: a mock can
+     * prove the service was not called, and only a real database can prove
+     * that nothing else wrote either.
+     */
     @Test
-    void happyPath_returnsCountsAndCallsServiceWithSubject() {
-        when(erasure.eraseSubject("alice-kc-sub"))
-            .thenReturn(new MemberErasureService.EraseResult(1));
-
+    void validCall_isRefused_andNeverReachesTheService() {
         given()
             .header("Authorization", "Bearer " + TOKEN)
             .contentType(ContentType.JSON)
             .body("{\"tenantId\":\"" + SINGLETON_TENANT + "\",\"subject\":\"alice-kc-sub\"}")
             .when().post("/api/internal/erase-subject")
             .then()
-                .statusCode(200)
-                .body("scopesTombstoned", equalTo(1))
-                // The content counts left with the memory engine. The body must
-                // not carry them at all: a `privatePurged: 0` would tell the
-                // caller an erasure happened that did not.
+                .statusCode(503)
+                .body("error", equalTo("erasure_path_incomplete"))
+                .body("message", equalTo(
+                    "member erasure is refused: the erasure path across the service "
+                  + "boundary is not built yet, and this service alone cannot erase "
+                  + "a member's data"))
+                // No count of any kind: a number here reads as an erasure that
+                // happened, and none did.
+                .body("$", not(hasKey("scopesTombstoned")))
                 .body("$", not(hasKey("privatePurged")))
                 .body("$", not(hasKey("sharedTombstoned")));
 
-        verify(erasure).eraseSubject("alice-kc-sub");
+        verify(erasure, never()).eraseSubject(any());
     }
 }

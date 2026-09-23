@@ -16,10 +16,13 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Internal server-to-server endpoint that discharges the OSS side of the
- * member-erasure orchestration (ADR-0015). Called by the kumbuka-ai
- * provider's {@code OssBackendErasureClient}, never by humans, never by the
- * MCP or admin pipelines.
+ * Internal server-to-server endpoint for the OSS side of the member-erasure
+ * orchestration (ADR-0015). Called by the kumbuka-ai provider's
+ * {@code OssBackendErasureClient}, never by humans, never by the MCP or admin
+ * pipelines.
+ *
+ * <p><strong>It refuses every call while the erasure path across the service
+ * boundary is missing</strong> — see "What this endpoint does today" below.
  *
  * <h3>Security model</h3>
  *
@@ -48,17 +51,23 @@ import java.util.UUID;
  * <h3>Audit</h3>
  *
  * <p>The provider holds the audit trail (ADR-0015 §C: the provider writes
- * the {@code member.erase} row). The OSS side returns counts only — no
- * content, no subjects — and the provider records the outcome.
+ * the {@code member.erase} row). The OSS side never returns content or
+ * subjects; while it refuses, it returns no counts either, and the provider
+ * records nothing because nothing happened.
  *
- * <h3>What this endpoint discharges today</h3>
+ * <h3>What this endpoint does today: it refuses</h3>
  *
- * <p>The core's own share of the policy, which is the scope-provenance
- * tombstone. The content half moved out with the memory engine; the response
- * therefore carries {@code scopesTombstoned} alone. It does not report the
- * content counts as {@code 0} — a zero would assert that nothing was there to
- * erase, and the truthful statement is that this service no longer speaks for
- * that data at all.
+ * <p>Every call that gets past the checks below is refused with
+ * {@link ErasurePathIncomplete}, before anything changes. The reason is that
+ * the erasure this endpoint is asked for cannot be carried out: the content
+ * half of the policy left with the memory engine, the path that would ask the
+ * memory service for its share does not exist yet, and running the core's own
+ * share alone would leave a member half erased with no participant holding a
+ * record that says so.
+ *
+ * <p>{@link MemberErasureService} is that share, and it keeps its tests. In
+ * this state it has no caller: the conductor of the erasure path is what will
+ * call it, and the same commission is what removes the refusal.
  */
 @Path("/api/internal/erase-subject")
 @PermitAll
@@ -117,7 +126,12 @@ public class EraseSubjectResource {
                 .build();
         }
 
-        final MemberErasureService.EraseResult out = erasure.eraseSubject(req.subject());
-        return Response.ok(new EraseResponse(out.scopesTombstoned())).build();
+        // Last, and after every check that was here before it: the erasure
+        // path across the service boundary does not exist, so this call is
+        // refused before the core's own share runs. Placed here so a caller
+        // who does not hold the shared secret still learns nothing new — the
+        // 401 and the two 400s answer first, exactly as they did.
+        return ErasurePathIncomplete.refuse(
+            "/api/internal/erase-subject", resolvedTenant, ErasurePathIncomplete.ERASE_MESSAGE);
     }
 }

@@ -25,8 +25,8 @@ import static org.mockito.Mockito.when;
  *   • bearer absent / wrong → 401, service NOT called
  *   • body missing tenantId → 400, service NOT called
  *   • body's tenantId != resolver's tenant → 400 tenant_mismatch
- *   • happy path → 200, counts pass-through, service called with the
- *     tenant id from the body
+ *   • a call that passes every check → 503 erasure_path_incomplete,
+ *     service NOT called
  */
 @QuarkusTest
 class PurgeTenantResourceTest {
@@ -88,27 +88,36 @@ class PurgeTenantResourceTest {
         verify(purger, never()).purgeTenant(anyString());
     }
 
+    /**
+     * A call that passes every check is refused, and the purge service is
+     * never reached. This is the resource-level half of the statement; the
+     * half that counts rows lives in {@link ErasureEndpointsRefuseIT}.
+     * Both are needed: a mock can
+     * prove the service was not called, and only a real database can prove
+     * that nothing else wrote either.
+     */
     @Test
-    void happyPath_returnsCountsAndCallsService() {
-        when(purger.purgeTenant(SINGLETON_TENANT.toString())).thenReturn(
-            new TenantDataPurgeService.PurgeResult(2, 1, 3, 1));
-
+    void validCall_isRefused_andNeverReachesTheService() {
         given()
             .header("Authorization", "Bearer " + TOKEN)
             .contentType(ContentType.JSON)
             .body("{\"tenantId\":\"" + SINGLETON_TENANT + "\"}")
             .when().post("/api/internal/purge-tenant")
             .then()
-                .statusCode(200)
-                .body("userAccountsDeleted", equalTo(2))
-                .body("teamSettingsDeleted", equalTo(1))
-                .body("scopesDeleted", equalTo(3))
-                .body("teamDeleted", equalTo(1))
-                // Absent, not zero: the core does not drop the entry tables any
-                // more, and a `memoryDeleted: 0` would report a teardown it did
-                // not perform.
-                .body("$", not(hasKey("memoryDeleted")));
+                .statusCode(503)
+                .body("error", equalTo("erasure_path_incomplete"))
+                .body("message", equalTo(
+                    "tenant purge is refused: the erasure path across the service "
+                  + "boundary is not built yet, and this service alone cannot purge "
+                  + "a tenant's data"))
+                // No count of any kind: a number here reads as a purge that
+                // happened, and none did.
+                .body("$", not(hasKey("memoryDeleted")))
+                .body("$", not(hasKey("userAccountsDeleted")))
+                .body("$", not(hasKey("teamSettingsDeleted")))
+                .body("$", not(hasKey("scopesDeleted")))
+                .body("$", not(hasKey("teamDeleted")));
 
-        verify(purger).purgeTenant(SINGLETON_TENANT.toString());
+        verify(purger, never()).purgeTenant(anyString());
     }
 }
