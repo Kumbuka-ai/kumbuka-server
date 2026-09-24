@@ -35,3 +35,6 @@ Thumbs.db
 postgres_data/
 caddy_data/
 caddy_config/
+
+# --- Claude Code (local agent state: worktrees, settings, checkpoints) ---
+.claude/
