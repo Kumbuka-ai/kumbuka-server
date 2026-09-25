@@ -47,7 +47,7 @@ jobs:
       # fetch-depth: 0 + fetch-tags: true — the baseline is the last release tag
       # reachable from HEAD; without full history and tags it cannot be resolved,
       # which is exactly the path by which this gate would fall silently green.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           fetch-tags: true
