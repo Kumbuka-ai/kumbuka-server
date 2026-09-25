@@ -160,6 +160,10 @@ class TenantRawSqlArchitectureTest {
      */
     private static Class<?> loadClass(Path root, Path file) {
         try {
+            // The class name comes from this test's own scan of this project's own
+            // classpath, not from input. Reflecting over the classes under test is
+            // what an architecture test is; without it there is no test.
+            // nosemgrep: java.lang.security.audit.unsafe-reflection.unsafe-reflection
             return Class.forName(fqcn(root, file), false,
                 TenantRawSqlArchitectureTest.class.getClassLoader());
         } catch (ClassNotFoundException | LinkageError ignored) {
