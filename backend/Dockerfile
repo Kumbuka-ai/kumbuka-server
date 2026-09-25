@@ -29,6 +29,19 @@ RUN mvn -B -ntp -pl spi,server -am package -DskipTests
 # ---------------------------------------------------------------------------
 
 FROM eclipse-temurin:21-jre-alpine
+
+# Patch the base image's OS packages before anything else lands.
+#
+# A base image is rebuilt on its own schedule, so it routinely carries a package
+# whose fix is already published — libexpat 2.8.4-r0 against an available
+# 2.8.5-r0 is what prompted this. Upgrading here closes that gap at build time
+# instead of waiting for the upstream rebuild.
+#
+# The cost is that two builds of the same commit can differ in OS package
+# versions. That is the right trade for a runtime image: it is rebuilt and
+# redeployed anyway, and the alternative is shipping a known-vulnerable package
+# because the tag has not moved yet.
+RUN apk --no-cache upgrade
 WORKDIR /app
 
 # Quarkus fast-jar layout (produced under server/target).
