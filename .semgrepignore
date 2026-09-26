@@ -1,0 +1,11 @@
+# Paths Semgrep does not scan in this repository.
+#
+# Design mock-ups and prototypes: bundled or exported HTML and JavaScript from a
+# design tool, kept here so a layout can be looked at, not code anyone runs or
+# maintains. A finding in them is not actionable — there is nothing to fix in a
+# generated artefact whose next export overwrites it.
+#
+# This is not a rule being switched off. Every rule still applies to every line
+# of code this repository actually authors.
+design/
+
