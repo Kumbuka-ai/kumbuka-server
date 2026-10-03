@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # On the schedule security.yml's image job ran on, so the image of an
+  # unchanged tree is still scanned against newly published CVEs. That job
+  # built the image a second time; the scan now runs here, on the image built
+  # from this pipeline's tested build.
+  schedule:
+    - cron: "07 4 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -19,12 +25,16 @@ jobs:
   # Docker available.
   # ---------------------------------------------------------------------
   backend:
-    name: backend · mvn verify -Pintegration
+    name: backend · mvn verify -Pintegration, image, scan, code quality
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Full history: Sonar's new-code detection and blame attribution are
+          # computed from it, and a shallow clone makes every line look new.
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
@@ -40,6 +50,7 @@ jobs:
           docker version
 
       - name: mvn verify -Pintegration
+        id: verify
         working-directory: backend
         run: mvn -B -ntp -Pintegration verify
 
@@ -53,6 +64,54 @@ jobs:
             backend/server/target/failsafe-reports/**
           if-no-files-found: ignore
           retention-days: 7
+
+      # -------------------------------------------------------------------------
+      # BUILD ONCE. The image is built from the quarkus-app the suite above just
+      # tested (`app=` replaces the Dockerfile's Maven stage), scanned here, and
+      # the code-quality scan reads the same build's binaries and coverage. One
+      # suite run, one compile: this job, a separate Sonar job and a separate
+      # image job used to compile it three times, and security.yml a fourth.
+      # Everything stays in one job, so no binary or coverage file has to cross
+      # a job boundary — the moving part the separate Sonar job was avoiding.
+      # -------------------------------------------------------------------------
+      - name: docker build (from the tested build, no push)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: backend
+          file: backend/Dockerfile
+          build-contexts: |
+            app=backend/server/target/quarkus-app
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: kumbuka-server:ci
+          # No attestation on an image that is never pushed: it would only add
+          # packages from build stages to what the scan below reads.
+          provenance: false
+          sbom: false
+
+      - name: built image
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+        run: |
+          echo "built image: kumbuka-server:ci $IMAGE_ID"
+
+      - name: trivy image scan
+        uses: Kumbuka-ai/workflows/.github/actions/trivy-image-scan@1a7d4538ef1a449f171070124363e7b48732c612 # main
+        with:
+          image: kumbuka-server:ci
+          name: kumbuka-server
+
+      # Code quality on the same build. It runs even when the image scan above
+      # blocks, so a CVE in a base image does not also cost the analysis; it
+      # does not run when the suite itself failed.
+      - name: SonarQube Cloud scan
+        if: ${{ !cancelled() && steps.verify.outcome == 'success' }}
+        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
 
   # ---------------------------------------------------------------------
   # Tenancy directory: the new PlatformScopeAccessIT across both PostgreSQL
@@ -119,43 +178,3 @@ jobs:
         run: |
           docker compose --profile app --profile prod-kc config > /dev/null
 
-  # ---------------------------------------------------------------------
-  # SonarQube Cloud analysis. Runs alongside the test job (not after) so
-  # a failing scan does not gate the rest of CI. Java needs compiled
-  # bytecode → `mvn -DskipTests compile` then `sonarqube-scan-action`.
-  # Requires SONAR_TOKEN secret + Automatic Analysis turned OFF in the
-  # Sonar UI (Project → Analysis Method → CI-based).
-  # ---------------------------------------------------------------------
-  sonar:
-    name: code quality · SonarQube Cloud
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          # Full history for accurate new-code / blame attribution.
-          fetch-depth: 0
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      # `verify -Pintegration` so JaCoCo's exec files are produced (both
-      # the plain unit-test target/jacoco.exec and the @QuarkusTest
-      # target/jacoco-quarkus.exec) and merged into the XML report at
-      # target/site/jacoco/jacoco.xml — picked up by the scan-action
-      # via sonar.coverage.jacoco.xmlReportPaths in sonar-project.properties.
-      - name: backend verify (compile + tests + jacoco)
-        working-directory: backend
-        run: mvn -B -ntp -Pintegration verify
-
-      - name: SonarQube Cloud scan
-        uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io

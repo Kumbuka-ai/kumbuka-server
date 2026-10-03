@@ -45,15 +45,7 @@ jobs:
   security:
     uses: Kumbuka-ai/workflows/.github/workflows/reusable-security.yml@main
 
-  security-images:
-    uses: Kumbuka-ai/workflows/.github/workflows/reusable-security-image.yml@main
-    # A called workflow cannot be granted a permission the caller does not hold,
-    # and the image build needs packages:read to pull artefacts from GitHub
-    # Packages. Without this block GitHub rejects the whole file, which takes
-    # the scan jobs down with it — not just the image scan.
-    permissions:
-      contents: read
-      packages: read
-    with:
-      image-targets: >-
-        [{"name": "kumbuka-server", "context": "./backend", "file": "./backend/Dockerfile"}]
+  # NO IMAGE BUILD HERE. The image scan runs in ci.yml, in the job that runs the
+  # suite and builds the image from that very build (and on this file's
+  # schedule there). A job here would build the same image a second time and
+  # scan a different build than the one that was tested.
