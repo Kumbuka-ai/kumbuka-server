@@ -111,6 +111,16 @@ jobs:
         run: |
           echo "built image: kumbuka-backend $IMAGE_ID"
 
+      # AN IMAGE WITHOUT ITS APPLICATION IS NEVER GREEN. Checked on the image id
+      # the build step printed, before any gate, scan or push reads the image: a
+      # .dockerignore or an empty build context that left the application out
+      # stops here, by name.
+      - name: start file check (the application is in the image)
+        uses: Kumbuka-ai/workflows/.github/actions/image-startfile-check@c15f2c30db0c607be7c6ebb9f940f02ebd35182e # main
+        with:
+          image: ${{ steps.build.outputs.imageid }}
+          path: 'app/quarkus-run\.jar'
+
       - name: trivy image scan
         uses: Kumbuka-ai/workflows/.github/actions/trivy-image-scan@1a7d4538ef1a449f171070124363e7b48732c612 # main
         with:
