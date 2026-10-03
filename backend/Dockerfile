@@ -28,6 +28,19 @@ RUN mvn -B -ntp -pl spi,server -am package -DskipTests
 
 # ---------------------------------------------------------------------------
 
+# The application, and nothing else: the fast-jar layout at the root.
+#
+# TWO WAYS IN, ONE FILE. CI and the release never compile in this Dockerfile:
+# they run the suite in the job and pass its output as a named context,
+#   --build-context app=backend/server/target/quarkus-app
+# which REPLACES this stage, so neither it nor the Maven stage runs and the
+# image carries exactly the build the suite tested. Locally, `docker build`
+# with no context builds it from the Maven stage, as before.
+FROM scratch AS app
+COPY --from=build /work/server/target/quarkus-app/ /
+
+# ---------------------------------------------------------------------------
+
 FROM eclipse-temurin:21-jre-alpine
 
 # Patch the base image's OS packages before anything else lands.
@@ -45,10 +58,10 @@ RUN apk --no-cache upgrade
 WORKDIR /app
 
 # Quarkus fast-jar layout (produced under server/target).
-COPY --from=build /work/server/target/quarkus-app/lib/      /app/lib/
-COPY --from=build /work/server/target/quarkus-app/*.jar     /app/
-COPY --from=build /work/server/target/quarkus-app/app/      /app/app/
-COPY --from=build /work/server/target/quarkus-app/quarkus/  /app/quarkus/
+COPY --from=app /lib/      /app/lib/
+COPY --from=app /*.jar     /app/
+COPY --from=app /app/      /app/app/
+COPY --from=app /quarkus/  /app/quarkus/
 
 EXPOSE 8080
 ENV LANG=en_US.UTF-8 LANGUAGE=en_US:en
