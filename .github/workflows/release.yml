@@ -16,41 +16,17 @@ env:
   IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
-  # ---------------------------------------------------------------------
-  # Re-run the full test suite at release time. We never publish a tag
-  # whose tests didn't pass — even if main was green when the tag was
-  # cut, the tagged tree could be different (or a transitive dependency
-  # might have shifted).
-  # ---------------------------------------------------------------------
-  verify:
-    name: verify (re-run tests at tag)
+  # -------------------------------------------------------------------------
+  # ONE JOB, ONE BUILD. The tag's version is stamped first, the suite runs at
+  # the tag on that tree, the image is built from that very build and scanned,
+  # and both the image and the library jars that are published come from it.
+  # Before, the suite, the library deploy and the image build each compiled the
+  # sources separately, so what was published was not what had been tested.
+  # -------------------------------------------------------------------------
+  release:
+    name: release · suite at the tag, image and library from that build
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-      - working-directory: backend
-        run: mvn -B -ntp -Pintegration verify
-
-  # ---------------------------------------------------------------------
-  # SPI + server jars → GitHub Packages Maven.
-  #   ai.kumbuka:kumbuka-spi:{tag-stripped-of-v, …}
-  #   ai.kumbuka:kumbuka-server:{tag-stripped-of-v, …}     (from v0.4.0)
-  #
-  # The commercial multi-tenant edition (ops-console) consumes the SPI for
-  # the frozen TenantResolver contract AND consumes kumbuka-server as a
-  # plain Maven library so its saas-runtime/ module can overlay the
-  # request-aware resolver bean.
-  # ---------------------------------------------------------------------
-  maven-publish:
-    name: maven · deploy spi + server to GitHub Packages
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -62,60 +38,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-          # setup-java writes a settings.xml that authenticates the
-          # `github` server (the id we use in distributionManagement)
-          # with the GITHUB_TOKEN. No secrets indirection needed.
+          # setup-java writes a settings.xml that authenticates the `github`
+          # server — the id distributionManagement names — with the
+          # GITHUB_TOKEN. No secrets indirection needed.
           server-id: github
           server-username: GITHUB_ACTOR_FOR_MAVEN
           server-password: GITHUB_TOKEN_FOR_MAVEN
-
-      - id: meta
-        name: derive version
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          REF="${GITHUB_REF#refs/tags/}"
-          if [ -z "$REF" ] || [ "$REF" = "$GITHUB_REF" ]; then
-            REF="$INPUT_TAG"
-          fi
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Set parent + spi + server version to the release version
-        working-directory: backend
-        run: |
-          mvn -B -ntp versions:set \
-              -DnewVersion=${{ steps.meta.outputs.version }} \
-              -DprocessAllModules=true \
-              -DgenerateBackupPoms=false
-
-      - name: Deploy spi + server to GitHub Packages
-        working-directory: backend
-        env:
-          GITHUB_ACTOR_FOR_MAVEN: ${{ github.actor }}
-          GITHUB_TOKEN_FOR_MAVEN: ${{ secrets.GITHUB_TOKEN }}
-        # -pl spi,server -am builds the parent + both modules and
-        # deploys them. The server module ALSO continues to ship as a
-        # docker image (backend-image job below) — Maven publish makes
-        # it consumable as a library by ops-console/saas-runtime/ so the
-        # SaaS image can overlay the request-aware resolver bean
-        # We skip Quarkus' build-time native augmentation
-        # during deploy: -Dquarkus.build.skip=true keeps the publish a
-        # plain library jar.
-        run: mvn -B -ntp -DskipTests -Dquarkus.build.skip=true -pl spi,server -am deploy
-
-  # ---------------------------------------------------------------------
-  # Backend image: ghcr.io/<owner>/kumbuka-backend:{tag,latest}
-  # ---------------------------------------------------------------------
-  backend-image:
-    name: backend · build & push
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - id: meta
         name: derive tag
@@ -130,7 +58,23 @@ jobs:
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
           echo "owner=$(printf "%s" "${{ github.repository_owner }}" | tr "[:upper:]" "[:lower:]")" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      # The POM carries a -SNAPSHOT version so a local build is never mistaken
+      # for a release. The coordinate a consumer pins is the tag, so the tag's
+      # version is stamped over it — BEFORE the suite, so the suite tests the
+      # build that is published, under the name it is published with.
+      - name: Set parent + spi + server version to the release version
+        working-directory: backend
+        run: |
+          mvn -B -ntp versions:set \
+              -DnewVersion=${{ steps.meta.outputs.version }} \
+              -DprocessAllModules=true \
+              -DgenerateBackupPoms=false
+
+      # The suite runs AGAIN, at the tag: a green merge is a statement about a
+      # different tree.
+      - name: mvn verify (the suite at the tag)
+        working-directory: backend
+        run: mvn -B -ntp -Pintegration verify
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
@@ -138,12 +82,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+      # `app=` hands the Dockerfile the quarkus-app the suite above just tested
+      # and replaces its Maven stage: no second compile. Not pushed yet, so the
+      # scan below can stop it.
+      - name: docker build (from the tested build, no push yet)
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: backend
           file: backend/Dockerfile
+          build-contexts: |
+            app=backend/server/target/quarkus-app
           platforms: linux/amd64
-          push: true
+          push: false
+          load: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-backend:${{ steps.meta.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-backend:${{ steps.meta.outputs.version }}
@@ -152,8 +104,48 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,scope=backend,mode=max
+
+      - name: built image
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+        run: |
+          echo "built image: kumbuka-backend $IMAGE_ID"
+
+      - name: trivy image scan
+        uses: Kumbuka-ai/workflows/.github/actions/trivy-image-scan@1a7d4538ef1a449f171070124363e7b48732c612 # main
+        with:
+          image: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-backend:${{ steps.meta.outputs.tag }}
+          name: kumbuka-backend
+
+      # THE PUSH PUBLISHES THE SCANNED IMAGE: every tag is checked to be the
+      # built image's id, then pushed. No second build.
+      - name: docker push (the scanned image)
+        env:
+          IMAGE_ID: ${{ steps.build.outputs.imageid }}
+          REPO: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-backend
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          for t in "$TAG" "$VERSION" latest; do
+            got="$(docker image inspect "$REPO:$t" --format '{{.Id}}')"
+            [ "$got" = "$IMAGE_ID" ] \
+              || { echo "::error::$REPO:$t is $got, not the built image $IMAGE_ID — refusing to push"; exit 1; }
+            docker push "$REPO:$t"
+          done
+          echo "pushed image: $IMAGE_ID as $(docker image inspect "$REPO:$TAG" --format '{{join .RepoDigests " "}}')"
+
+      # THE LIBRARY JARS, FROM THE SAME CLASSES. `deploy` re-enters the
+      # lifecycle, so compiling, test compilation and the Quarkus build are
+      # skipped explicitly: the jars are packaged from the classes the suite
+      # above compiled and tested.
+      - name: Deploy to GitHub Packages (from the tested build)
+        working-directory: backend
+        env:
+          GITHUB_ACTOR_FOR_MAVEN: ${{ github.actor }}
+          GITHUB_TOKEN_FOR_MAVEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mvn -B -ntp -Dmaven.main.skip=true -Dmaven.test.skip=true -Dquarkus.build.skip=true -pl spi,server -am deploy
+
 
   # The Keycloak image is built & released from its own repository since
   # github.com/kumbuka-ai/kumbuka-keycloak (versioned independently
@@ -164,7 +156,7 @@ jobs:
   # ---------------------------------------------------------------------
   github-release:
     name: github release
-    needs: [maven-publish, backend-image]
+    needs: [release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
