@@ -1,3 +1,9 @@
+# Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of Kumbuka and is licensed under the GNU Affero
+# General Public License v3.0 only. See the LICENSE file in the
+# repository root for the full licence text.
+
 # Source-hygiene gate for a PUBLIC repository.
 #
 # This repo is public and AGPL-licensed. Public source carries documentation,
@@ -30,7 +36,8 @@ permissions:
 jobs:
   internal-references:
     name: no unresolved internal references
-    runs-on: ubuntu-latest
+    # Own branches run on apollo, fork pull requests on a hosted runner.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'apollo' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

@@ -1,3 +1,9 @@
+# Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of Kumbuka and is licensed under the GNU Affero
+# General Public License v3.0 only. See the LICENSE file in the
+# repository root for the full licence text.
+
 # Immutability gate for applied database migrations.
 #
 # This service boots with Flyway `migrate-at-start`. Flyway stores a checksum
@@ -41,7 +47,8 @@ permissions:
 jobs:
   immutable-migrations:
     name: applied migrations are immutable
-    runs-on: ubuntu-latest
+    # Own branches run on apollo, fork pull requests on a hosted runner.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'apollo' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       # fetch-depth: 0 + fetch-tags: true — the baseline is the last release tag
