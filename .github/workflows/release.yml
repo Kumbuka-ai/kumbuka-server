@@ -43,7 +43,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: maven
+          # No GitHub cache on apollo: up- and downloading it over the runner's uplink costs
+          # minutes, more than fetching the dependencies fresh (organisation rule, see
+          # Kumbuka-ai/workflows reusable-security-image.yml).
           # setup-java writes a settings.xml that authenticates the `github`
           # server — the id distributionManagement names — with the
           # GITHUB_TOKEN. No secrets indirection needed.
