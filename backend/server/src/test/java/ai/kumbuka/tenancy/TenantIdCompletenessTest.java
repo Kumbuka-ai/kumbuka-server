@@ -1,6 +1,13 @@
+// Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of Kumbuka and is licensed under the GNU Affero
+// General Public License v3.0 only. See the LICENSE file in the
+// repository root for the full licence text.
+
 package ai.kumbuka.tenancy;
 
 import ai.kumbuka.domain.Scope;
+import ai.kumbuka.domain.Tag;
 import ai.kumbuka.domain.Team;
 import ai.kumbuka.domain.TeamSettings;
 import ai.kumbuka.domain.UserAccount;
@@ -25,9 +32,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TenantIdCompletenessTest {
 
-    /** The tenant-scoped entities. All four must remain @TenantId-tagged. */
+    /** The tenant-scoped entities. All five must remain @TenantId-tagged. */
     private static final List<Class<?>> TENANT_ENTITIES = List.of(
-        Scope.class, Team.class, TeamSettings.class, UserAccount.class);
+        Scope.class, Tag.class, Team.class, TeamSettings.class, UserAccount.class);
 
     @Test
     void every_tenant_scoped_entity_has_a_tenant_id_field() {
