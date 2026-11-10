@@ -456,8 +456,8 @@ class TagVocabularyIT {
     /** {@code created_by,status,withdrawn_at} of one tag of the project scope, as one string. */
     private String row(String token) {
         List<String> rows = strings(
-            "SELECT 'created_by=' || created_by || ',status=' || status "
-          + "    || ',withdrawn_at=' || coalesce(withdrawn_at::text, 'null') "
+            "SELECT 'created_by=' || t.created_by || ',status=' || t.status "
+          + "    || ',withdrawn_at=' || coalesce(t.withdrawn_at::text, 'null') "
           + "FROM platform.tag t JOIN platform.scope s ON s.id = t.scope_id "
           + "WHERE s.slug = '" + PROJECT + "' AND t.token = '" + token + "'");
         assertThat(rows).as("exactly one row for %s", token).hasSize(1);
