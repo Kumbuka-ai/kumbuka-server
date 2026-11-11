@@ -17,6 +17,19 @@ on:
         required: true
         type: string
 
+# ONE RUN PER TAG AT A TIME, AND NONE IS CANCELLED.
+#
+# The group is the workflow plus the RESOLVED tag: the tag a push carries in
+# github.ref, or the `tag` a dispatch names. A tag push and a dispatch for the
+# same tag therefore share one group, and the second run waits for the first
+# instead of racing it to the registry. cancel-in-progress stays false: a
+# release that is half way through its push must finish, not be cut off by a
+# retry. What the waiting run finds when it starts is the tag gate's business
+# (job release, "tag gate").
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_OWNER: ${{ github.repository_owner }}
@@ -66,6 +79,73 @@ jobs:
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
           echo "owner=$(printf "%s" "${{ github.repository_owner }}" | tr "[:upper:]" "[:lower:]")" >> "$GITHUB_OUTPUT"
 
+      # The registry login comes before the tag gate below, which has to read
+      # the registry before anything is versioned, compiled or built.
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A PUBLISHED VERSION IS NEVER PUBLISHED AGAIN.
+      #
+      # A second run on the same tag — a retry by the release agent, a re-run
+      # of a failed job, a dispatch after the tag push — would otherwise build
+      # a NEW image and push it under vX.Y.Z and X.Y.Z, silently overwriting
+      # the image clients already pinned, and :latest would jump to that second
+      # build. The concurrency group above only serialises such runs; this step
+      # is what stops the later one. It runs before anything is compiled, so a
+      # refused run costs a registry lookup, not a suite.
+      #
+      # Three answers, and only one of them is green:
+      #   exists     -> RED, naming tag and digest; nothing is built or pushed.
+      #   not found  -> GREEN, naming both names checked — and only when the
+      #                 registry says "not found" in so many words.
+      #   anything else (denied, unauthorized, timeout, a tool error, no
+      #   buildx) -> RED as UNKNOWN. A refusal is never read as absence: a
+      #   gate that turns green on "denied" is a gate that turns green when the
+      #   token lost its scope, which is exactly when it is needed.
+      #
+      # It runs on a tag push and on a dispatch, like every other step here, so
+      # a dispatch against a published tag goes red too. Who publishes is not
+      # changed by this step.
+      - name: tag gate (the version is not yet published)
+        env:
+          REPO: ${{ env.REGISTRY }}/${{ steps.meta.outputs.owner }}/kumbuka-backend
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -eu
+          if ! docker buildx version >/dev/null 2>&1; then
+            echo "::error::tag gate: docker buildx is not available on this runner — the state of $REPO:$TAG and $REPO:$VERSION is UNKNOWN, refusing to continue"
+            exit 1
+          fi
+          for t in "$TAG" "$VERSION"; do
+            ref="$REPO:$t"
+            if out="$(timeout 60 docker buildx imagetools inspect "$ref" 2>&1)"; then
+              digest="$(printf '%s\n' "$out" | awk '/^Digest:/ { print $2; exit }')"
+              if [ -z "$digest" ]; then
+                echo "$out" >&2
+                echo "::error::tag gate: $ref answered without a digest — its state is UNKNOWN, refusing to continue"
+                exit 1
+              fi
+              echo "::error::tag gate RED: $ref is already published as $digest — refusing to build or publish it again"
+              exit 1
+            else
+              rc=$?
+            fi
+            echo "$out" >&2
+            if [ "$rc" -ne 124 ] \
+              && ! printf '%s\n' "$out" | grep -Eqi 'denied|unauthori[sz]ed|forbidden|timeout|timed out' \
+              && printf '%s\n' "$out" | grep -Fq -e "$ref: not found" -e "manifest unknown"; then
+              echo "$ref: not found"
+              continue
+            fi
+            echo "::error::tag gate: the registry did not answer 'not found' for $ref (exit $rc) — its state is UNKNOWN, refusing to continue"
+            exit 1
+          done
+          echo "tag gate GREEN: neither $REPO:$TAG nor $REPO:$VERSION is published"
+
       # The POM carries a -SNAPSHOT version so a local build is never mistaken
       # for a release. The coordinate a consumer pins is the tag, so the tag's
       # version is stamped over it — BEFORE the suite, so the suite tests the
@@ -83,12 +163,6 @@ jobs:
       - name: mvn verify (the suite at the tag)
         working-directory: backend
         run: mvn -B -ntp -Pintegration verify
-
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       # `app=` hands the Dockerfile the quarkus-app the suite above just tested
       # and replaces its Maven stage: no second compile. Not pushed yet, so the
