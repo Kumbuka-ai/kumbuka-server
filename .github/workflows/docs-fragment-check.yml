@@ -1,0 +1,132 @@
+# Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of Kumbuka and is licensed under the GNU Affero
+# General Public License v3.0 only. See the LICENSE file in the
+# repository root for the full licence text.
+
+# The documentation fragment, checked without publishing anything.
+#
+# release.yml produces the fragment of this module at every release tag and
+# puts it on GHCR, non-blocking. That job only runs at a tag push, so a pull
+# request never sees it. This file makes the same call with publish false: it
+# shows in the pull request that a valid fragment can be produced from this
+# module, and nothing reaches GHCR.
+#
+# Unlike in the release, a broken fragment is RED here: fragment-result fails
+# whenever the fragment job did. In the release it blocks nothing.
+#
+# A file of its own, not a job in ci.yml: a called workflow that fails to start
+# would otherwise take the whole CI of the module with it.
+
+name: docs fragment check
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/docs-fragment-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The call of release.yml, with publish false and a version that is never
+  # published.
+  fragment:
+    uses: Kumbuka-ai/workflows/.github/workflows/reusable-docs-fragment.yml@d2a0e114d3c2ce9fdb6591fa72112c9c37f7b9a8 # main
+    permissions:
+      contents: read
+      # GitHub checks at start that the caller holds what every called job
+      # declares, the publish job included; publish false keeps it from running.
+      packages: write
+    with:
+      module: kumbuka-server
+      version: v0.0.0-check
+      publish: false
+      runs-on: apollo
+      tools-ref: d2a0e114d3c2ce9fdb6591fa72112c9c37f7b9a8
+
+  # The called jobs carry continue-on-error, so a failed fragment job reports
+  # needs.fragment.result success. What decides here is the job list of the run,
+  # the output checked and the artefact itself.
+  fragment-result:
+    name: fragment-result (a valid fragment, nothing published)
+    needs: fragment
+    if: always()
+    runs-on: apollo
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: the fragment job succeeded and the publish job did not run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS_RESULT: ${{ needs.fragment.result }}
+          CHECKED: ${{ needs.fragment.outputs.checked }}
+        run: |
+          set -euo pipefail
+          # Printed for the record; it reads success also for a failed job.
+          echo "needs.fragment.result: $NEEDS_RESULT"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          jq -r '.jobs[] | [.name, .status, (.conclusion // "none")] | @tsv' "$RUNNER_TEMP/jobs.json"
+          fails=0
+          conclusion=$(jq -r '[.jobs[] | select(.name | startswith("fragment / fragment")) | .conclusion // "none"] | join(",")' "$RUNNER_TEMP/jobs.json")
+          if [ "$conclusion" = "success" ]; then
+            echo "PASS  fragment job: success"
+          else
+            failed_step=$(jq -r '[.jobs[] | select(.name | startswith("fragment / fragment")) | .steps[] | select(.conclusion == "failure") | .name] | join(",")' "$RUNNER_TEMP/jobs.json")
+            echo "::error title=docs-fragment::the fragment job ended '${conclusion:-absent}', not success (failed step: '${failed_step:-none}')"
+            fails=$((fails+1))
+          fi
+          if [ "$CHECKED" = "true" ]; then
+            echo "PASS  output checked: true"
+          else
+            echo "::error title=docs-fragment::the call's output checked is '$CHECKED', not true"
+            fails=$((fails+1))
+          fi
+          ran=$(jq -r '.jobs[] | select(.name | startswith("fragment / publish")) | select(.conclusion != "skipped") | [.name, .status, (.conclusion // "none")] | @tsv' "$RUNNER_TEMP/jobs.json")
+          if [ -n "$ran" ]; then
+            echo "::error title=docs-fragment::the publish job ran with publish false: $ran"
+            fails=$((fails+1))
+          else
+            publish=$(jq -r '[.jobs[] | select(.name | startswith("fragment / publish")) | .conclusion // "none"] | join(",")' "$RUNNER_TEMP/jobs.json")
+            echo "PASS  publish job did not run: ${publish:-not in the run}"
+          fi
+          [ "$fails" -eq 0 ]
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: docs-fragment-kumbuka-server
+          path: ${{ runner.temp }}/fragment
+
+      # The fragment job checks out what actions/checkout takes for the event:
+      # on a pull request the merge commit, which is github.sha, not the head of
+      # the branch. That is the state under check, so that is the commit expected.
+      # The head of the pull request is printed for the record only.
+      - name: the artefact holds the fragment of the state under check
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/fragment"
+          fails=0
+          expect() { # <what> <expected> <actual>
+            if [ "$2" = "$3" ]; then echo "PASS  $1: $3"
+            else echo "::error title=docs-fragment::$1: expected '$2', got '$3'"; fails=$((fails+1)); fi
+          }
+          echo "pull request head (for the record): ${PR_HEAD_SHA:-none}"
+          expect "module" kumbuka-server "$(jq -r .module "$dir/fragment.json")"
+          expect "commit" "$EXPECTED_COMMIT" "$(jq -r .commit "$dir/fragment.json")"
+          expect "workspace present" true "$(jq -r '(.workspace | type) == "object" and (.workspace | length) > 0' "$dir/fragment.json")"
+          puml=$(find "$dir/plantuml" -type f -name '*.puml' 2>/dev/null | wc -l)
+          if [ "$puml" -ge 1 ]; then
+            echo "PASS  .puml files: $puml"
+            find "$dir/plantuml" -type f -name '*.puml' -print
+          else
+            echo "::error title=docs-fragment::plantuml/ holds no .puml file"
+            fails=$((fails+1))
+          fi
+          [ "$fails" -eq 0 ]

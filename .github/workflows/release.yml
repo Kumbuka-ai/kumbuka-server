@@ -303,3 +303,44 @@ jobs:
           Repository: \`https://maven.pkg.github.com/$OWNER/kumbuka-server\`
 
           Pull the matching console image from \`kumbuka-console\` for end-to-end deploys."
+
+  # -------------------------------------------------------------------------
+  # The documentation fragment of this release, put on GHCR as
+  # ghcr.io/<owner>/kumbuka-server-docs-fragment (contract:
+  # docs/docs-fragment.md in Kumbuka-ai/workflows). That name is not the
+  # image's, which is ghcr.io/<owner>/kumbuka-backend, and the tag gate of the
+  # release job does not read it.
+  #
+  # NON-BLOCKING ON PURPOSE: a missing fragment is a finding of whoever
+  # collects the fragments, never a reason to hold a release. So this job
+  # needs no other job, no job of this file needs this one, and it sits under
+  # no collecting job. The image, the library jars and the GitHub release come
+  # about exactly as without it. continue-on-error is carried by the called
+  # jobs; GitHub refuses it on a job that calls a reusable workflow, and the
+  # file would then not start.
+  #
+  # TAG PUSH ONLY. The release job runs on a tag push and on a dispatch alike;
+  # this job runs only on the tag push. The called workflow checks the module
+  # out without a ref, so on a workflow_dispatch it would describe the state
+  # the dispatch was started from, not the tag named in its input. It
+  # therefore never runs on a dispatch, whatever ref that dispatch was started
+  # from. The push trigger of this file knows only tags, so a push event is a
+  # tag push.
+  #
+  # tools-ref carries the same commit as the pin, so the scripts and the
+  # schema come from the state of the workflow that runs them.
+  # -------------------------------------------------------------------------
+  docs-fragment:
+    if: github.event_name == 'push'
+    uses: Kumbuka-ai/workflows/.github/workflows/reusable-docs-fragment.yml@d2a0e114d3c2ce9fdb6591fa72112c9c37f7b9a8 # main
+    permissions:
+      contents: read
+      # For the called publish job: a called workflow cannot hold more than
+      # its caller, and GitHub requires the caller to grant it.
+      packages: write
+    with:
+      module: kumbuka-server
+      version: ${{ github.ref_name }}
+      publish: true
+      runs-on: apollo
+      tools-ref: d2a0e114d3c2ce9fdb6591fa72112c9c37f7b9a8
