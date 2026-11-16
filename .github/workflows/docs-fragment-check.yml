@@ -41,7 +41,7 @@ jobs:
       # declares, the publish job included; publish false keeps it from running.
       packages: write
     with:
-      module: kumbuka-server
+      module: Not A Module
       version: v0.0.0-check
       publish: false
       runs-on: apollo
