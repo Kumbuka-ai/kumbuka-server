@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+    SPDX-License-Identifier: AGPL-3.0-only
+    This file is part of Kumbuka and is licensed under the GNU Affero
+    General Public License v3.0 only. See the LICENSE file in the
+    repository root for the full licence text.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -7,7 +14,7 @@
     <!--
         Reactor parent for the kumbuka backend.
 
-        Two artifacts ship from here:
+        Four artifacts ship from here:
           - kumbuka-spi   — frozen interfaces consumed by the commercial
                             (multi-tenant) edition (ADR-0011). Pure Java,
                             no Quarkus, no JPA, no transitive runtime
@@ -21,6 +28,19 @@
                             (ops-console/saas-runtime/) can consume it
                             and overlay its request-aware resolver bean
                             via Quarkus' @DefaultBean precedence.
+          - kumbuka-security-contract — the facts of a call, the scope
+                            set element, the refusal reasons and the one
+                            interface through which an edition supplies
+                            the facts. Pure Java, no dependency outside
+                            the test scope (an enforcer rule in its POM
+                            fails the build on one).
+          - kumbuka-security-quarkus — the Quarkus binding every service
+                            embeds: augmentor, the one central check
+                            behind @PermissionsAllowed, the request-scoped
+                            facts producer, the token-free path list and
+                            the facade conformance guard. Quarkus
+                            dependencies in scope provided; it ships no
+                            implementation of the facts interface.
     -->
 
     <groupId>ai.kumbuka</groupId>
@@ -29,7 +49,7 @@
     <packaging>pom</packaging>
 
     <name>kumbuka-parent</name>
-    <description>Reactor parent for kumbuka-spi + kumbuka-server.</description>
+    <description>Reactor parent for kumbuka-spi, kumbuka-security-contract, kumbuka-security-quarkus and kumbuka-server.</description>
     <url>https://github.com/Kumbuka-ai/kumbuka-server</url>
 
     <licenses>
@@ -47,6 +67,8 @@
 
     <modules>
         <module>spi</module>
+        <module>security-contract</module>
+        <module>security-quarkus</module>
         <module>server</module>
     </modules>
 
@@ -54,6 +76,15 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!--
+            The one Quarkus platform version of the reactor. Every module that
+            imports the BOM imports it with these properties, so the server and
+            the security binding cannot drift apart.
+        -->
+        <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+        <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+        <quarkus.platform.version>3.33.4</quarkus.platform.version>
     </properties>
 
     <!--
