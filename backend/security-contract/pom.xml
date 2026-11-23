@@ -106,6 +106,17 @@
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.0</version>
+                <configuration>
+                    <!--
+                        ContractDependencyGuardTest runs the enforcer rule above in a
+                        second Maven, offline, with the Maven and the local repository
+                        of this build.
+                    -->
+                    <systemPropertyVariables>
+                        <maven.home>${maven.home}</maven.home>
+                        <maven.repo.local>${settings.localRepository}</maven.repo.local>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
