@@ -106,17 +106,45 @@
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.0</version>
+            </plugin>
+            <!--
+                THE RULE ABOVE STAYS RED IN THE TREE. On every verify, the
+                projects under src/test/resources/banned-dependency are built
+                with the rule above: one dependency in scope compile, runtime and
+                provided each must fail on BannedDependencies, naming the
+                coordinate (verify.groovy), and the control in scope test must
+                pass. BannedDependencyCasesTest holds their enforcer block equal
+                to this POM's. The invoker is the smallest way to run a second
+                Maven build inside this one without code of our own starting a
+                process.
+
+                RED STATE, observed 2026-11-23: with the expected result of the
+                three red cases turned to success, the execution failed with
+                "3 builds failed", each build.log reporting "BannedDependencies
+                failed" and naming org.assertj:assertj-core:jar:3.27.7.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-invoker-plugin</artifactId>
+                <version>3.9.1</version>
                 <configuration>
-                    <!--
-                        ContractDependencyGuardTest runs the enforcer rule above in a
-                        second Maven, offline, with the Maven and the local repository
-                        of this build.
-                    -->
-                    <systemPropertyVariables>
-                        <maven.home>${maven.home}</maven.home>
-                        <maven.repo.local>${settings.localRepository}</maven.repo.local>
-                    </systemPropertyVariables>
+                    <projectsDirectory>src/test/resources/banned-dependency</projectsDirectory>
+                    <cloneProjectsTo>${project.build.directory}/banned-dependency</cloneProjectsTo>
+                    <pomIncludes>
+                        <pomInclude>*/pom.xml</pomInclude>
+                    </pomIncludes>
+                    <goals>
+                        <goal>validate</goal>
+                    </goals>
+                    <postBuildHookScript>verify</postBuildHookScript>
+                    <failIfNoProjects>true</failIfNoProjects>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>banned-dependency-is-red</id>
+                        <goals><goal>run</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
