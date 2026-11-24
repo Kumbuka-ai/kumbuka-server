@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+    SPDX-License-Identifier: AGPL-3.0-only
+    This file is part of Kumbuka and is licensed under the GNU Affero
+    General Public License v3.0 only. See the LICENSE file in the
+    repository root for the full licence text.
+-->
+<!--
+    PLANTED CASE, run by the invoker execution of kumbuka-security-contract on
+    every verify: the enforcer rule of the contract module (its configuration
+    held equal to the module's by BannedDependencyCasesTest) against one
+    dependency in scope runtime. The build must fail (invoker.properties), and
+    verify.groovy checks it failed on that rule, naming the coordinate.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ai.kumbuka.planted</groupId>
+    <artifactId>banned-dependency-runtime</artifactId>
+    <version>1</version>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.27.7</version>
+            <scope>runtime</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>contract-has-no-dependency</id>
+                        <phase>validate</phase>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>*:*:*:*:compile</exclude>
+                                        <exclude>*:*:*:*:runtime</exclude>
+                                        <exclude>*:*:*:*:provided</exclude>
+                                        <exclude>*:*:*:*:system</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>kumbuka-security-contract carries no dependency outside the test scope: every edition implements it and every service embeds it.</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

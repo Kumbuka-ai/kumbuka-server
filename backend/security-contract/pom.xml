@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+    SPDX-License-Identifier: AGPL-3.0-only
+    This file is part of Kumbuka and is licensed under the GNU Affero
+    General Public License v3.0 only. See the LICENSE file in the
+    repository root for the full licence text.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.kumbuka</groupId>
+        <artifactId>kumbuka-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>kumbuka-security-contract</artifactId>
+    <packaging>jar</packaging>
+
+    <name>kumbuka-security-contract</name>
+    <description>
+        The facts of a call, the elements of the scope set a call may address,
+        the reasons a call is refused, and the one interface through which an
+        edition supplies the facts. Pure Java 21, without any dependency
+        outside the test scope, and without a framework type in any signature,
+        so that every edition can implement it and every service can embed it.
+    </description>
+
+    <!--
+        The BOM is imported only to give the TEST dependencies below the same
+        versions the rest of the reactor uses. An import in dependencyManagement
+        adds nothing to the dependency tree; the enforcer rule below sees the
+        tree itself.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>${quarkus.platform.group-id}</groupId>
+                <artifactId>${quarkus.platform.artifact-id}</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Tests only. Anything else fails the build (enforcer, below). -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>3.27.7</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                THE CONTRACT HAS NO DEPENDENCY. Every scope a consumer would
+                inherit or need at run time (compile, runtime, provided, system)
+                is banned, transitively, on the resolved tree. A dependency
+                added here, or inherited from the parent, fails `validate` and
+                names the coordinate. Only the test scope is admitted.
+
+                RED STATE, observed 2026-11-22 when the rule was written: with
+                assertj-core moved to scope compile, and again to scope
+                provided, `validate` failed with "BannedDependencies failed",
+                naming org.assertj:assertj-core:jar:3.27.7.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>contract-has-no-dependency</id>
+                        <phase>validate</phase>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>*:*:*:*:compile</exclude>
+                                        <exclude>*:*:*:*:runtime</exclude>
+                                        <exclude>*:*:*:*:provided</exclude>
+                                        <exclude>*:*:*:*:system</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>kumbuka-security-contract carries no dependency outside the test scope: every edition implements it and every service embeds it.</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.0</version>
+            </plugin>
+            <!--
+                THE RULE ABOVE STAYS RED IN THE TREE. On every verify, the
+                projects under src/test/resources/banned-dependency are built
+                with the rule above: one dependency in scope compile, runtime and
+                provided each must fail on BannedDependencies, naming the
+                coordinate (verify.groovy), and the control in scope test must
+                pass. BannedDependencyCasesTest holds their enforcer block equal
+                to this POM's. The invoker is the smallest way to run a second
+                Maven build inside this one without code of our own starting a
+                process.
+
+                RED STATE, observed 2026-11-23: with the expected result of the
+                three red cases turned to success, the execution failed with
+                "3 builds failed", each build.log reporting "BannedDependencies
+                failed" and naming org.assertj:assertj-core:jar:3.27.7.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-invoker-plugin</artifactId>
+                <version>3.9.1</version>
+                <configuration>
+                    <projectsDirectory>src/test/resources/banned-dependency</projectsDirectory>
+                    <cloneProjectsTo>${project.build.directory}/banned-dependency</cloneProjectsTo>
+                    <pomIncludes>
+                        <pomInclude>*/pom.xml</pomInclude>
+                    </pomIncludes>
+                    <goals>
+                        <goal>validate</goal>
+                    </goals>
+                    <postBuildHookScript>verify</postBuildHookScript>
+                    <failIfNoProjects>true</failIfNoProjects>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>banned-dependency-is-red</id>
+                        <goals><goal>run</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals><goal>jar-no-fork</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

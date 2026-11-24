@@ -236,7 +236,7 @@ jobs:
         env:
           GITHUB_ACTOR_FOR_MAVEN: ${{ github.actor }}
           GITHUB_TOKEN_FOR_MAVEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mvn -B -ntp -Dmaven.main.skip=true -Dmaven.test.skip=true -Dquarkus.build.skip=true -pl spi,server -am deploy
+        run: mvn -B -ntp -Dmaven.main.skip=true -Dmaven.test.skip=true -Dquarkus.build.skip=true -pl spi,security-contract,security-quarkus,server -am deploy
 
 
   # The Keycloak image is built & released from its own repository since
@@ -288,7 +288,7 @@ jobs:
           \`KEYCLOAK_VERSION\` in deploy.env — see
           github.com/$OWNER/kumbuka-keycloak.
 
-          ## Maven artifact (GitHub Packages)
+          ## Maven artifacts (GitHub Packages)
 
           The frozen tenancy SPI (consumed by the commercial multi-tenant edition):
 
@@ -296,6 +296,26 @@ jobs:
           <dependency>
               <groupId>ai.kumbuka</groupId>
               <artifactId>kumbuka-spi</artifactId>
+              <version>$VERSION</version>
+          </dependency>
+          \`\`\`
+
+          The security contract (the facts of a call, pure Java, no dependency):
+
+          \`\`\`xml
+          <dependency>
+              <groupId>ai.kumbuka</groupId>
+              <artifactId>kumbuka-security-contract</artifactId>
+              <version>$VERSION</version>
+          </dependency>
+          \`\`\`
+
+          The Quarkus binding every service embeds (the one check of every declared method):
+
+          \`\`\`xml
+          <dependency>
+              <groupId>ai.kumbuka</groupId>
+              <artifactId>kumbuka-security-quarkus</artifactId>
               <version>$VERSION</version>
           </dependency>
           \`\`\`

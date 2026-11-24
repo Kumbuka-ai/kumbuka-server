@@ -1,10 +1,16 @@
 # syntax=docker/dockerfile:1
+# Copyright (c) 2026 JBAConsult - Architekturberatung Johannes Bayer-Albert
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of Kumbuka and is licensed under the GNU Affero
+# General Public License v3.0 only. See the LICENSE file in the
+# repository root for the full licence text.
+
 # ---------------------------------------------------------------------------
 # backend Dockerfile — multi-stage build.
 #
 # stage 1: Maven + JDK 21 builds the Quarkus fast-jar via the reactor
-#          (parent + kumbuka-spi + kumbuka-server modules — see
-#          backend/pom.xml).
+#          (parent + kumbuka-spi + kumbuka-server and the modules they
+#          depend on — see backend/pom.xml).
 # stage 2: minimal JRE 21 runtime carrying just the server module's
 #          fast-jar payload.
 # ---------------------------------------------------------------------------
@@ -14,14 +20,23 @@ WORKDIR /work
 
 # Cache dependencies in a dedicated layer. Copy only the POMs first so
 # this layer survives source changes that don't touch dependencies.
-COPY pom.xml          .
-COPY spi/pom.xml      spi/pom.xml
-COPY server/pom.xml   server/pom.xml
+#
+# Every module of the reactor is copied, built or not: Maven reads the module
+# list of backend/pom.xml and aborts on a module directory it cannot find.
+# DockerfileReactorGuardTest (security-contract) holds this list against the
+# reactor on every build.
+COPY pom.xml                              .
+COPY spi/pom.xml                          spi/pom.xml
+COPY security-contract/pom.xml            security-contract/pom.xml
+COPY security-quarkus/pom.xml             security-quarkus/pom.xml
+COPY server/pom.xml                       server/pom.xml
 RUN mvn -B -ntp -pl spi,server -am dependency:go-offline -DskipTests || true
 
 # Sources.
-COPY spi/src     spi/src
-COPY server/src  server/src
+COPY spi/src                spi/src
+COPY security-contract/src  security-contract/src
+COPY security-quarkus/src   security-quarkus/src
+COPY server/src             server/src
 
 # Build the reactor; the Quarkus build runs in the server module.
 RUN mvn -B -ntp -pl spi,server -am package -DskipTests
